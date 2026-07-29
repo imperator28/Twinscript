@@ -134,19 +134,22 @@ export default defineConfig(({ command, mode }) => {
         main: {
           // Entry points for the main process
           entry: {
-            'better-auth-adapter': 'electron/better-auth-adapter.js',
+            'captions-main': 'electron/captions-main.js',
+            'captions/caption-domain': 'electron/captions/caption-domain.js',
+            'captions/caption-session-manager': 'electron/captions/caption-session-manager.js',
+            'captions/caption-window-manager': 'electron/captions/caption-window-manager.js',
+            'captions/cost-meter': 'electron/captions/cost-meter.js',
+            'captions/credential-store': 'electron/captions/credential-store.js',
+            'captions/evaluation-recorder': 'electron/captions/evaluation-recorder.js',
+            'captions/live-transcription-session': 'electron/captions/live-transcription-session.js',
+            'captions/openai-normalizer': 'electron/captions/openai-normalizer.js',
+            'captions/register-caption-ipc': 'electron/captions/register-caption-ipc.js',
+            'captions/settings-store': 'electron/captions/settings-store.js',
+            'captions/vad-gate': 'electron/captions/vad-gate.js',
             'macos-audio-utils': 'electron/macos-audio-utils.js',
-            'main': 'electron/main.js',
-            'native-host-manager': 'electron/native-host-manager.js',
-            'sidecar-sku': 'electron/sidecar-sku.js',
-            'sidecar-bundle': 'electron/sidecar-bundle.js',
             'pulseaudio-utils': 'electron/pulseaudio-utils.js',
-            'sandbox-recovery': 'electron/sandbox-recovery.js',
             'windows-audio-utils': 'electron/windows-audio-utils.js',
             'vb-cable-installer': 'electron/vb-cable-installer.js',
-            'squirrel-events': 'electron/squirrel-events.js',
-            'subtitle-window': 'electron/subtitle-window.js',
-            'update-manager': 'electron/update-manager.js'
           },
           onstart(args) {
             // Override default [".", "--no-sandbox"] to fix DevTools crash on Linux
@@ -202,7 +205,7 @@ export default defineConfig(({ command, mode }) => {
           // which the single-file preload build inlines into the shipped
           // preload.js (so the invoke allowlist stays an auditable literal in
           // the built artifact).
-          input: 'electron/preload.js',
+          input: 'electron/captions-preload.js',
           vite: {
             build: {
               sourcemap: sourcemap ? 'inline' : undefined,

@@ -1,0 +1,94 @@
+const { contextBridge, ipcRenderer } = require('electron');
+
+const EVENT_CHANNELS = new Set([
+  'captions:event',
+  'captions:audience-event',
+  'captions:status',
+  'captions:metrics',
+  'captions:evaluation',
+  'captions:layout',
+  'captions:settings',
+]);
+
+function invoke(channel, payload) {
+  return ipcRenderer.invoke(channel, payload);
+}
+
+function subscribe(channel, callback) {
+  if (!EVENT_CHANNELS.has(channel) || typeof callback !== 'function') {
+    throw new Error('Unsupported caption event subscription');
+  }
+  const listener = (_event, payload) => callback(payload);
+  ipcRenderer.on(channel, listener);
+  return () => ipcRenderer.removeListener(channel, listener);
+}
+
+contextBridge.exposeInMainWorld('captions', {
+  credentialStatus: () => invoke('captions:credential-status'),
+  setCredential: (value) => invoke('captions:credential-set', { value }),
+  deleteCredential: () => invoke('captions:credential-delete'),
+  validateCredential: (value) =>
+    invoke('captions:credential-validate', { value }),
+  getSettings: () => invoke('captions:settings-get'),
+  setSettings: (patch) => invoke('captions:settings-set', patch),
+  startSession: (request) => invoke('captions:session-start', request),
+  stopSession: () => invoke('captions:session-stop'),
+  getSessionStatus: () => invoke('captions:session-status'),
+  listRecordings: () => invoke('captions:recordings-list'),
+  showWindows: () => invoke('captions:windows-show'),
+  hideWindows: () => invoke('captions:windows-hide'),
+  setLayout: (layout) => invoke('captions:layout-set', { layout }),
+  exportSession: (format) => invoke('captions:export', { format }),
+  openPrivacy: () => invoke('captions:open-privacy'),
+  sendAudio: (channel, samples) => {
+    if (!['microphone', 'system'].includes(channel)) return;
+    const typed =
+      samples instanceof Int16Array ? samples : new Int16Array(samples);
+    ipcRenderer.send('captions:audio', {
+      channel,
+      samples: typed,
+      capturedAt: performance.timeOrigin + performance.now(),
+    });
+  },
+  supportsSystemAudio: () => invoke('supports-system-audio-capture'),
+  listSystemAudioSources: () => invoke('list-system-audio-sources'),
+  connectSystemAudioSource: (sourceId) =>
+    invoke('connect-system-audio-source', sourceId),
+  disconnectSystemAudioSource: () =>
+    invoke('disconnect-system-audio-source'),
+  checkScreenRecordingPermission: () =>
+    invoke('check-screen-recording-permission'),
+  enableLoopbackAudio: () => invoke('enable-loopback-audio'),
+  disableLoopbackAudio: () => invoke('disable-loopback-audio'),
+  fixMonitorVolume: () => invoke('fix-monitor-volume'),
+  onCaption: (callback) => subscribe('captions:event', callback),
+  onAudienceCaption: (callback) =>
+    subscribe('captions:audience-event', callback),
+  onStatus: (callback) => subscribe('captions:status', callback),
+  onMetrics: (callback) => subscribe('captions:metrics', callback),
+  onEvaluation: (callback) => subscribe('captions:evaluation', callback),
+  onLayout: (callback) => subscribe('captions:layout', callback),
+  onSettings: (callback) => subscribe('captions:settings', callback),
+});
+
+// Compatibility bridge for Sokuji's retained audio capture classes. It is
+// intentionally limited to capture-only operations and does not expose the
+// generic IPC surface used by the original application.
+const AUDIO_INVOKE_CHANNELS = new Set([
+  'supports-system-audio-capture',
+  'list-system-audio-sources',
+  'connect-system-audio-source',
+  'disconnect-system-audio-source',
+  'check-screen-recording-permission',
+  'enable-loopback-audio',
+  'disable-loopback-audio',
+  'fix-monitor-volume',
+]);
+contextBridge.exposeInMainWorld('electron', {
+  invoke: (channel, payload) => {
+    if (!AUDIO_INVOKE_CHANNELS.has(channel)) {
+      return Promise.reject(new Error('Unsupported audio operation'));
+    }
+    return invoke(channel, payload);
+  },
+});

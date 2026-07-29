@@ -1,0 +1,328 @@
+const {
+  app,
+  BrowserWindow,
+  dialog,
+  ipcMain,
+  Menu,
+  safeStorage,
+  screen,
+  session,
+  shell,
+  systemPreferences,
+} = require('electron');
+const path = require('path');
+const { initMain } = require('electron-audio-loopback');
+const { CaptionSessionManager } = require('./captions/caption-session-manager');
+const { CaptionWindowManager } = require('./captions/caption-window-manager');
+const { CredentialStore } = require('./captions/credential-store');
+const { EvaluationRecorder } = require('./captions/evaluation-recorder');
+const { registerCaptionIpc } = require('./captions/register-caption-ipc');
+const { SettingsStore } = require('./captions/settings-store');
+
+process.on('uncaughtException', (error) => {
+  console.error('[Bilingual Meeting Captions] Fatal main-process error:', error);
+  app.exit(1);
+});
+process.on('unhandledRejection', (error) => {
+  console.error('[Bilingual Meeting Captions] Unhandled main-process rejection:', error);
+});
+
+initMain();
+
+app.setName('Bilingual Meeting Captions');
+app.commandLine.appendSwitch('application-name', 'bilingual-meeting-captions');
+app.commandLine.appendSwitch('disable-renderer-backgrounding');
+app.commandLine.appendSwitch('disable-background-timer-throttling');
+app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');
+
+let controlWindow = null;
+let captionWindows = null;
+let sessionManager = null;
+
+function isDevelopment() {
+  return import.meta.env.MODE === 'development' || !app.isPackaged;
+}
+
+function allowedLocalUrl(url) {
+  return isDevelopment()
+    ? url.startsWith('http://127.0.0.1:5173') ||
+        url.startsWith('http://localhost:5173')
+    : url.startsWith('file://');
+}
+
+function hardenWindow(window) {
+  window.webContents.setWindowOpenHandler(({ url }) => {
+    if (url.startsWith('https://developers.openai.com/')) {
+      void shell.openExternal(url);
+    }
+    return { action: 'deny' };
+  });
+  window.webContents.on('will-navigate', (event, url) => {
+    if (!allowedLocalUrl(url)) event.preventDefault();
+  });
+}
+
+function loadControlWindow(window) {
+  if (isDevelopment()) {
+    void window.loadURL('http://localhost:5173/?surface=control');
+  } else {
+    void window.loadFile(path.join(app.getAppPath(), 'build/index.html'), {
+      query: { surface: 'control' },
+    });
+  }
+}
+
+function createControlWindow() {
+  controlWindow = new BrowserWindow({
+    width: 1180,
+    height: 780,
+    minWidth: 940,
+    minHeight: 640,
+    title: 'Bilingual Meeting Captions',
+    backgroundColor: '#F3F4F6',
+    show: false,
+    titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
+    webPreferences: {
+      preload: path.join(__dirname, 'captions-preload.js'),
+      contextIsolation: true,
+      sandbox: true,
+      nodeIntegration: false,
+      webSecurity: true,
+      backgroundThrottling: false,
+    },
+  });
+  hardenWindow(controlWindow);
+  loadControlWindow(controlWindow);
+  controlWindow.once('ready-to-show', () => controlWindow?.show());
+  controlWindow.on('closed', () => {
+    controlWindow = null;
+  });
+  return controlWindow;
+}
+
+function createMenu() {
+  const isMac = process.platform === 'darwin';
+  Menu.setApplicationMenu(
+    Menu.buildFromTemplate([
+      ...(isMac
+        ? [
+            {
+              label: app.name,
+              submenu: [
+                { role: 'about' },
+                { type: 'separator' },
+                { role: 'services' },
+                { type: 'separator' },
+                { role: 'hide' },
+                { role: 'hideOthers' },
+                { role: 'unhide' },
+                { type: 'separator' },
+                { role: 'quit' },
+              ],
+            },
+          ]
+        : []),
+      {
+        label: 'File',
+        submenu: [
+          {
+            label: 'Show Caption Windows',
+            accelerator: 'CmdOrCtrl+Shift+C',
+            click: () => captionWindows?.showAll(),
+          },
+          {
+            label: 'Hide Caption Windows',
+            accelerator: 'CmdOrCtrl+Shift+H',
+            click: () => captionWindows?.hideAll(),
+          },
+          { type: 'separator' },
+          isMac ? { role: 'close' } : { role: 'quit' },
+        ],
+      },
+      {
+        label: 'Edit',
+        submenu: [
+          { role: 'undo' },
+          { role: 'redo' },
+          { type: 'separator' },
+          { role: 'cut' },
+          { role: 'copy' },
+          { role: 'paste' },
+          { role: 'selectAll' },
+        ],
+      },
+      {
+        label: 'View',
+        submenu: [
+          { role: 'reload' },
+          ...(isDevelopment() ? [{ role: 'toggleDevTools' }] : []),
+          { type: 'separator' },
+          { role: 'resetZoom' },
+          { role: 'zoomIn' },
+          { role: 'zoomOut' },
+        ],
+      },
+      {
+        role: 'help',
+        submenu: [
+          {
+            label: 'OpenAI data controls',
+            click: () =>
+              shell.openExternal(
+                'https://developers.openai.com/api/docs/guides/your-data',
+              ),
+          },
+        ],
+      },
+    ]),
+  );
+}
+
+function installSecurityPolicies() {
+  const currentSession = session.defaultSession;
+  currentSession.setPermissionRequestHandler(
+    (webContents, permission, callback) => {
+      const trusted =
+        webContents &&
+        [controlWindow, ...(captionWindows?.captionWindows.values() || [])].some(
+          (window) =>
+            window &&
+            !window.isDestroyed() &&
+            window.webContents.id === webContents.id,
+        );
+      callback(
+        Boolean(trusted) &&
+          ['media', 'display-capture', 'fullscreen'].includes(permission),
+      );
+    },
+  );
+  currentSession.setPermissionCheckHandler(
+    (webContents, permission) => {
+      const trusted =
+        webContents &&
+        [controlWindow, ...(captionWindows?.captionWindows.values() || [])].some(
+          (window) =>
+            window &&
+            !window.isDestroyed() &&
+            window.webContents.id === webContents.id,
+        );
+      return (
+        Boolean(trusted) &&
+        ['media', 'display-capture', 'fullscreen'].includes(permission)
+      );
+    },
+  );
+  currentSession.webRequest.onHeadersReceived((details, callback) => {
+    callback({
+      responseHeaders: {
+        ...details.responseHeaders,
+        'Content-Security-Policy': [
+          isDevelopment()
+            ? "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' ws://localhost:5173 ws://127.0.0.1:5173; media-src 'self' blob:; worker-src 'self' blob:;"
+            : "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; media-src 'self' blob:; worker-src 'self' blob:;",
+        ],
+      },
+    });
+  });
+}
+
+function platformAudioUtils() {
+  if (process.platform === 'darwin') return require('./macos-audio-utils');
+  if (process.platform === 'win32') return require('./windows-audio-utils');
+  if (process.platform === 'linux') return require('./pulseaudio-utils');
+  return {};
+}
+
+function registerAudioCaptureIpc() {
+  const audio = platformAudioUtils();
+  ipcMain.handle('supports-system-audio-capture', async () =>
+    audio.supportsSystemAudioCapture
+      ? audio.supportsSystemAudioCapture()
+      : false,
+  );
+  ipcMain.handle('list-system-audio-sources', async () =>
+    audio.listSystemAudioSources ? audio.listSystemAudioSources() : [],
+  );
+  ipcMain.handle('connect-system-audio-source', async (_event, sinkName) =>
+    audio.connectSystemAudioSource
+      ? audio.connectSystemAudioSource(sinkName)
+      : { success: true },
+  );
+  ipcMain.handle('disconnect-system-audio-source', async () =>
+    audio.disconnectSystemAudioSource
+      ? audio.disconnectSystemAudioSource()
+      : { success: true },
+  );
+  ipcMain.handle('fix-monitor-volume', async () =>
+    audio.fixMonitorVolume ? audio.fixMonitorVolume() : { ok: true },
+  );
+  ipcMain.handle('check-screen-recording-permission', async () => {
+    if (process.platform !== 'darwin') {
+      return { status: 'granted', platform: process.platform };
+    }
+    return {
+      status: systemPreferences.getMediaAccessStatus('screen'),
+      platform: 'darwin',
+    };
+  });
+}
+
+app.whenReady().then(() => {
+  createControlWindow();
+  captionWindows = new CaptionWindowManager({
+    app,
+    BrowserWindow,
+    screen,
+    controlWindow,
+    isDev: isDevelopment(),
+    preloadPath: path.join(__dirname, 'captions-preload.js'),
+  });
+  captionWindows.createAll();
+  installSecurityPolicies();
+  createMenu();
+
+  const credentialStore = new CredentialStore({ app, safeStorage });
+  const evaluationRecorder = new EvaluationRecorder({ app, safeStorage });
+  const settingsStore = new SettingsStore(app);
+  sessionManager = new CaptionSessionManager({
+    credentialStore,
+    settingsStore,
+    onCaption: (event) => captionWindows.publishCaption(event),
+    onStatus: (status) => captionWindows.broadcast('captions:status', status),
+    onMetrics: (metrics) => captionWindows.broadcast('captions:metrics', metrics),
+    onEvaluation: (result) =>
+      captionWindows.broadcastControl('captions:evaluation', result),
+    evaluationRecorder,
+  });
+  registerAudioCaptureIpc();
+  registerCaptionIpc({
+    ipcMain,
+    app,
+    dialog,
+    shell,
+    windows: captionWindows,
+    sessionManager,
+    settingsStore,
+    credentialStore,
+    evaluationRecorder,
+  });
+  captionWindows.applyLayout(settingsStore.get().layout);
+});
+
+app.on('activate', () => {
+  if (!controlWindow) {
+    createControlWindow();
+    if (captionWindows) captionWindows.controlWindow = controlWindow;
+  } else {
+    controlWindow.show();
+  }
+});
+
+app.on('before-quit', async () => {
+  app.isQuitting = true;
+  await sessionManager?.stop();
+});
+
+app.on('window-all-closed', () => {
+  if (process.platform !== 'darwin') app.quit();
+});

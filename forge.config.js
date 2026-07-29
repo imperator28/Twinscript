@@ -33,9 +33,17 @@ module.exports = {
     asar: true,
     extraResource: ['assets', 'resources'],
     icon: process.platform === 'win32' ? 'assets/icon.ico' : 'assets/icon',
-    appId: 'ai.kizunaai.sokuji',
-    executableName: 'sokuji',
-    name: 'Sokuji',
+    appBundleId: 'com.jiyu.bilingualcaptions',
+    extendInfo: {
+      CFBundleDisplayName: 'Bilingual Meeting Captions',
+      LSApplicationCategoryType: 'public.app-category.utilities',
+      NSMicrophoneUsageDescription:
+        'Bilingual Meeting Captions uses your microphone to transcribe your side of the meeting.',
+      NSScreenCaptureUsageDescription:
+        'Bilingual Meeting Captions captures meeting audio so both audiences can follow the conversation.',
+    },
+    executableName: 'bilingual-meeting-captions',
+    name: 'Bilingual Meeting Captions',
     // Whitelist-based ignore: only include package.json, dist-electron/,
     // build/ (minus wasm/), and node_modules/ (pruned by Forge).
     // Everything else (src/, public/, model-packs/, extension/, etc.) is excluded.
@@ -96,10 +104,10 @@ module.exports = {
     {
       name: '@electron-forge/maker-squirrel',
       config: {
-        name: 'Sokuji',
-        authors: 'Kizuna AI Lab',
-        exe: 'sokuji.exe',
-        description: 'AI-powered live speech translation application',
+        name: 'BilingualMeetingCaptions',
+        authors: 'Jiyu Qian',
+        exe: 'bilingual-meeting-captions.exe',
+        description: 'Private realtime English and Chinese meeting captions',
         setupIcon: 'assets/icon.ico',
         iconUrl: 'https://raw.githubusercontent.com/kizuna-ai-lab/sokuji/main/assets/icon.ico',
         noMsi: true
@@ -108,7 +116,7 @@ module.exports = {
     {
       name: '@electron-forge/maker-dmg',
       config: {
-        name: 'Sokuji',
+        name: 'Bilingual Meeting Captions',
         overwrite: true
       }
     }

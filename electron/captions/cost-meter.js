@@ -23,6 +23,11 @@ class CostMeter {
     this.outputTokens = 0;
     this.normalizationCalls = 0;
     this.totalUsd = 0;
+    this.byStage = {
+      transcriptionUsd: 0,
+      primaryUsd: 0,
+      shadowUsd: 0,
+    };
     this.warned = false;
     this.exhausted = false;
   }
@@ -30,7 +35,9 @@ class CostMeter {
   addAudio(durationMs, model = 'gpt-live-transcribe') {
     const price = MODEL_PRICING[model]?.audioPerMinute || 0;
     this.audioMs += durationMs;
-    this.totalUsd += (durationMs / 60000) * price;
+    const added = (durationMs / 60000) * price;
+    this.totalUsd += added;
+    this.byStage.transcriptionUsd += added;
     this.checkBudget();
   }
 
@@ -39,17 +46,20 @@ class CostMeter {
     inputTokens = 0,
     cachedInputTokens = 0,
     outputTokens = 0,
-  }) {
+  }, stage = 'primary') {
     const price = MODEL_PRICING[model] || {};
     const uncached = Math.max(0, inputTokens - cachedInputTokens);
     this.inputTokens += inputTokens;
     this.cachedInputTokens += cachedInputTokens;
     this.outputTokens += outputTokens;
     this.normalizationCalls += 1;
-    this.totalUsd +=
+    const added =
       (uncached / 1_000_000) * (price.inputPerMillion || 0) +
       (cachedInputTokens / 1_000_000) * (price.cachedInputPerMillion || 0) +
       (outputTokens / 1_000_000) * (price.outputPerMillion || 0);
+    this.totalUsd += added;
+    const key = stage === 'shadow' ? 'shadowUsd' : 'primaryUsd';
+    this.byStage[key] += added;
     this.checkBudget();
   }
 
@@ -79,6 +89,12 @@ class CostMeter {
       cachedInputTokens: this.cachedInputTokens,
       outputTokens: this.outputTokens,
       normalizationCalls: this.normalizationCalls,
+      costByStage: Object.fromEntries(
+        Object.entries(this.byStage).map(([key, value]) => [
+          key,
+          Number(value.toFixed(6)),
+        ]),
+      ),
     };
   }
 }

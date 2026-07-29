@@ -4,6 +4,12 @@ const path = require('path');
 
 const FORMAT_VERSION = 1;
 
+function atomicWrite(filePath, contents, options) {
+  const temporary = `${filePath}.${process.pid}.${crypto.randomBytes(4).toString('hex')}.tmp`;
+  fs.writeFileSync(temporary, contents, options);
+  fs.renameSync(temporary, filePath);
+}
+
 class EvaluationRecorder {
   constructor({ app, safeStorage }) {
     this.app = app;
@@ -72,7 +78,7 @@ class EvaluationRecorder {
   writeManifest(endedAt) {
     if (!this.current) return;
     const { id, sessionId, startedAt, manifestPath, settings, counts } = this.current;
-    fs.writeFileSync(
+    atomicWrite(
       manifestPath,
       JSON.stringify(
         {
@@ -166,30 +172,42 @@ class EvaluationRecorder {
     const key = await this.dataKey();
     const filePath = path.join(this.directory, `${id}.bcr`);
     const lines = fs.readFileSync(filePath, 'utf8').split('\n').filter(Boolean);
-    return lines.map((line) => {
-      const record = JSON.parse(line);
-      const decipher = crypto.createDecipheriv(
-        'aes-256-gcm',
-        key,
-        Buffer.from(record.iv, 'base64'),
-      );
-      decipher.setAAD(
-        Buffer.from(
-          `${record.version}:${record.sessionId}:${record.kind}:${record.at}`,
-        ),
-      );
-      decipher.setAuthTag(Buffer.from(record.tag, 'base64'));
-      const plaintext = Buffer.concat([
-        decipher.update(Buffer.from(record.data, 'base64')),
-        decipher.final(),
-      ]);
-      return {
-        kind: record.kind,
-        at: record.at,
-        payload: JSON.parse(plaintext.toString('utf8')),
-      };
-    });
+    const result = [];
+    try {
+      for (let index = 0; index < lines.length; index += 1) {
+        let record;
+        try {
+          record = JSON.parse(lines[index]);
+        } catch (error) {
+          if (index === lines.length - 1) break;
+          throw error;
+        }
+        const decipher = crypto.createDecipheriv(
+          'aes-256-gcm',
+          key,
+          Buffer.from(record.iv, 'base64'),
+        );
+        decipher.setAAD(
+          Buffer.from(
+            `${record.version}:${record.sessionId}:${record.kind}:${record.at}`,
+          ),
+        );
+        decipher.setAuthTag(Buffer.from(record.tag, 'base64'));
+        const plaintext = Buffer.concat([
+          decipher.update(Buffer.from(record.data, 'base64')),
+          decipher.final(),
+        ]);
+        result.push({
+          kind: record.kind,
+          at: record.at,
+          payload: JSON.parse(plaintext.toString('utf8')),
+        });
+      }
+      return result;
+    } finally {
+      key.fill(0);
+    }
   }
 }
 
-module.exports = { EvaluationRecorder, FORMAT_VERSION };
+module.exports = { EvaluationRecorder, FORMAT_VERSION, atomicWrite };

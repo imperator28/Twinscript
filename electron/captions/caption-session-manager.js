@@ -8,6 +8,9 @@ const {
 const { CostMeter } = require('./cost-meter');
 const { LiveTranscriptionSession } = require('./live-transcription-session');
 const { OpenAINormalizer } = require('./openai-normalizer');
+const { PriorityTaskQueue } = require('./priority-task-queue');
+const { buildQualitySignals } = require('./quality-signals');
+const { TranscriptCoordinator } = require('./transcript-coordinator');
 
 function errorTarget(error) {
   return {
@@ -32,6 +35,8 @@ class CaptionSessionManager {
     transcriptionFactory,
     normalizerFactory,
     evaluationRecorder,
+    coordinatorFactory,
+    schedulerFactory,
   }) {
     this.credentialStore = credentialStore;
     this.settingsStore = settingsStore;
@@ -45,10 +50,15 @@ class CaptionSessionManager {
     this.normalizerFactory =
       normalizerFactory || ((options) => new OpenAINormalizer(options));
     this.evaluationRecorder = evaluationRecorder;
+    this.coordinatorFactory =
+      coordinatorFactory || ((options) => new TranscriptCoordinator(options));
+    this.schedulerFactory =
+      schedulerFactory || ((options) => new PriorityTaskQueue(options));
     this.reset();
   }
 
   reset() {
+    this.coordinator?.reset();
     this.sessionId = null;
     this.settings = null;
     this.sessions = new Map();
@@ -57,6 +67,7 @@ class CaptionSessionManager {
     this.sequence = 0;
     this.pendingTimers = new Map();
     this.abortControllers = new Map();
+    this.shadowControllers = new Set();
     this.primaryNormalizer = null;
     this.shadowNormalizer = null;
     this.cost = null;
@@ -64,6 +75,20 @@ class CaptionSessionManager {
     this.shadowActive = false;
     this.mockTimers = [];
     this.startedAt = null;
+    this.coordinator = null;
+    this.diagnostics = {
+      duplicateCandidates: 0,
+      suppressedDuplicates: 0,
+      droppedAudioMs: { microphone: 0, system: 0 },
+      reconnects: { microphone: 0, system: 0 },
+      providerErrors: 0,
+    };
+    this.lastMetrics = null;
+    this.normalizationScheduler = null;
+    this.evaluationHistory = [];
+    this.evaluationRatings = new Map();
+    this.provisionalCallsByItem = new Map();
+    this.lastMetricsRecordedAt = 0;
   }
 
   async start(request = {}) {
@@ -77,6 +102,16 @@ class CaptionSessionManager {
     this.cost = new CostMeter({
       budgetUsd: this.settings.budgetUsd,
       onBudgetEvent: (event) => this.handleBudgetEvent(event),
+    });
+    this.coordinator = this.coordinatorFactory({
+      reorderWindowMs: this.settings.reorderWindowMs || 400,
+      duplicateWindowMs: this.settings.duplicateWindowMs || 1400,
+      onRelease: (event) => this.releaseFinalTranscript(event),
+      onDuplicate: (candidate) => this.handleDuplicate(candidate),
+    });
+    this.normalizationScheduler = this.schedulerFactory({
+      concurrency: 2,
+      maxQueue: 24,
     });
 
     this.onStatus({
@@ -98,8 +133,13 @@ class CaptionSessionManager {
         sessionId: this.sessionId,
         mode: 'replay',
       });
-      await this.startReplaySequence(request.recordingId);
-      return this.snapshot();
+      try {
+        await this.startReplaySequence(request.recordingId);
+        return this.snapshot();
+      } catch (error) {
+        await this.stop('replay-failed');
+        throw error;
+      }
     }
 
     if (request.mode === 'mock') {
@@ -125,13 +165,22 @@ class CaptionSessionManager {
     ]);
     const normalizerOptions = {
       apiKey,
+      scheduler: this.normalizationScheduler,
+    };
+    this.primaryNormalizer = this.normalizerFactory({
+      ...normalizerOptions,
       onUsage: (usage) => {
-        this.cost.addTextUsage(usage);
+        this.cost.addTextUsage(usage, 'primary');
         this.emitMetrics();
       },
-    };
-    this.primaryNormalizer = this.normalizerFactory(normalizerOptions);
-    this.shadowNormalizer = this.normalizerFactory(normalizerOptions);
+    });
+    this.shadowNormalizer = this.normalizerFactory({
+      ...normalizerOptions,
+      onUsage: (usage) => {
+        this.cost.addTextUsage(usage, 'shadow');
+        this.emitMetrics();
+      },
+    });
 
     for (const channel of ['microphone', 'system']) {
       const session = this.transcriptionFactory({
@@ -187,15 +236,35 @@ class CaptionSessionManager {
 
   handleTranscriptionEvent(event) {
     if (!this.active) return;
+    this.evaluationRecorder?.record('provider-event', event);
     if (event.type === 'level') {
-      this.onMetrics({
-        ...this.cost.snapshot(),
+      this.emitMetrics({
         levels: { [event.channel]: event.rms },
         speaking: { [event.channel]: event.speaking },
       });
       return;
     }
+    if (event.type === 'transport-metric') {
+      this.diagnostics.droppedAudioMs[event.channel] =
+        event.droppedAudioMs || 0;
+      this.emitMetrics({
+        transport: {
+          [event.channel]: {
+            sentAudioMs: event.sentAudioMs || 0,
+            droppedAudioMs: event.droppedAudioMs || 0,
+            pendingChunks: event.pendingChunks || 0,
+            bufferedBytes: event.bufferedBytes || 0,
+            dropReason: event.dropReason,
+          },
+        },
+      });
+      return;
+    }
     if (event.type === 'connection' || event.type === 'error') {
+      if (event.type === 'error') this.diagnostics.providerErrors += 1;
+      if (event.status === 'disconnected') {
+        this.diagnostics.reconnects[event.channel] += 1;
+      }
       this.onStatus({
         state: event.type === 'error' ? 'degraded' : event.status,
         sessionId: this.sessionId,
@@ -207,29 +276,39 @@ class CaptionSessionManager {
     }
     if (event.type !== 'transcript' || !event.transcript.trim()) return;
 
-    const key = `${event.channel}:${event.itemId}`;
-    const caption = this.upsertTranscriptEvent(key, event);
-    this.publish(caption);
-
     if (event.final) {
+      const key = `${event.channel}:${event.itemId}`;
       this.cancelProvisional(key);
-      void this.normalizeFinal(key, caption);
-    } else if (this.settings.provisionalTranslation) {
+      this.coordinator.submit(event);
+      return;
+    }
+
+    const key = `${event.channel}:${event.itemId}`;
+    const caption = this.upsertTranscriptEvent(key, event, false);
+    this.publish(caption);
+    if (this.settings.provisionalTranslation) {
       this.scheduleProvisional(key, caption);
     }
   }
 
-  upsertTranscriptEvent(key, transcript) {
+  upsertTranscriptEvent(
+    key,
+    transcript,
+    assignFinalSequence = Boolean(transcript.final),
+  ) {
     const previous = this.eventsByItem.get(key);
     const routedAs = classifyScript(transcript.transcript);
     const fresh = createCaptionEvent({
       sessionId: this.sessionId,
-      sequence: previous?.sequence || ++this.sequence,
+      sequence: assignFinalSequence
+        ? ++this.sequence
+        : previous?.sequence || this.sequence + 1,
       sourceChannel: transcript.channel,
       providerItemId: transcript.itemId,
       sourceText: transcript.transcript,
       sourceStartedAt: transcript.startedAt,
       sourceEndedAt: transcript.final ? transcript.at : undefined,
+      observedAt: transcript.at,
       transcriptStatus: transcript.final ? 'final' : 'provisional',
       profile: this.settings.primaryProfile,
       normalizationModel:
@@ -240,8 +319,9 @@ class CaptionSessionManager {
     });
     if (previous) {
       fresh.id = previous.id;
-      fresh.sequence = previous.sequence;
+      fresh.sequence = assignFinalSequence ? fresh.sequence : previous.sequence;
       fresh.usage = previous.usage;
+      fresh.firstTranscriptAt = previous.firstTranscriptAt;
       fresh.english.revision =
         fresh.english.status === 'pending'
           ? previous.english.revision
@@ -258,8 +338,51 @@ class CaptionSessionManager {
       }
     }
     fresh.routedAs = routedAs;
+    if (transcript.final) fresh.releasedAt = Date.now();
     this.eventsByItem.set(key, fresh);
     return fresh;
+  }
+
+  releaseFinalTranscript(transcript) {
+    if (!this.active) return;
+    const key = `${transcript.channel}:${transcript.itemId}`;
+    const caption = this.upsertTranscriptEvent(key, transcript, true);
+    this.publish(caption);
+    void this.normalizeFinal(key, caption);
+  }
+
+  handleDuplicate({ event, duplicateOf, similarity }) {
+    if (!this.active) return;
+    this.diagnostics.duplicateCandidates += 1;
+    const suppress = event.channel === 'microphone' ? event : duplicateOf;
+    const keep = event.channel === 'system' ? event : duplicateOf;
+    const suppressKey = `${suppress.channel}:${suppress.itemId}`;
+    const existing = this.eventsByItem.get(suppressKey);
+    if (existing) {
+      const suppressed = {
+        ...existing,
+        suppressed: true,
+        suppressionReason: 'cross-channel-duplicate',
+        duplicateSimilarity: similarity,
+      };
+      this.eventsByItem.set(suppressKey, suppressed);
+      this.cancelProvisional(suppressKey);
+      this.publish(suppressed);
+    }
+    this.diagnostics.suppressedDuplicates += 1;
+    this.evaluationRecorder?.record('duplicate', {
+      suppressedChannel: suppress.channel,
+      keptChannel: keep.channel,
+      similarity,
+      suppressedItemId: suppress.itemId,
+      keptItemId: keep.itemId,
+    });
+    this.emitMetrics();
+    if (event.channel === 'system') {
+      this.releaseFinalTranscript(event);
+      return event;
+    }
+    return duplicateOf;
   }
 
   scheduleProvisional(key, caption) {
@@ -268,6 +391,9 @@ class CaptionSessionManager {
       key,
       setTimeout(() => {
         this.pendingTimers.delete(key);
+        const calls = this.provisionalCallsByItem.get(key) || 0;
+        if (calls >= 2) return;
+        this.provisionalCallsByItem.set(key, calls + 1);
         void this.normalizePrimary(key, caption, false);
       }, 700),
     );
@@ -276,6 +402,7 @@ class CaptionSessionManager {
   cancelProvisional(key) {
     clearTimeout(this.pendingTimers.get(key));
     this.pendingTimers.delete(key);
+    this.provisionalCallsByItem.delete(key);
     const controller = this.abortControllers.get(key);
     if (controller) controller.abort();
     this.abortControllers.delete(key);
@@ -300,6 +427,7 @@ class CaptionSessionManager {
             final,
             glossary: this.settings.glossary,
             signal: controller.signal,
+            priority: final ? 10 : 0,
           });
           if (controller.signal.aborted || !this.active) return;
           const current = this.eventsByItem.get(key);
@@ -352,6 +480,8 @@ class CaptionSessionManager {
     let shadow = null;
     if (this.shadowActive && this.cost.canSpend()) {
       const shadowStartedAt = Date.now();
+      const shadowController = new AbortController();
+      this.shadowControllers.add(shadowController);
       try {
         const [english, chinese] = await Promise.all(
           ['en', 'zh'].map((target) =>
@@ -361,6 +491,8 @@ class CaptionSessionManager {
               profile: this.settings.shadowProfile,
               final: true,
               glossary: this.settings.glossary,
+              priority: 2,
+              signal: shadowController.signal,
             }),
           ),
         );
@@ -372,11 +504,19 @@ class CaptionSessionManager {
           latencyMs: Date.now() - shadowStartedAt,
         };
       } catch (error) {
-        shadow = { error: error.code || 'shadow_failed' };
+        shadow = {
+          error:
+            error.name === 'AbortError'
+              ? 'shadow_aborted'
+              : error.code || 'shadow_failed',
+        };
+      } finally {
+        this.shadowControllers.delete(shadowController);
       }
     }
 
-    this.onEvaluation({
+    const completedAt = Date.now();
+    const evaluation = {
       sessionId: this.sessionId,
       sequence: primary.sequence,
       sourceChannel: primary.sourceChannel,
@@ -385,25 +525,71 @@ class CaptionSessionManager {
         profile: this.settings.primaryProfile,
         english: primary.english.text,
         chinese: primary.chinese.text,
-        latencyMs: Date.now() - startedAt,
+        latencyMs: completedAt - startedAt,
       },
       shadow,
       metrics: this.cost.snapshot(),
-    });
-    this.evaluationRecorder?.record('evaluation', {
-      sessionId: this.sessionId,
-      sequence: primary.sequence,
-      sourceChannel: primary.sourceChannel,
-      sourceText: primary.sourceText,
-      primary: {
-        profile: this.settings.primaryProfile,
+      stageLatency: {
+        transcriptionMs: Math.max(
+          0,
+          (primary.finalTranscriptAt || completedAt) - primary.sourceStartedAt,
+        ),
+        reorderMs: Math.max(
+          0,
+          (primary.releasedAt || completedAt) -
+            (primary.finalTranscriptAt || completedAt),
+        ),
+        normalizationMs: completedAt - startedAt,
+        firstEnglishMs: primary.english.firstRenderedAt
+          ? primary.english.firstRenderedAt - primary.sourceStartedAt
+          : null,
+        firstChineseMs: primary.chinese.firstRenderedAt
+          ? primary.chinese.firstRenderedAt - primary.sourceStartedAt
+          : null,
+        endToEndMs: Math.max(0, completedAt - primary.sourceStartedAt),
+      },
+      signals: buildQualitySignals({
+        sourceText: primary.sourceText,
         english: primary.english.text,
         chinese: primary.chinese.text,
-        latencyMs: Date.now() - startedAt,
-      },
-      shadow,
-      metrics: this.cost.snapshot(),
+        fastPath: this.settings.fastPath,
+      }),
+    };
+    this.evaluationHistory.push(evaluation);
+    if (this.evaluationHistory.length > 500) this.evaluationHistory.shift();
+    this.onEvaluation(evaluation);
+    this.evaluationRecorder?.record('evaluation', evaluation);
+  }
+
+  rateEvaluation({ sequence, preference, notes = '' }) {
+    if (!Number.isInteger(sequence) || sequence < 1) {
+      throw new Error('Invalid evaluation sequence');
+    }
+    if (!['primary', 'shadow', 'tie', 'skip'].includes(preference)) {
+      throw new Error('Invalid comparison preference');
+    }
+    const rating = {
+      sequence,
+      preference,
+      notes: String(notes || '').trim().slice(0, 500),
+      ratedAt: Date.now(),
+    };
+    this.evaluationRatings.set(sequence, rating);
+    this.evaluationRecorder?.record('rating', rating);
+    return rating;
+  }
+
+  abortShadow() {
+    this.shadowActive = false;
+    for (const controller of this.shadowControllers) controller.abort();
+    this.shadowControllers.clear();
+    this.onStatus({
+      state: 'running',
+      sessionId: this.sessionId,
+      code: 'shadow_aborted',
+      message: 'Shadow comparison stopped; primary captions continue',
     });
+    return this.snapshot();
   }
 
   publish(event) {
@@ -418,20 +604,31 @@ class CaptionSessionManager {
   async startReplaySequence(recordingId) {
     const records = await this.evaluationRecorder.read(recordingId);
     const replayable = records.filter((record) =>
-      ['caption', 'evaluation'].includes(record.kind),
+      ['caption', 'evaluation', 'metrics'].includes(record.kind),
     );
     if (!replayable.length) throw new Error('This recording has no replayable captions');
     const firstAt = replayable[0].at;
+    let finalDelay = 0;
     replayable.forEach((record) => {
       const delay = Math.min(12000, Math.max(0, (record.at - firstAt) / 4));
+      finalDelay = Math.max(finalDelay, delay);
       this.mockTimers.push(
         setTimeout(() => {
           if (!this.active) return;
-          if (record.kind === 'caption') this.onCaption(record.payload);
-          else this.onEvaluation(record.payload);
+          if (record.kind === 'caption') this.publish(record.payload);
+          else if (record.kind === 'metrics') this.onMetrics(record.payload);
+          else {
+            this.evaluationHistory.push(record.payload);
+            this.onEvaluation(record.payload);
+          }
         }, delay),
       );
     });
+    this.mockTimers.push(
+      setTimeout(() => {
+        if (this.active) void this.stop('replay-complete');
+      }, finalDelay + 500),
+    );
   }
 
   startMockSequence() {
@@ -497,7 +694,7 @@ class CaptionSessionManager {
           });
           this.eventsByItem.set(key, finalEvent);
           this.publish(finalEvent);
-          this.onEvaluation({
+          const evaluation = {
             sessionId: this.sessionId,
             sequence: finalEvent.sequence,
             sourceChannel: sample.channel,
@@ -516,21 +713,42 @@ class CaptionSessionManager {
               latencyMs: 810 + index * 90,
             },
             metrics: this.cost.snapshot(),
-          });
+            stageLatency: {
+              transcriptionMs: 900,
+              reorderMs: 0,
+              normalizationMs: 620 + index * 70,
+              firstEnglishMs: 1520 + index * 70,
+              firstChineseMs: 1520 + index * 70,
+              endToEndMs: 1520 + index * 70,
+            },
+            signals: buildQualitySignals({
+              sourceText: sample.source,
+              english: sample.en,
+              chinese: sample.zh,
+              fastPath: this.settings.fastPath,
+            }),
+          };
+          this.evaluationHistory.push(evaluation);
+          this.onEvaluation(evaluation);
         }, index * 2800 + 1500),
       );
     });
   }
 
   handleBudgetEvent(event) {
-    if (event.type === 'exhausted' && this.shadowActive) {
+    if (event.type === 'exhausted') {
+      const shadowWasActive = this.shadowActive;
       this.shadowActive = false;
       this.onStatus({
-        state: 'degraded',
+        state: 'budget-exhausted',
         sessionId: this.sessionId,
-        code: 'shadow_budget_stopped',
-        message: 'The comparison pipeline stopped at the session budget cap',
+        code: shadowWasActive
+          ? 'shadow_and_session_budget_stopped'
+          : 'session_budget_stopped',
+        message:
+          'The session stopped at the configured spend cap; no more audio will be submitted',
       });
+      queueMicrotask(() => void this.stop('budget-exhausted'));
       return;
     }
     this.onStatus({
@@ -540,23 +758,55 @@ class CaptionSessionManager {
     });
   }
 
-  emitMetrics() {
-    this.onMetrics({
+  emitMetrics(extra = {}) {
+    const next = {
       sessionId: this.sessionId,
       elapsedMs: this.startedAt ? Date.now() - this.startedAt : 0,
       ...this.cost.snapshot(),
-    });
+      diagnostics: this.diagnostics,
+      normalizationQueue: this.normalizationScheduler?.snapshot() || {
+        running: 0,
+        queued: 0,
+      },
+      ...extra,
+    };
+    this.lastMetrics = {
+      ...(this.lastMetrics || {}),
+      ...next,
+      levels: {
+        ...(this.lastMetrics?.levels || {}),
+        ...(next.levels || {}),
+      },
+      speaking: {
+        ...(this.lastMetrics?.speaking || {}),
+        ...(next.speaking || {}),
+      },
+      transport: {
+        ...(this.lastMetrics?.transport || {}),
+        ...(next.transport || {}),
+      },
+    };
+    this.onMetrics(this.lastMetrics);
+    const now = Date.now();
+    if (now - this.lastMetricsRecordedAt >= 500 || extra.transport) {
+      this.lastMetricsRecordedAt = now;
+      this.evaluationRecorder?.record('metrics', this.lastMetrics);
+    }
   }
 
-  async stop() {
+  async stop(reason = 'user') {
     if (!this.active) return this.snapshot();
     this.active = false;
     for (const timer of this.pendingTimers.values()) clearTimeout(timer);
     for (const timer of this.mockTimers) clearTimeout(timer);
     for (const controller of this.abortControllers.values()) controller.abort();
+    for (const controller of this.shadowControllers) controller.abort();
     this.pendingTimers.clear();
     this.mockTimers = [];
     this.abortControllers.clear();
+    this.shadowControllers.clear();
+    this.provisionalCallsByItem.clear();
+    this.coordinator?.reset();
     for (const session of this.sessions.values()) session.close();
     this.sessions.clear();
     await this.evaluationRecorder?.stop();
@@ -564,6 +814,7 @@ class CaptionSessionManager {
       state: 'stopped',
       sessionId: this.sessionId,
       metrics: this.cost?.snapshot(),
+      reason,
     });
     return this.snapshot();
   }
@@ -574,15 +825,18 @@ class CaptionSessionManager {
       sessionId: this.sessionId,
       settings: this.settings,
       metrics: this.cost?.snapshot() || null,
+      diagnostics: this.diagnostics,
       captionCount: this.history.length,
       shadowActive: this.shadowActive,
+      evaluationCount: this.evaluationHistory.length,
+      ratingCount: this.evaluationRatings.size,
     };
   }
 
   export(format = 'json') {
     if (format === 'markdown') {
       const body = this.history
-        .filter((event) => event.status === 'final')
+        .filter((event) => event.status === 'final' && !event.suppressed)
         .sort((a, b) => a.sequence - b.sequence)
         .map(
           (event) =>
@@ -592,15 +846,29 @@ class CaptionSessionManager {
             `中文: ${event.chinese.text || '翻译不可用'}`,
         )
         .join('\n\n');
-      return `# Bilingual caption session\n\nSession: ${this.sessionId}\n\n${body}\n`;
+      const ratings = [...this.evaluationRatings.values()];
+      const counts = ratings.reduce((summary, rating) => {
+        summary[rating.preference] = (summary[rating.preference] || 0) + 1;
+        return summary;
+      }, {});
+      return (
+        `# Bilingual caption session\n\nSession: ${this.sessionId}\n\n` +
+        `Estimated cost: $${(this.cost?.snapshot().totalUsd || 0).toFixed(4)}\n\n` +
+        `A/B ratings: ${JSON.stringify(counts)}\n\n${body}\n`
+      );
     }
     return JSON.stringify(
       {
         version: 1,
         sessionId: this.sessionId,
         settings: this.settings,
-        metrics: this.cost?.snapshot(),
+        metrics: {
+          ...this.cost?.snapshot(),
+          diagnostics: this.diagnostics,
+        },
         captions: this.history,
+        evaluations: this.evaluationHistory,
+        ratings: [...this.evaluationRatings.values()],
       },
       null,
       2,

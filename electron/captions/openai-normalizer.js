@@ -38,11 +38,39 @@ function glossaryPrompt(glossary) {
   return rows.length ? `\nTerminology:\n${rows.join('\n')}` : '';
 }
 
+function abortableDelay(durationMs, signal) {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      const error = new Error('Operation aborted');
+      error.name = 'AbortError';
+      reject(error);
+      return;
+    }
+    const timer = setTimeout(resolve, durationMs);
+    signal?.addEventListener(
+      'abort',
+      () => {
+        clearTimeout(timer);
+        const error = new Error('Operation aborted');
+        error.name = 'AbortError';
+        reject(error);
+      },
+      { once: true },
+    );
+  });
+}
+
 class OpenAINormalizer {
-  constructor({ apiKey, fetchImpl = global.fetch, onUsage = () => {} }) {
+  constructor({
+    apiKey,
+    fetchImpl = global.fetch,
+    onUsage = () => {},
+    scheduler,
+  }) {
     this.apiKey = apiKey;
     this.fetch = fetchImpl;
     this.onUsage = onUsage;
+    this.scheduler = scheduler;
   }
 
   async normalize({
@@ -52,6 +80,7 @@ class OpenAINormalizer {
     final,
     glossary,
     signal,
+    priority,
   }) {
     const model =
       (PROFILE_MODELS[profile] || PROFILE_MODELS.economy)[
@@ -59,14 +88,7 @@ class OpenAINormalizer {
       ];
     const targetLabel =
       target === 'zh' ? 'Simplified Chinese' : 'natural professional English';
-    const response = await this.fetch('https://api.openai.com/v1/responses', {
-      method: 'POST',
-      signal,
-      headers: {
-        Authorization: `Bearer ${this.apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
+    const requestBody = JSON.stringify({
         model,
         store: false,
         reasoning: { effort: 'none' },
@@ -100,16 +122,19 @@ class OpenAINormalizer {
           },
           verbosity: 'low',
         },
-      }),
-    });
-
-    if (!response.ok) {
-      const errorBody = await response.text();
-      const error = new Error(`Normalization failed (${response.status})`);
-      error.code = response.status === 429 ? 'rate_limited' : 'normalization_failed';
-      error.safeDetail = errorBody.slice(0, 300).replace(/sk-[A-Za-z0-9_-]+/g, '[redacted]');
-      throw error;
-    }
+      });
+    const request = () =>
+      this.requestWithRetry({
+        body: requestBody,
+        signal,
+        maxAttempts: final ? 3 : 1,
+      });
+    const response = this.scheduler
+      ? await this.scheduler.run(request, {
+          priority: priority ?? (final ? 10 : 0),
+          signal,
+        })
+      : await request();
 
     const payload = await response.json();
     const parsed = JSON.parse(extractResponseText(payload));
@@ -126,6 +151,38 @@ class OpenAINormalizer {
       requestId: response.headers.get('x-request-id') || undefined,
     };
   }
+
+  async requestWithRetry({ body, signal, maxAttempts }) {
+    let lastError;
+    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+      const response = await this.fetch('https://api.openai.com/v1/responses', {
+        method: 'POST',
+        signal,
+        headers: {
+          Authorization: `Bearer ${this.apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body,
+      });
+      if (response.ok) return response;
+
+      const retryable =
+        response.status === 408 ||
+        response.status === 429 ||
+        response.status >= 500;
+      const errorBody = await response.text();
+      const error = new Error(`Normalization failed (${response.status})`);
+      error.code =
+        response.status === 429 ? 'rate_limited' : 'normalization_failed';
+      error.safeDetail = errorBody
+        .slice(0, 300)
+        .replace(/sk-[A-Za-z0-9_-]+/g, '[redacted]');
+      lastError = error;
+      if (!retryable || attempt === maxAttempts - 1) throw error;
+      await abortableDelay(200 * 2 ** attempt, signal);
+    }
+    throw lastError;
+  }
 }
 
 module.exports = {
@@ -134,4 +191,5 @@ module.exports = {
   TARGET_SCHEMA,
   extractResponseText,
   glossaryPrompt,
+  abortableDelay,
 };

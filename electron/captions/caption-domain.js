@@ -57,13 +57,14 @@ function createCaptionEvent({
   sourceText,
   sourceStartedAt,
   sourceEndedAt,
+  observedAt,
   transcriptStatus = 'provisional',
   profile,
   transcriptionModel = 'gpt-live-transcribe',
   normalizationModel = 'gpt-5.4-nano',
   fastPath = true,
 }) {
-  const now = Date.now();
+  const now = observedAt || Date.now();
   const routedAs = classifyScript(sourceText);
   let english = { ...TARGET_PENDING };
   let chinese = { ...TARGET_PENDING };
@@ -162,6 +163,8 @@ function projectForAudience(event, audience) {
     sourceStartedAt: event.sourceStartedAt,
     firstRenderedAt: target.firstRenderedAt,
     finalizedAt: target.finalizedAt,
+    suppressed: Boolean(event.suppressed),
+    suppressionReason: event.suppressionReason,
   };
 }
 

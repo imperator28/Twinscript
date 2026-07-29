@@ -36,6 +36,11 @@ class LiveTranscriptionSession {
     this.connected = false;
     this.reconnectAttempts = 0;
     this.pendingChunks = [];
+    this.maxPendingChunks = 20;
+    this.maxSocketBufferedBytes = 512 * 1024;
+    this.droppedAudioMs = 0;
+    this.sentAudioMs = 0;
+    this.reconnectTimer = null;
     this.partialByItem = new Map();
     this.startedAtByItem = new Map();
     this.vad = new VadGate({
@@ -133,11 +138,16 @@ class LiveTranscriptionSession {
     const durationMs = (int16.length / 24000) * 1000;
     const gated = this.vad.push(int16, durationMs);
     for (const chunk of gated.chunks) {
-      this.onUsage({ audioMs: (chunk.length / 24000) * 1000 });
       if (this.connected && this.socket?.readyState === WebSocket.OPEN) {
-        this.sendPcm(chunk);
-      } else if (this.pendingChunks.length < 20) {
+        if ((this.socket.bufferedAmount || 0) <= this.maxSocketBufferedBytes) {
+          this.sendPcm(chunk);
+        } else {
+          this.reportDrop(chunk, 'socket_backpressure');
+        }
+      } else if (this.pendingChunks.length < this.maxPendingChunks) {
         this.pendingChunks.push(chunk);
+      } else {
+        this.reportDrop(chunk, 'disconnected_queue_full');
       }
     }
     this.onEvent({
@@ -160,6 +170,34 @@ class LiveTranscriptionSession {
         ).toString('base64'),
       }),
     );
+    const audioMs = (samples.length / 24000) * 1000;
+    this.sentAudioMs += audioMs;
+    this.onUsage({ audioMs });
+    this.onEvent({
+      type: 'transport-metric',
+      channel: this.channel,
+      sentAudioMs: this.sentAudioMs,
+      droppedAudioMs: this.droppedAudioMs,
+      pendingChunks: this.pendingChunks.length,
+      bufferedBytes: this.socket?.bufferedAmount || 0,
+      at: Date.now(),
+    });
+  }
+
+  reportDrop(samples, reason) {
+    const audioMs = (samples.length / 24000) * 1000;
+    this.droppedAudioMs += audioMs;
+    this.onEvent({
+      type: 'transport-metric',
+      channel: this.channel,
+      sentAudioMs: this.sentAudioMs,
+      droppedAudioMs: this.droppedAudioMs,
+      droppedChunkMs: audioMs,
+      dropReason: reason,
+      pendingChunks: this.pendingChunks.length,
+      bufferedBytes: this.socket?.bufferedAmount || 0,
+      at: Date.now(),
+    });
   }
 
   handleMessage(payload) {
@@ -233,7 +271,8 @@ class LiveTranscriptionSession {
     }
     const delay = Math.min(8000, 500 * 2 ** this.reconnectAttempts);
     this.reconnectAttempts += 1;
-    setTimeout(() => {
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
       if (!this.closedByUser) this.connect().catch(() => {});
     }, delay);
   }
@@ -243,6 +282,8 @@ class LiveTranscriptionSession {
     this.connected = false;
     this.vad.reset();
     this.pendingChunks = [];
+    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = null;
     if (this.socket) {
       this.socket.removeAllListeners('close');
       this.socket.close();

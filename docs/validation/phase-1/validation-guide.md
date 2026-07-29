@@ -29,7 +29,10 @@ product decision must come from real bilingual sessions.
 - Session cap: **$5**
 
 The primary result is the only one shown to the meeting. The shadow result is
-isolated in **Compare** and cannot delay the audience caption.
+isolated in **Compare** and cannot delay the audience caption. Candidate A and
+Candidate B alternate positions and remain blinded until a judgment is saved.
+Use **Settings → Stop shadow comparison** if cost or provider health makes the
+extra candidate undesirable during a live session.
 
 ## Ten-minute shakedown
 
@@ -54,6 +57,11 @@ For each failure, note the line number and classify it:
 - distracting provisional reversal;
 - duplicate microphone/system line;
 - reconnect or missing line.
+
+Expand **Diagnostic evidence** under a compared line to inspect transcript,
+ordering, normalization, and end-to-end timing plus automated script and
+protected-token warnings. These warnings screen for likely failures; bilingual
+judgment remains authoritative.
 
 Export both JSON and the readable log at the end.
 
@@ -106,3 +114,6 @@ the final dual-target normalization remains authoritative either way.
 Do not call Phase 1 validated until the remote overlay check and a real
 30–60-minute bilingual session have passed. Those are user-observation gates,
 not automated build gates.
+
+See [readiness matrix](readiness-matrix.md) for the implementation-to-evidence
+mapping and the exact remaining gates.

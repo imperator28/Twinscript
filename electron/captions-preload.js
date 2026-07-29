@@ -34,6 +34,8 @@ contextBridge.exposeInMainWorld('captions', {
   startSession: (request) => invoke('captions:session-start', request),
   stopSession: () => invoke('captions:session-stop'),
   getSessionStatus: () => invoke('captions:session-status'),
+  rateEvaluation: (rating) => invoke('captions:evaluation-rate', rating),
+  abortShadow: () => invoke('captions:shadow-abort'),
   listRecordings: () => invoke('captions:recordings-list'),
   showWindows: () => invoke('captions:windows-show'),
   hideWindows: () => invoke('captions:windows-hide'),

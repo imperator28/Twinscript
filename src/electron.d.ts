@@ -20,6 +20,12 @@ interface CaptionsAPI {
   startSession(request: Record<string, unknown>): Promise<Result<Record<string, unknown>>>;
   stopSession(): Promise<Result<Record<string, unknown>>>;
   getSessionStatus(): Promise<Result<Record<string, unknown>>>;
+  rateEvaluation(rating: {
+    sequence: number;
+    preference: 'primary' | 'shadow' | 'tie' | 'skip';
+    notes?: string;
+  }): Promise<Result<import('./captions/types').EvaluationRating>>;
+  abortShadow(): Promise<Result<Record<string, unknown>>>;
   listRecordings(): Promise<Result<Array<{
     id: string;
     startedAt: number;

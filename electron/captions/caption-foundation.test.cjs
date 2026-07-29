@@ -7,9 +7,25 @@ const {
   updateTarget,
 } = require('./caption-domain');
 const { CostMeter } = require('./cost-meter');
-const { extractResponseText, glossaryPrompt, PROFILE_MODELS } = require('./openai-normalizer');
+const {
+  extractResponseText,
+  glossaryPrompt,
+  OpenAINormalizer,
+  PROFILE_MODELS,
+} = require('./openai-normalizer');
 const { pcmRms, VadGate } = require('./vad-gate');
 const { EvaluationRecorder } = require('./evaluation-recorder');
+const { LiveTranscriptionSession } = require('./live-transcription-session');
+const { PriorityTaskQueue } = require('./priority-task-queue');
+const {
+  TranscriptCoordinator,
+  diceSimilarity,
+} = require('./transcript-coordinator');
+const {
+  buildQualitySignals,
+  protectedTokens,
+} = require('./quality-signals');
+const { CaptionSessionManager } = require('./caption-session-manager');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -72,6 +88,166 @@ test('cost meter prices two one-hour transcription channels and enforces cap', (
   assert.equal(meter.snapshot().totalUsd, 2.04);
   assert.deepEqual(events, ['warning', 'exhausted']);
   assert.equal(meter.canSpend(), false);
+  assert.equal(meter.snapshot().costByStage.transcriptionUsd, 2.04);
+});
+
+test('final transcripts release by source time and suppress cross-channel duplicates', () => {
+  const released = [];
+  const duplicates = [];
+  const coordinator = new TranscriptCoordinator({
+    onRelease: (event) => released.push(event.itemId),
+    onDuplicate: (candidate) => {
+      duplicates.push(candidate);
+      return candidate.event.channel === 'system'
+        ? candidate.event
+        : candidate.duplicateOf;
+    },
+  });
+  coordinator.submit({
+    channel: 'microphone',
+    itemId: 'later',
+    transcript: 'Move DVT to September',
+    startedAt: 200,
+    at: 500,
+  });
+  coordinator.submit({
+    channel: 'system',
+    itemId: 'earlier',
+    transcript: '确认模具时间',
+    startedAt: 100,
+    at: 450,
+  });
+  coordinator.flush();
+  assert.deepEqual(released, ['earlier', 'later']);
+  coordinator.submit({
+    channel: 'system',
+    itemId: 'echo',
+    transcript: 'Move DVT to September.',
+    startedAt: 210,
+    at: 510,
+  });
+  coordinator.flush();
+  assert.equal(duplicates.length, 1);
+  assert.ok(duplicates[0].similarity > 0.92);
+  assert.ok(diceSimilarity('公差 ±0.2 mm', '公差 ±0.2mm') > 0.9);
+  coordinator.reset();
+});
+
+test('priority queue favors final work and rejects bounded overflow', async () => {
+  const queue = new PriorityTaskQueue({ concurrency: 1, maxQueue: 2 });
+  const order = [];
+  let release;
+  const blocker = queue.run(
+    () => new Promise((resolve) => {
+      release = () => {
+        order.push('blocker');
+        resolve();
+      };
+    }),
+  );
+  const low = queue.run(async () => order.push('provisional'), { priority: 0 });
+  const high = queue.run(async () => order.push('final'), { priority: 10 });
+  await assert.rejects(
+    queue.run(async () => {}, { priority: 5 }),
+    (error) => error.code === 'normalization_backpressure',
+  );
+  release();
+  await Promise.all([blocker, low, high]);
+  assert.deepEqual(order, ['blocker', 'final', 'provisional']);
+});
+
+test('final normalization retries transient errors while provisional does not', async () => {
+  let attempts = 0;
+  const responsePayload = {
+    output_text: JSON.stringify({ source_language: 'en', text: '确认' }),
+    usage: { input_tokens: 2, output_tokens: 1 },
+  };
+  const normalizer = new OpenAINormalizer({
+    apiKey: 'test-key',
+    fetchImpl: async () => {
+      attempts += 1;
+      if (attempts < 3) {
+        return { ok: false, status: 429, text: async () => 'retry' };
+      }
+      return {
+        ok: true,
+        json: async () => responsePayload,
+        headers: new Map(),
+      };
+    },
+  });
+  const result = await normalizer.normalize({
+    sourceText: 'confirm',
+    target: 'zh',
+    profile: 'economy',
+    final: true,
+  });
+  assert.equal(result.text, '确认');
+  assert.equal(attempts, 3);
+
+  let provisionalAttempts = 0;
+  const provisional = new OpenAINormalizer({
+    apiKey: 'test-key',
+    fetchImpl: async () => {
+      provisionalAttempts += 1;
+      return { ok: false, status: 503, text: async () => 'unavailable' };
+    },
+  });
+  await assert.rejects(
+    provisional.normalize({
+      sourceText: 'confirm',
+      target: 'zh',
+      profile: 'economy',
+      final: false,
+    }),
+  );
+  assert.equal(provisionalAttempts, 1);
+});
+
+test('live transport drops bounded audio under socket backpressure', () => {
+  const events = [];
+  const usages = [];
+  const session = new LiveTranscriptionSession({
+    channel: 'microphone',
+    apiKey: 'test',
+    settings: {
+      vadEnabled: false,
+      vadThreshold: 0.01,
+      delayProfile: 'low',
+    },
+    onEvent: (event) => events.push(event),
+    onUsage: (usage) => usages.push(usage),
+  });
+  session.connected = true;
+  session.socket = {
+    readyState: 1,
+    bufferedAmount: session.maxSocketBufferedBytes + 1,
+  };
+  session.appendAudio(new Int16Array(2400).fill(1000));
+  assert.equal(usages.length, 0);
+  const transport = events.find(
+    (event) => event.type === 'transport-metric',
+  );
+  assert.equal(transport.dropReason, 'socket_backpressure');
+  assert.equal(transport.droppedAudioMs, 100);
+});
+
+test('quality checks flag script mismatch and protected engineering tokens', () => {
+  assert.deepEqual(protectedTokens('DVT-2 tolerance ±0.2 mm at 30%'), [
+    'DVT-2',
+    '±',
+    '0.2MM',
+    '30%',
+  ]);
+  const signals = buildQualitySignals({
+    sourceText: 'DVT-2 tolerance 0.2 mm',
+    english: '公差错误',
+    chinese: '公差',
+    fastPath: true,
+  });
+  assert.equal(signals.wrongAudienceLanguage.en, true);
+  assert.ok(signals.missingProtectedTokens.zh.includes('DVT-2'));
+  assert.equal(signals.fastPathDivergence, true);
 });
 
 test('VAD holds silence, retains pre-roll, and closes after post-roll', () => {
@@ -130,5 +306,40 @@ test('evaluation fixtures encrypt captions at rest and replay intact', async () 
   assert.doesNotMatch(ciphertext, /confidential tolerance/);
   const records = await recorder.read(id);
   assert.equal(records[0].payload.sourceText, 'confidential tolerance');
+  fs.appendFileSync(
+    path.join(userData, 'evaluations', `${id}.bcr`),
+    '{"truncated":',
+  );
+  const recovered = await recorder.read(id);
+  assert.equal(recovered.length, 1);
+  const recordingPath = path.join(userData, 'evaluations', `${id}.bcr`);
+  const encryptedRecord = JSON.parse(ciphertext.trim());
+  encryptedRecord.data =
+    `${encryptedRecord.data.slice(0, -2)}${
+      encryptedRecord.data.at(-2) === 'A' ? 'B' : 'A'
+    }=`;
+  fs.writeFileSync(recordingPath, `${JSON.stringify(encryptedRecord)}\n`);
+  await assert.rejects(recorder.read(id));
   fs.rmSync(userData, { recursive: true, force: true });
+});
+
+test('budget exhaustion stops active capture instead of continuing spend', async () => {
+  const statuses = [];
+  let closed = 0;
+  const manager = new CaptionSessionManager({
+    credentialStore: {},
+    settingsStore: {},
+    onStatus: (status) => statuses.push(status),
+    evaluationRecorder: { stop: async () => {} },
+  });
+  manager.active = true;
+  manager.sessionId = 'session';
+  manager.cost = { snapshot: () => ({ totalUsd: 1 }) };
+  manager.sessions.set('microphone', { close: () => { closed += 1; } });
+  manager.handleBudgetEvent({ type: 'exhausted' });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(manager.active, false);
+  assert.equal(closed, 1);
+  assert.equal(statuses[0].state, 'budget-exhausted');
+  assert.equal(statuses.at(-1).reason, 'budget-exhausted');
 });

@@ -17,6 +17,8 @@ const DEFAULT_SETTINGS = Object.freeze({
   showSourceInControl: true,
   recordEvaluation: false,
   recordingRetentionDays: 7,
+  reorderWindowMs: 400,
+  duplicateWindowMs: 1400,
 });
 
 class SettingsStore {

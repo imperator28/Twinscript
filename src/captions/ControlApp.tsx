@@ -38,6 +38,8 @@ const DEFAULT_SETTINGS: CaptionSettings = {
   showSourceInControl: true,
   recordEvaluation: false,
   recordingRetentionDays: 7,
+  reorderWindowMs: 400,
+  duplicateWindowMs: 1400,
 };
 
 function formatElapsed(milliseconds = 0) {
@@ -74,6 +76,9 @@ export function ControlApp() {
       window.captions.onStatus(setStatus),
       window.captions.onMetrics((value) => setMetrics((current) => ({ ...current, ...value, levels: { ...current.levels, ...value.levels }, speaking: { ...current.speaking, ...value.speaking } }))),
       window.captions.onCaption((event) => setCaptions((current) => {
+        if (event.suppressed) {
+          return current.filter((item) => item.id !== event.id);
+        }
         const next = [...current];
         const index = next.findIndex((item) => item.id === event.id);
         if (index >= 0) next[index] = event;
@@ -318,6 +323,16 @@ export function ControlApp() {
             <label className="toggle"><input type="checkbox" disabled={active} checked={settings.shadowEnabled} onChange={(event) => void saveSettings({ shadowEnabled: event.target.checked })} /><span>Run a shadow comparison</span></label>
             <label className="field"><span>Shadow profile</span><select disabled={active || !settings.shadowEnabled} value={settings.shadowProfile} onChange={(event) => void saveSettings({ shadowProfile: event.target.value as CaptionSettings['shadowProfile'] })}><option value="economy">Economy</option><option value="tiered">Tiered</option><option value="quality">Quality</option></select></label>
             <label className="field"><span>Session budget cap (USD)</span><input type="number" min="0.5" max="50" step="0.5" value={settings.budgetUsd} onChange={(event) => void saveSettings({ budgetUsd: Number(event.target.value) })} /></label>
+            {active && settings.shadowEnabled && (
+              <button
+                className="button button--quiet"
+                onClick={() => void window.captions.abortShadow().then((result) => {
+                  setNotice(result.ok ? 'Shadow comparison stopped. Primary audience captions continue.' : result.error.message);
+                })}
+              >
+                Stop shadow comparison
+              </button>
+            )}
           </article>
 
           <article className="card">

@@ -40,6 +40,8 @@ export interface CaptionEvent {
     normalizationCalls: number;
     estimatedCostUsd: number;
   };
+  suppressed?: boolean;
+  suppressionReason?: string;
 }
 
 export interface AudienceCaption {
@@ -58,6 +60,8 @@ export interface AudienceCaption {
   sourceStartedAt: number;
   firstRenderedAt?: number;
   finalizedAt?: number;
+  suppressed?: boolean;
+  suppressionReason?: string;
 }
 
 export interface SessionStatus {
@@ -79,9 +83,34 @@ export interface SessionMetrics {
   cachedInputTokens?: number;
   outputTokens?: number;
   normalizationCalls?: number;
+  costByStage?: {
+    transcriptionUsd: number;
+    primaryUsd: number;
+    shadowUsd: number;
+  };
   elapsedMs?: number;
   levels?: Partial<Record<'microphone' | 'system', number>>;
   speaking?: Partial<Record<'microphone' | 'system', boolean>>;
+  diagnostics?: {
+    duplicateCandidates: number;
+    suppressedDuplicates: number;
+    droppedAudioMs: Record<'microphone' | 'system', number>;
+    reconnects: Record<'microphone' | 'system', number>;
+    providerErrors: number;
+  };
+  transport?: Partial<
+    Record<
+      'microphone' | 'system',
+      {
+        sentAudioMs: number;
+        droppedAudioMs: number;
+        pendingChunks: number;
+        bufferedBytes: number;
+        dropReason?: string;
+      }
+    >
+  >;
+  normalizationQueue?: { running: number; queued: number };
 }
 
 export interface EvaluationResult {
@@ -106,6 +135,29 @@ export interface EvaluationResult {
     | { error: string }
     | null;
   metrics: SessionMetrics;
+  stageLatency: {
+    transcriptionMs: number;
+    reorderMs: number;
+    normalizationMs: number;
+    firstEnglishMs: number | null;
+    firstChineseMs: number | null;
+    endToEndMs: number;
+  };
+  signals: {
+    sourceClass: 'en' | 'zh' | 'mixed' | 'unknown';
+    mixedSource: boolean;
+    wrongAudienceLanguage: { en: boolean; zh: boolean };
+    missingProtectedTokens: { en: string[]; zh: string[] };
+    fastPathDivergence: boolean;
+    fastPathSimilarity: number | null;
+  };
+}
+
+export interface EvaluationRating {
+  sequence: number;
+  preference: 'primary' | 'shadow' | 'tie' | 'skip';
+  notes: string;
+  ratedAt: number;
 }
 
 export interface CaptionSettings {
@@ -129,4 +181,6 @@ export interface CaptionSettings {
   showSourceInControl: boolean;
   recordEvaluation: boolean;
   recordingRetentionDays: number;
+  reorderWindowMs: number;
+  duplicateWindowMs: number;
 }

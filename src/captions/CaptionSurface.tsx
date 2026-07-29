@@ -11,6 +11,9 @@ export function CaptionSurface({ audience }: { audience: Audience }) {
   useEffect(() => {
     const offCaption = window.captions.onAudienceCaption((event) => {
       setCaptions((current) => {
+        if (event.suppressed) {
+          return current.filter((item) => item.id !== event.id);
+        }
         const next = [...current];
         const index = next.findIndex((item) => item.id === event.id);
         if (index >= 0) next[index] = event;

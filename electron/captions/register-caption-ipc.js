@@ -67,6 +67,10 @@ function registerCaptionIpc({
   });
   handle('captions:session-stop', async () => sessionManager.stop());
   handle('captions:session-status', () => sessionManager.snapshot());
+  handle('captions:evaluation-rate', (rating) =>
+    sessionManager.rateEvaluation(rating),
+  );
+  handle('captions:shadow-abort', () => sessionManager.abortShadow());
   handle('captions:recordings-list', () => evaluationRecorder.list());
   handle('captions:windows-show', () => windows.showAll());
   handle('captions:windows-hide', () => windows.hideAll());

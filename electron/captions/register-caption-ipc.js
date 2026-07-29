@@ -70,6 +70,9 @@ function registerCaptionIpc({
   handle('captions:evaluation-rate', (rating) =>
     sessionManager.rateEvaluation(rating),
   );
+  handle('captions:screening-prompt-set', (prompt) =>
+    sessionManager.setScreeningPrompt(prompt),
+  );
   handle('captions:shadow-abort', () => sessionManager.abortShadow());
   handle('captions:recordings-list', () => evaluationRecorder.list());
   handle('captions:windows-show', () => windows.showAll());

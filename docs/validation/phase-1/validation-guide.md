@@ -65,6 +65,25 @@ judgment remains authoritative.
 
 Export both JSON and the readable log at the end.
 
+## Scripted screening corpus
+
+After the shakedown, enable **Session → Phase 1 screening → Use corpus**. The
+runner contains 256 prompts and shows the expected source channel:
+
+- read microphone prompts into the selected microphone;
+- play system prompts through the meeting application;
+- wait for the final caption, then choose **Mark spoken · Next**;
+- use **Compare → Quality score and failure flags** before choosing A/B.
+
+The app snapshots the active prompt when the final provider item arrives and
+stores its ID with the evaluation. Do not advance before the final appears.
+The reference disclosure is for adjudication; keep it closed during the first
+read if you want to minimize reviewer bias.
+
+It is fine to split the corpus across several sessions. Export each session,
+and keep encrypted fixtures local. The scripted corpus is a Phase 1 screening
+tool, not sufficient evidence for the formal launch-rate gates.
+
 ## Thirty-to-sixty-minute meeting validation
 
 Use the actual meeting application and share the full desktop. Confirm from a

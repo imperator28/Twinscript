@@ -35,6 +35,8 @@ contextBridge.exposeInMainWorld('captions', {
   stopSession: () => invoke('captions:session-stop'),
   getSessionStatus: () => invoke('captions:session-status'),
   rateEvaluation: (rating) => invoke('captions:evaluation-rate', rating),
+  setScreeningPrompt: (prompt) =>
+    invoke('captions:screening-prompt-set', prompt),
   abortShadow: () => invoke('captions:shadow-abort'),
   listRecordings: () => invoke('captions:recordings-list'),
   showWindows: () => invoke('captions:windows-show'),

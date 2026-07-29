@@ -1,6 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { AudioCaptureController, enumerateAudioDevices, type AudioDeviceOption } from './audioCapture';
 import { EvaluationPanel } from './EvaluationPanel';
+import {
+  SCREENING_CORPUS,
+  SCREENING_CORPUS_SUMMARY,
+} from './screeningCorpus';
 import type {
   CaptionEvent,
   CaptionSettings,
@@ -68,6 +72,8 @@ export function ControlApp() {
   const [glossaryText, setGlossaryText] = useState('');
   const [recordings, setRecordings] = useState<Recording[]>([]);
   const [recordingId, setRecordingId] = useState('');
+  const [screeningEnabled, setScreeningEnabled] = useState(false);
+  const [screeningIndex, setScreeningIndex] = useState(0);
   const audio = useRef(new AudioCaptureController());
   const active = ['starting', 'running', 'degraded', 'budget-warning'].includes(status.state);
 
@@ -135,7 +141,14 @@ export function ControlApp() {
     setCaptions([]);
     setEvaluations([]);
     setMetrics({});
-    const result = await window.captions.startSession({ mode, settings });
+    const result = await window.captions.startSession({
+      mode,
+      settings,
+      screeningPrompt:
+        mode === 'live' && screeningEnabled
+          ? SCREENING_CORPUS[screeningIndex]
+          : null,
+    });
     if (!result.ok) {
       setNotice(result.error.message);
       setStatus({ state: 'ready' });
@@ -212,6 +225,17 @@ export function ControlApp() {
       captions[captions.length - 1],
     [captions],
   );
+  const screeningPrompt = SCREENING_CORPUS[screeningIndex];
+  const selectScreeningPrompt = async (index: number) => {
+    const bounded = Math.max(0, Math.min(SCREENING_CORPUS.length - 1, index));
+    setScreeningIndex(bounded);
+    if (active && screeningEnabled) {
+      const result = await window.captions.setScreeningPrompt(
+        SCREENING_CORPUS[bounded],
+      );
+      if (!result.ok) setNotice(result.error.message);
+    }
+  };
   const statusLabel = active ? 'LIVE' : status.state === 'stopped' ? 'ENDED' : 'READY';
 
   return (
@@ -291,6 +315,74 @@ export function ControlApp() {
                 <button className="button button--stop" disabled={busy} onClick={() => void stop()}>End Session</button>
               )}
             </div>
+          </article>
+
+          <article className="card screening-card">
+            <div className="section-heading">
+              <div>
+                <p className="eyebrow">PHASE 1 SCREENING</p>
+                <h2>Scripted bilingual prompt runner</h2>
+              </div>
+              <label className="toggle toggle--compact">
+                <input
+                  type="checkbox"
+                  disabled={active}
+                  checked={screeningEnabled}
+                  onChange={(event) => setScreeningEnabled(event.target.checked)}
+                />
+                <span>Use corpus</span>
+              </label>
+            </div>
+            <p className="supporting-copy">
+              {SCREENING_CORPUS_SUMMARY.total} consent-safe prompts ·{' '}
+              {SCREENING_CORPUS_SUMMARY.codeSwitch} code-switch ·{' '}
+              {SCREENING_CORPUS_SUMMARY.critical} with critical values. Results
+              are evidence only when captured from real speech.
+            </p>
+            {screeningEnabled && (
+              <div className="screening-runner">
+                <div className="screening-meta">
+                  <span>
+                    {screeningIndex + 1} / {SCREENING_CORPUS.length}
+                  </span>
+                  <span>{screeningPrompt.languageClass.replace('-', ' ')}</span>
+                  <span>
+                    {screeningPrompt.sourceChannel === 'microphone'
+                      ? 'Speak into microphone'
+                      : 'Play through meeting/system audio'}
+                  </span>
+                </div>
+                <p className="screening-condition">{screeningPrompt.condition}</p>
+                <blockquote lang={screeningPrompt.languageClass === 'en' ? 'en' : 'zh-Hans'}>
+                  {screeningPrompt.sourceText}
+                </blockquote>
+                <details className="diagnostic-details">
+                  <summary>Reference meaning and protected values</summary>
+                  <p lang="en">{screeningPrompt.englishReference}</p>
+                  <p lang="zh-Hans">{screeningPrompt.chineseReference}</p>
+                  <p>
+                    Protected:{' '}
+                    {screeningPrompt.protectedTokens.join(' · ') || 'None'}
+                  </p>
+                </details>
+                <div className="screening-actions">
+                  <button
+                    className="button button--quiet"
+                    disabled={screeningIndex === 0}
+                    onClick={() => void selectScreeningPrompt(screeningIndex - 1)}
+                  >
+                    Previous
+                  </button>
+                  <button
+                    className="button button--secondary"
+                    disabled={screeningIndex === SCREENING_CORPUS.length - 1}
+                    onClick={() => void selectScreeningPrompt(screeningIndex + 1)}
+                  >
+                    Mark spoken · Next
+                  </button>
+                </div>
+              </div>
+            )}
           </article>
 
           {captions.length > 0 && (

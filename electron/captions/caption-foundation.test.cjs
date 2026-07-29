@@ -25,7 +25,10 @@ const {
   buildQualitySignals,
   protectedTokens,
 } = require('./quality-signals');
-const { CaptionSessionManager } = require('./caption-session-manager');
+const {
+  CaptionSessionManager,
+  sanitizeScreeningPrompt,
+} = require('./caption-session-manager');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -342,4 +345,66 @@ test('budget exhaustion stops active capture instead of continuing spend', async
   assert.equal(closed, 1);
   assert.equal(statuses[0].state, 'budget-exhausted');
   assert.equal(statuses.at(-1).reason, 'budget-exhausted');
+});
+
+test('screening prompts and structured bilingual ratings fail closed', () => {
+  const prompt = sanitizeScreeningPrompt({
+    id: 'tolerance-1-mixed-inline',
+    sourceChannel: 'microphone',
+    languageClass: 'mixed-inline',
+    condition: 'Quiet room',
+    sourceText: '把支架的 tolerance 控制在 ±0.2 mm。',
+    englishReference: 'Hold the bracket tolerance to ±0.2 mm.',
+    chineseReference: '把支架的公差控制在 ±0.2 mm。',
+    protectedTokens: ['±0.2 mm'],
+    critical: true,
+  });
+  assert.equal(prompt.id, 'tolerance-1-mixed-inline');
+  assert.equal(prompt.scripted, true);
+  assert.throws(() => sanitizeScreeningPrompt({ id: '../unsafe' }));
+
+  const manager = new CaptionSessionManager({
+    credentialStore: {},
+    settingsStore: {},
+  });
+  const rating = manager.rateEvaluation({
+    sequence: 1,
+    preference: 'primary',
+    semanticScore: 4,
+    flags: ['terminology', 'unknown', 'terminology'],
+    notes: '  Material wording differed.  ',
+  });
+  assert.equal(rating.semanticScore, 4);
+  assert.deepEqual(rating.flags, ['terminology']);
+  assert.equal(rating.notes, 'Material wording differed.');
+  assert.throws(() =>
+    manager.rateEvaluation({
+      sequence: 2,
+      preference: 'shadow',
+      semanticScore: 6,
+    }),
+  );
+});
+
+test('each new session starts with isolated captions and judgments', async () => {
+  const manager = new CaptionSessionManager({
+    credentialStore: {},
+    settingsStore: {
+      get: () => ({
+        budgetUsd: 5,
+        shadowEnabled: false,
+        reorderWindowMs: 400,
+        duplicateWindowMs: 1400,
+      }),
+      set: () => {},
+    },
+  });
+  manager.history.push({ id: 'old-caption' });
+  manager.evaluationHistory.push({ sequence: 99 });
+  manager.evaluationRatings.set(99, { preference: 'primary' });
+  await manager.start({ mode: 'mock' });
+  assert.equal(manager.history.length, 0);
+  assert.equal(manager.evaluationHistory.length, 0);
+  assert.equal(manager.evaluationRatings.size, 0);
+  await manager.stop();
 });

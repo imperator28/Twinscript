@@ -23,8 +23,13 @@ interface CaptionsAPI {
   rateEvaluation(rating: {
     sequence: number;
     preference: 'primary' | 'shadow' | 'tie' | 'skip';
+    semanticScore?: number | null;
+    flags?: import('./captions/types').EvaluationFlag[];
     notes?: string;
   }): Promise<Result<import('./captions/types').EvaluationRating>>;
+  setScreeningPrompt(
+    prompt: import('./captions/screeningCorpus').ScreeningPrompt | null,
+  ): Promise<Result<import('./captions/screeningCorpus').ScreeningPrompt | null>>;
   abortShadow(): Promise<Result<Record<string, unknown>>>;
   listRecordings(): Promise<Result<Array<{
     id: string;

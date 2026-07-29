@@ -1,11 +1,28 @@
 import { useMemo, useState } from 'react';
 import type {
+  EvaluationFlag,
   EvaluationRating,
   EvaluationResult,
 } from './types';
 
 type Candidate = EvaluationResult['primary'] | Exclude<EvaluationResult['shadow'], null | { error: string }>;
 type VisibleChoice = 'a' | 'b' | 'tie' | 'skip';
+type RatingDraft = {
+  semanticScore: number | null;
+  flags: EvaluationFlag[];
+  notes: string;
+};
+
+const QUALITY_FLAGS: Array<{ value: EvaluationFlag; label: string }> = [
+  { value: 'wrong-language', label: 'Wrong language' },
+  { value: 'omission', label: 'Material omission' },
+  { value: 'hallucination', label: 'Added meaning' },
+  { value: 'number-unit-id', label: 'Number / unit / ID' },
+  { value: 'terminology', label: 'Terminology' },
+  { value: 'late', label: 'Too late' },
+  { value: 'flutter', label: 'Distracting reversal' },
+  { value: 'duplicate', label: 'Duplicate' },
+];
 
 function hasShadow(
   result: EvaluationResult,
@@ -55,6 +72,7 @@ function signalLabels(result: EvaluationResult) {
 
 export function EvaluationPanel({ results }: { results: EvaluationResult[] }) {
   const [ratings, setRatings] = useState<Record<number, EvaluationRating>>({});
+  const [drafts, setDrafts] = useState<Record<number, RatingDraft>>({});
   const [pending, setPending] = useState<number | null>(null);
 
   const summary = useMemo(() => {
@@ -93,10 +111,18 @@ export function EvaluationPanel({ results }: { results: EvaluationResult[] }) {
         : (choice === 'a') === primaryIsA
           ? 'primary'
           : 'shadow';
+    const draft = drafts[result.sequence] || {
+      semanticScore: null,
+      flags: [],
+      notes: '',
+    };
     setPending(result.sequence);
     const response = await window.captions.rateEvaluation({
       sequence: result.sequence,
       preference,
+      semanticScore: draft.semanticScore,
+      flags: draft.flags,
+      notes: draft.notes,
     });
     setPending(null);
     if (response.ok) {
@@ -137,10 +163,25 @@ export function EvaluationPanel({ results }: { results: EvaluationResult[] }) {
             const primaryIsA = result.sequence % 2 === 1;
             const rating = ratings[result.sequence];
             const signals = signalLabels(result);
+            const draft = drafts[result.sequence] || {
+              semanticScore: null,
+              flags: [],
+              notes: '',
+            };
+            const updateDraft = (patch: Partial<RatingDraft>) =>
+              setDrafts((current) => ({
+                ...current,
+                [result.sequence]: { ...draft, ...patch },
+              }));
             return (
               <article className="evaluation-row" key={`${result.sessionId}-${result.sequence}`}>
                 <div className="evaluation-source">
-                  <span>#{result.sequence} · {result.sourceChannel}</span>
+                  <span>
+                    #{result.sequence} · {result.sourceChannel}
+                    {result.screeningPrompt
+                      ? ` · ${result.screeningPrompt.id}`
+                      : ''}
+                  </span>
                   <p>{result.sourceText}</p>
                 </div>
                 {hasShadow(result) ? (
@@ -157,6 +198,65 @@ export function EvaluationPanel({ results }: { results: EvaluationResult[] }) {
                         revealProfile={Boolean(rating)}
                       />
                     </div>
+                    <details className="quality-review">
+                      <summary>Quality score and failure flags</summary>
+                      <div className="quality-review__body">
+                        <label className="field">
+                          <span>Semantic accuracy</span>
+                          <select
+                            disabled={Boolean(rating)}
+                            value={draft.semanticScore ?? ''}
+                            onChange={(event) =>
+                              updateDraft({
+                                semanticScore: event.target.value
+                                  ? Number(event.target.value)
+                                  : null,
+                              })
+                            }
+                          >
+                            <option value="">Not scored</option>
+                            {[1, 2, 3, 4, 5].map((score) => (
+                              <option value={score} key={score}>
+                                {score} / 5
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <div className="quality-flags" aria-label="Failure flags">
+                          {QUALITY_FLAGS.map((flag) => (
+                            <label className="toggle toggle--compact" key={flag.value}>
+                              <input
+                                type="checkbox"
+                                disabled={Boolean(rating)}
+                                checked={draft.flags.includes(flag.value)}
+                                onChange={(event) =>
+                                  updateDraft({
+                                    flags: event.target.checked
+                                      ? [...draft.flags, flag.value]
+                                      : draft.flags.filter(
+                                          (value) => value !== flag.value,
+                                        ),
+                                  })
+                                }
+                              />
+                              <span>{flag.label}</span>
+                            </label>
+                          ))}
+                        </div>
+                        <label className="field">
+                          <span>Optional note</span>
+                          <input
+                            type="text"
+                            disabled={Boolean(rating)}
+                            maxLength={500}
+                            value={draft.notes}
+                            onChange={(event) =>
+                              updateDraft({ notes: event.target.value })
+                            }
+                          />
+                        </label>
+                      </div>
+                    </details>
                     <div className="judgement-row" aria-label={`Rate caption ${result.sequence}`}>
                       {(['a', 'tie', 'b', 'skip'] as VisibleChoice[]).map((choice) => (
                         <button

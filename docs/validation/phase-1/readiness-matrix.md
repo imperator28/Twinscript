@@ -18,8 +18,8 @@ finishes the remote-overlay check, representative A/B review, and soak.
 | P1-7 pipeline and caption bus | Main-process orchestrator, identical canonical event projected to two audience windows, isolated/abortable shadow | Ready |
 | P1-8 record/replay | Opt-in AES-256-GCM fixtures, protected installation key, authenticated records, atomic manifests, accelerated replay | Ready |
 | P1-9 A/B shell | Blinded alternating A/B candidates, saved judgments, latency stages, automated quality signals, cost and transport diagnostics, JSON/Markdown exports | Ready |
-| P1-10 comparison adapters | Normalization-profile comparison is built. The higher-cost realtime-translate benchmark remains conditional and should be added only if Economy vs Tiered does not produce a clear decision. | Conditional |
-| P1-11 corpus and scoring | Demo fixtures and export schema are built; the 200+ screening set and bilingual judgments are evidence collection, not fabricated test data | User-run |
+| P1-10 comparison adapters | Normalization-profile comparison is built. Official-contract and cost review gates the four-stream realtime-translate probe behind an inconclusive Economy/Tiered result; see architecture decision. | Ready; conditional probe not triggered |
+| P1-11 corpus and scoring | 256-prompt in-app runner, stable prompt/result linkage, dual-channel and code-switch coverage tests, blinded preference, 1–5 semantic score, failure flags, encrypted fixture, JSON/Markdown export | Ready; speech capture and judgments are user-run |
 | P1-12 observability and budget | Audio/text cost by stage, queue depth, drops, reconnects, duplicates, latency stages, 75% warning, hard stop at cap | Ready |
 | P1-13 resilience and soak | Deterministic retry/backpressure/budget/encryption tests are built | Device switch, sleep/wake, display/Space changes, and 60-minute soak are user-run |
 
@@ -51,8 +51,9 @@ The focused suite covers:
    desktop is shared, including fullscreen presentation.
 2. Run the 10-minute bilingual shakedown and rate A/B lines before profiles are
    revealed.
-3. Run one representative 30–60-minute meeting and compare the in-app estimate
+3. Run the 256-prompt screening set over one or more consented/scripted sessions.
+4. Run one representative 30–60-minute meeting and compare the in-app estimate
    with provider-reported usage.
-4. Complete the 60-minute reliability soak with both audience windows open.
-5. Record the selected profile, VAD/fast-path decision, measured hourly cost,
+5. Complete the 60-minute reliability soak with both audience windows open.
+6. Record the selected profile, VAD/fast-path decision, measured hourly cost,
    limitations, and rejected candidates in the architecture decision.

@@ -24,6 +24,38 @@ function errorTarget(error) {
   };
 }
 
+function sanitizeScreeningPrompt(prompt) {
+  if (!prompt) return null;
+  const value = {
+    id: String(prompt.id || '').trim().slice(0, 120),
+    sourceChannel: prompt.sourceChannel,
+    languageClass: String(prompt.languageClass || '').trim().slice(0, 40),
+    condition: String(prompt.condition || '').trim().slice(0, 160),
+    sourceText: String(prompt.sourceText || '').trim().slice(0, 1000),
+    englishReference: String(prompt.englishReference || '').trim().slice(0, 1000),
+    chineseReference: String(prompt.chineseReference || '').trim().slice(0, 1000),
+    protectedTokens: Array.isArray(prompt.protectedTokens)
+      ? prompt.protectedTokens
+          .map((token) => String(token || '').trim().slice(0, 120))
+          .filter(Boolean)
+          .slice(0, 20)
+      : [],
+    critical: Boolean(prompt.critical),
+    scripted: true,
+  };
+  if (
+    !value.id ||
+    !['microphone', 'system'].includes(value.sourceChannel) ||
+    !['en', 'zh', 'mixed-between', 'mixed-inline'].includes(value.languageClass) ||
+    !value.sourceText ||
+    !value.englishReference ||
+    !value.chineseReference
+  ) {
+    throw new Error('Invalid screening prompt');
+  }
+  return value;
+}
+
 class CaptionSessionManager {
   constructor({
     credentialStore,
@@ -87,12 +119,15 @@ class CaptionSessionManager {
     this.normalizationScheduler = null;
     this.evaluationHistory = [];
     this.evaluationRatings = new Map();
+    this.screeningPrompt = null;
+    this.screeningPromptByItem = new Map();
     this.provisionalCallsByItem = new Map();
     this.lastMetricsRecordedAt = 0;
   }
 
   async start(request = {}) {
     if (this.active) await this.stop();
+    this.reset();
     this.sessionId = crypto.randomUUID();
     this.settings = { ...this.settingsStore.get(), ...(request.settings || {}) };
     this.settingsStore.set(this.settings);
@@ -113,6 +148,7 @@ class CaptionSessionManager {
       concurrency: 2,
       maxQueue: 24,
     });
+    this.screeningPrompt = sanitizeScreeningPrompt(request.screeningPrompt);
 
     this.onStatus({
       state: 'starting',
@@ -279,6 +315,9 @@ class CaptionSessionManager {
     if (event.final) {
       const key = `${event.channel}:${event.itemId}`;
       this.cancelProvisional(key);
+      if (this.screeningPrompt) {
+        this.screeningPromptByItem.set(key, this.screeningPrompt);
+      }
       this.coordinator.submit(event);
       return;
     }
@@ -521,6 +560,7 @@ class CaptionSessionManager {
       sequence: primary.sequence,
       sourceChannel: primary.sourceChannel,
       sourceText: primary.sourceText,
+      screeningPrompt: this.screeningPromptByItem.get(key) || null,
       primary: {
         profile: this.settings.primaryProfile,
         english: primary.english.text,
@@ -561,16 +601,53 @@ class CaptionSessionManager {
     this.evaluationRecorder?.record('evaluation', evaluation);
   }
 
-  rateEvaluation({ sequence, preference, notes = '' }) {
+  setScreeningPrompt(prompt) {
+    this.screeningPrompt = sanitizeScreeningPrompt(prompt);
+    this.evaluationRecorder?.record('screening-prompt', this.screeningPrompt);
+    return this.screeningPrompt;
+  }
+
+  rateEvaluation({
+    sequence,
+    preference,
+    semanticScore = null,
+    flags = [],
+    notes = '',
+  }) {
     if (!Number.isInteger(sequence) || sequence < 1) {
       throw new Error('Invalid evaluation sequence');
     }
     if (!['primary', 'shadow', 'tie', 'skip'].includes(preference)) {
       throw new Error('Invalid comparison preference');
     }
+    const cleanScore =
+      semanticScore === null || semanticScore === undefined
+        ? null
+        : Number(semanticScore);
+    if (
+      cleanScore !== null &&
+      (!Number.isInteger(cleanScore) || cleanScore < 1 || cleanScore > 5)
+    ) {
+      throw new Error('Semantic score must be between 1 and 5');
+    }
+    const allowedFlags = new Set([
+      'wrong-language',
+      'omission',
+      'hallucination',
+      'number-unit-id',
+      'terminology',
+      'late',
+      'flutter',
+      'duplicate',
+    ]);
+    const cleanFlags = Array.isArray(flags)
+      ? [...new Set(flags.filter((flag) => allowedFlags.has(flag)))]
+      : [];
     const rating = {
       sequence,
       preference,
+      semanticScore: cleanScore,
+      flags: cleanFlags,
       notes: String(notes || '').trim().slice(0, 500),
       ratedAt: Date.now(),
     };
@@ -806,6 +883,7 @@ class CaptionSessionManager {
     this.abortControllers.clear();
     this.shadowControllers.clear();
     this.provisionalCallsByItem.clear();
+    this.screeningPromptByItem.clear();
     this.coordinator?.reset();
     for (const session of this.sessions.values()) session.close();
     this.sessions.clear();
@@ -851,10 +929,30 @@ class CaptionSessionManager {
         summary[rating.preference] = (summary[rating.preference] || 0) + 1;
         return summary;
       }, {});
+      const review = this.evaluationHistory
+        .map((evaluation) => {
+          const rating = this.evaluationRatings.get(evaluation.sequence);
+          return (
+            `### Review ${evaluation.sequence}` +
+            `${evaluation.screeningPrompt ? ` · ${evaluation.screeningPrompt.id}` : ''}\n\n` +
+            `Primary: ${evaluation.primary.profile}\n\n` +
+            `Shadow: ${
+              evaluation.shadow && !evaluation.shadow.error
+                ? evaluation.shadow.profile
+                : 'Unavailable'
+            }\n\n` +
+            `Preference: ${rating?.preference || 'Unrated'}\n\n` +
+            `Semantic score: ${rating?.semanticScore || 'Not scored'}\n\n` +
+            `Flags: ${rating?.flags?.join(', ') || 'None'}\n\n` +
+            `Notes: ${rating?.notes || 'None'}`
+          );
+        })
+        .join('\n\n');
       return (
         `# Bilingual caption session\n\nSession: ${this.sessionId}\n\n` +
         `Estimated cost: $${(this.cost?.snapshot().totalUsd || 0).toFixed(4)}\n\n` +
-        `A/B ratings: ${JSON.stringify(counts)}\n\n${body}\n`
+        `A/B ratings: ${JSON.stringify(counts)}\n\n${body}\n\n` +
+        `## Blinded review evidence\n\n${review || 'No review evidence.'}\n`
       );
     }
     return JSON.stringify(
@@ -869,6 +967,16 @@ class CaptionSessionManager {
         captions: this.history,
         evaluations: this.evaluationHistory,
         ratings: [...this.evaluationRatings.values()],
+        screening: {
+          scripted: true,
+          promptsObserved: [
+            ...new Set(
+              this.evaluationHistory
+                .map((item) => item.screeningPrompt?.id)
+                .filter(Boolean),
+            ),
+          ],
+        },
       },
       null,
       2,
@@ -876,4 +984,8 @@ class CaptionSessionManager {
   }
 }
 
-module.exports = { CaptionSessionManager, errorTarget };
+module.exports = {
+  CaptionSessionManager,
+  errorTarget,
+  sanitizeScreeningPrompt,
+};

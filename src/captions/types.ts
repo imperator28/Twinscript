@@ -118,6 +118,7 @@ export interface EvaluationResult {
   sequence: number;
   sourceChannel: 'microphone' | 'system';
   sourceText: string;
+  screeningPrompt?: import('./screeningCorpus').ScreeningPrompt | null;
   primary: {
     profile: string;
     english: string;
@@ -153,9 +154,21 @@ export interface EvaluationResult {
   };
 }
 
+export type EvaluationFlag =
+  | 'wrong-language'
+  | 'omission'
+  | 'hallucination'
+  | 'number-unit-id'
+  | 'terminology'
+  | 'late'
+  | 'flutter'
+  | 'duplicate';
+
 export interface EvaluationRating {
   sequence: number;
   preference: 'primary' | 'shadow' | 'tie' | 'skip';
+  semanticScore: number | null;
+  flags: EvaluationFlag[];
   notes: string;
   ratedAt: number;
 }

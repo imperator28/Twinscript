@@ -34,6 +34,21 @@ module.exports = {
     extraResource: ['assets', 'resources'],
     icon: process.platform === 'win32' ? 'assets/icon.ico' : 'assets/icon',
     appBundleId: 'com.jiyu.bilingualcaptions',
+    // Local Phase 1 packages are not notarized, but they must still be
+    // internally consistent macOS bundles. Re-sign every nested executable
+    // and the final app with an ad-hoc identity after metadata/fuse changes.
+    osxSign: {
+      identity: '-',
+      identityValidation: false,
+      continueOnError: false,
+      // @electron/osx-sign applies hardened runtime in its per-file defaults;
+      // disable it for local ad-hoc signing or dyld rejects the Electron
+      // framework because neither side has a Developer ID team.
+      optionsForFile: () => ({
+        hardenedRuntime: false,
+        timestamp: false,
+      }),
+    },
     extendInfo: {
       CFBundleDisplayName: 'Bilingual Meeting Captions',
       LSApplicationCategoryType: 'public.app-category.utilities',

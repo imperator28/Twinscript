@@ -15,6 +15,8 @@ class CredentialStore {
     this.fetch = fetchImpl;
     this.directory = path.join(app.getPath('userData'), 'credentials');
     this.filePath = path.join(this.directory, 'openai.enc');
+    this.cachedKey = '';
+    this.pendingGet = null;
   }
 
   getDevelopmentKey() {
@@ -32,16 +34,39 @@ class CredentialStore {
   async get() {
     const developmentKey = this.getDevelopmentKey();
     if (developmentKey) return developmentKey;
-    try {
-      const encrypted = fs.readFileSync(this.filePath);
-      if (typeof this.safeStorage.decryptStringAsync === 'function') {
-        const decrypted = await this.safeStorage.decryptStringAsync(encrypted);
-        if (decrypted.shouldReEncrypt) await this.set(decrypted.result);
-        return decrypted.result;
+    if (this.cachedKey) return this.cachedKey;
+    if (this.pendingGet) return this.pendingGet;
+    this.pendingGet = (async () => {
+      let encrypted;
+      try {
+        encrypted = fs.readFileSync(this.filePath);
+      } catch (error) {
+        if (error.code === 'ENOENT') return '';
+        throw error;
       }
-      return this.safeStorage.decryptString(encrypted);
-    } catch {
-      return '';
+      try {
+        if (typeof this.safeStorage.decryptStringAsync === 'function') {
+          const decrypted = await this.safeStorage.decryptStringAsync(encrypted);
+          this.cachedKey = String(decrypted.result || '').trim();
+          if (decrypted.shouldReEncrypt && this.cachedKey) {
+            await this.set(this.cachedKey);
+          }
+          return this.cachedKey;
+        }
+        this.cachedKey = this.safeStorage.decryptString(encrypted).trim();
+        return this.cachedKey;
+      } catch {
+        const error = new Error(
+          'The saved API key could not be unlocked from macOS Keychain.',
+        );
+        error.code = 'credential_unlock_failed';
+        throw error;
+      }
+    })();
+    try {
+      return await this.pendingGet;
+    } finally {
+      this.pendingGet = null;
     }
   }
 
@@ -72,10 +97,13 @@ class CredentialStore {
         : this.safeStorage.encryptString(key);
     fs.mkdirSync(this.directory, { recursive: true });
     fs.writeFileSync(this.filePath, encrypted, { mode: 0o600 });
+    this.cachedKey = key;
     return this.status();
   }
 
   async delete() {
+    this.cachedKey = '';
+    this.pendingGet = null;
     try {
       fs.unlinkSync(this.filePath);
     } catch (error) {

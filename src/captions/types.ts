@@ -174,6 +174,7 @@ export interface EvaluationRating {
 }
 
 export interface CaptionSettings {
+  settingsVersion: number;
   layout: 'stacked' | 'side-by-side';
   primaryProfile: 'economy' | 'tiered' | 'quality';
   shadowProfile: 'economy' | 'tiered' | 'quality';

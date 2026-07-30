@@ -33,13 +33,14 @@ type Recording = {
 };
 
 const DEFAULT_SETTINGS: CaptionSettings = {
+  settingsVersion: 2,
   layout: 'stacked',
   primaryProfile: 'economy',
   shadowProfile: 'tiered',
   shadowEnabled: true,
   fastPath: true,
   provisionalTranslation: true,
-  vadEnabled: true,
+  vadEnabled: false,
   vadThreshold: 0.012,
   delayProfile: 'low',
   budgetUsd: 5,
@@ -92,6 +93,9 @@ export function ControlApp() {
   useEffect(() => {
     const handleStatus = (next: SessionStatus) => {
       setStatus(next);
+      if (next.state === 'degraded' && next.message) {
+        setNotice(next.message);
+      }
       if (['starting', 'running', 'degraded', 'budget-warning'].includes(next.state)) {
         setSessionActive(true);
       }
@@ -574,7 +578,7 @@ export function ControlApp() {
           <article className="card">
             <p className="eyebrow">CAPTION BEHAVIOR</p><h2>Stability and timing</h2>
             <label className="toggle"><input type="checkbox" checked={settings.provisionalTranslation} onChange={(event) => void saveSettings({ provisionalTranslation: event.target.checked })} /><span>Show provisional translation</span></label>
-            <label className="toggle"><input type="checkbox" checked={settings.vadEnabled} onChange={(event) => void saveSettings({ vadEnabled: event.target.checked })} /><span>Local voice activity gate</span></label>
+            <label className="toggle"><input type="checkbox" checked={settings.vadEnabled} onChange={(event) => void saveSettings({ vadEnabled: event.target.checked })} /><span>Stricter local voice gate (advanced)</span></label>
             <label className="field"><span>Transcription delay</span><select value={settings.delayProfile} onChange={(event) => void saveSettings({ delayProfile: event.target.value as CaptionSettings['delayProfile'] })}><option value="minimal">Minimal</option><option value="low">Low</option><option value="default">Default</option></select></label>
             <label className="field"><span>Caption size · {Math.round(settings.captionFontScale * 100)}%</span><input type="range" min="0.8" max="1.4" step="0.05" value={settings.captionFontScale} onChange={(event) => void saveSettings({ captionFontScale: Number(event.target.value) })} /></label>
           </article>

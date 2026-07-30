@@ -15,8 +15,10 @@ const {
 } = require('./openai-normalizer');
 const { pcmRms, VadGate } = require('./vad-gate');
 const { EvaluationRecorder } = require('./evaluation-recorder');
+const { CredentialStore } = require('./credential-store');
 const { LiveTranscriptionSession } = require('./live-transcription-session');
 const { PriorityTaskQueue } = require('./priority-task-queue');
+const { SettingsStore } = require('./settings-store');
 const {
   TranscriptCoordinator,
   diceSimilarity,
@@ -32,6 +34,7 @@ const {
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const { EventEmitter } = require('node:events');
 
 test('routes dominant English, Chinese, and mixed-script utterances', () => {
   assert.equal(classifyScript('Can we move DVT to September?'), 'en');
@@ -233,6 +236,133 @@ test('live transport drops bounded audio under socket backpressure', () => {
   );
   assert.equal(transport.dropReason, 'socket_backpressure');
   assert.equal(transport.droppedAudioMs, 100);
+});
+
+test('live transport waits for OpenAI to accept session configuration', async () => {
+  class MockSocket extends EventEmitter {
+    constructor() {
+      super();
+      this.readyState = 1;
+      this.bufferedAmount = 0;
+      this.sent = [];
+    }
+    send(value) {
+      this.sent.push(JSON.parse(value));
+    }
+    close() {}
+  }
+  const socket = new MockSocket();
+  const events = [];
+  let connectionUrl = '';
+  const session = new LiveTranscriptionSession({
+    channel: 'microphone',
+    apiKey: 'test',
+    settings: {
+      vadEnabled: false,
+      vadThreshold: 0.01,
+      delayProfile: 'low',
+    },
+    websocketFactory: (url) => {
+      connectionUrl = url;
+      return socket;
+    },
+    onEvent: (event) => events.push(event),
+  });
+  let ready = false;
+  const connecting = session.connect().then(() => {
+    ready = true;
+  });
+  socket.emit('open');
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(ready, false);
+  assert.equal(
+    connectionUrl,
+    'wss://api.openai.com/v1/realtime?intent=transcription',
+  );
+  assert.equal(socket.sent[0].type, 'session.update');
+  assert.equal(
+    socket.sent[0].session.audio.input.transcription.model,
+    'gpt-live-transcribe',
+  );
+  assert.equal(socket.sent[0].session.audio.input.turn_detection, null);
+  socket.emit(
+    'message',
+    Buffer.from(JSON.stringify({ type: 'session.updated', session: {} })),
+  );
+  await connecting;
+  assert.equal(ready, true);
+  assert.equal(
+    events.find((event) => event.type === 'connection').status,
+    'connected',
+  );
+});
+
+test('live transport commits a quiet speech turn after trailing silence', () => {
+  const sent = [];
+  const session = new LiveTranscriptionSession({
+    channel: 'microphone',
+    apiKey: 'test',
+    settings: {
+      vadEnabled: false,
+      vadThreshold: 0.012,
+      delayProfile: 'low',
+    },
+  });
+  session.connected = true;
+  session.socket = {
+    readyState: 1,
+    bufferedAmount: 0,
+    send: (value) => sent.push(JSON.parse(value)),
+  };
+
+  // RMS ≈ .0076: audible in the user's reported setup but below the legacy
+  // .012 threshold that previously discarded the whole utterance.
+  session.appendAudio(new Int16Array(2400).fill(250));
+  session.appendAudio(new Int16Array(2400).fill(250));
+  for (let index = 0; index < 7; index += 1) {
+    session.appendAudio(new Int16Array(2400));
+  }
+
+  assert.ok(sent.some((event) => event.type === 'input_audio_buffer.append'));
+  assert.equal(
+    sent.filter((event) => event.type === 'input_audio_buffer.commit').length,
+    1,
+  );
+});
+
+test('credential store decrypts once per app launch', async () => {
+  const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'caption-key-'));
+  const credentialPath = path.join(userData, 'credentials', 'openai.enc');
+  fs.mkdirSync(path.dirname(credentialPath), { recursive: true });
+  fs.writeFileSync(credentialPath, Buffer.from('encrypted'));
+  let decryptions = 0;
+  const store = new CredentialStore({
+    app: { isPackaged: true, getPath: () => userData },
+    safeStorage: {
+      decryptStringAsync: async () => {
+        decryptions += 1;
+        return { result: 'test-key', shouldReEncrypt: false };
+      },
+    },
+    fetchImpl: async () => ({ ok: true }),
+  });
+  assert.equal(await store.get(), 'test-key');
+  assert.equal(await store.get(), 'test-key');
+  assert.deepEqual(await store.validate(), { valid: true });
+  assert.equal(decryptions, 1);
+  fs.rmSync(userData, { recursive: true, force: true });
+});
+
+test('legacy caption settings migrate away from the lossy local VAD gate', () => {
+  const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'caption-settings-'));
+  fs.writeFileSync(
+    path.join(userData, 'caption-settings.json'),
+    JSON.stringify({ vadEnabled: true, vadThreshold: 0.012 }),
+  );
+  const settings = new SettingsStore({ getPath: () => userData }).get();
+  assert.equal(settings.settingsVersion, 2);
+  assert.equal(settings.vadEnabled, false);
+  fs.rmSync(userData, { recursive: true, force: true });
 });
 
 test('quality checks flag script mismatch and protected engineering tokens', () => {

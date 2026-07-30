@@ -29,6 +29,7 @@ vi.mock('./audioCapture', () => ({
 let statusListener: ((status: { state: string }) => void) | undefined;
 
 const settings = {
+  settingsVersion: 2,
   layout: 'stacked',
   primaryProfile: 'economy',
   shadowProfile: 'tiered',

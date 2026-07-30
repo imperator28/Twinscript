@@ -2,13 +2,14 @@ const fs = require('fs');
 const path = require('path');
 
 const DEFAULT_SETTINGS = Object.freeze({
+  settingsVersion: 2,
   layout: 'stacked',
   primaryProfile: 'economy',
   shadowProfile: 'tiered',
   shadowEnabled: true,
   fastPath: true,
   provisionalTranslation: true,
-  vadEnabled: true,
+  vadEnabled: false,
   vadThreshold: 0.012,
   delayProfile: 'low',
   budgetUsd: 5,
@@ -29,7 +30,15 @@ class SettingsStore {
   get() {
     try {
       const parsed = JSON.parse(fs.readFileSync(this.filePath, 'utf8'));
-      return { ...DEFAULT_SETTINGS, ...parsed };
+      const next = { ...DEFAULT_SETTINGS, ...parsed };
+      if (!parsed.settingsVersion || parsed.settingsVersion < 2) {
+        // Phase 1 originally enabled a local RMS gate. It can discard quiet
+        // microphones before a transcription turn is committed, so existing
+        // installs migrate to the quieter-speech segmentation profile.
+        next.settingsVersion = 2;
+        next.vadEnabled = false;
+      }
+      return next;
     } catch {
       return { ...DEFAULT_SETTINGS };
     }

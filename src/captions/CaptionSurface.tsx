@@ -34,17 +34,30 @@ export function CaptionSurface({ audience }: { audience: Audience }) {
         setFontScale(settings.captionFontScale || 1);
       }
     });
+    const hideOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') void window.captions.hideWindows();
+    };
+    window.addEventListener('keydown', hideOnEscape);
     return () => {
       offCaption();
       offStatus();
       offSettings();
+      window.removeEventListener('keydown', hideOnEscape);
     };
   }, []);
 
   const visible = useMemo(() => captions.slice(-MAX_VISIBLE_LINES), [captions]);
   const label = audience === 'en' ? 'ENGLISH' : '中文';
   const emptyText =
-    status.state === 'running'
+    status.state === 'starting'
+      ? audience === 'en'
+        ? 'Connecting…'
+        : '正在连接…'
+      : status.state === 'degraded'
+        ? audience === 'en'
+          ? 'Connection issue — check the control window'
+          : '连接异常，请查看控制窗口'
+        : status.state === 'running'
       ? audience === 'en'
         ? 'Listening…'
         : '正在聆听…'
@@ -61,17 +74,28 @@ export function CaptionSurface({ audience }: { audience: Audience }) {
     >
       <header className="caption-surface__header">
         <span>{label}</span>
-        <span className="caption-surface__status">
-          <i className={status.state === 'running' ? 'is-live' : ''} />
-          {status.state === 'running'
-            ? audience === 'en'
-              ? 'LIVE'
-              : '实时'
-            : status.state === 'degraded'
+        <span className="caption-surface__actions">
+          <span className="caption-surface__status" title={status.message}>
+            <i className={status.state === 'running' ? 'is-live' : ''} />
+            {status.state === 'running'
               ? audience === 'en'
-                ? 'CHECK CONNECTION'
-                : '请检查连接'
-              : ''}
+                ? 'LIVE'
+                : '实时'
+              : status.state === 'degraded'
+                ? audience === 'en'
+                  ? 'CHECK CONNECTION'
+                  : '请检查连接'
+                : ''}
+          </span>
+          <button
+            className="caption-surface__close"
+            type="button"
+            aria-label={audience === 'en' ? 'Hide caption windows' : '隐藏字幕窗口'}
+            title={audience === 'en' ? 'Hide both caption windows' : '隐藏两个字幕窗口'}
+            onClick={() => void window.captions.hideWindows()}
+          >
+            ×
+          </button>
         </span>
       </header>
       <section className="caption-roll">

@@ -1,8 +1,11 @@
 const WebSocket = require('ws');
 const { VadGate } = require('./vad-gate');
 
+// A dedicated transcription connection is selected by intent. A `model`
+// query parameter pre-creates a realtime conversation session, which cannot
+// then be converted to a transcription session.
 const TRANSCRIPTION_URL =
-  'wss://api.openai.com/v1/realtime?model=gpt-live-transcribe';
+  'wss://api.openai.com/v1/realtime?intent=transcription';
 
 function sanitizeKeyword(value) {
   return String(value || '')
@@ -43,32 +46,51 @@ class LiveTranscriptionSession {
     this.reconnectTimer = null;
     this.partialByItem = new Map();
     this.startedAtByItem = new Map();
+    this.rejectConnect = null;
     this.vad = new VadGate({
-      enabled: settings.vadEnabled,
-      threshold: settings.vadThreshold,
+      // gpt-live-transcribe currently requires explicit turn commits. Keep a
+      // conservative detector active for segmentation even when the advanced
+      // user-adjustable gate is disabled; in that mode it must never inherit a
+      // threshold that can discard ordinary, quieter speech.
+      enabled: true,
+      threshold: settings.vadEnabled
+        ? settings.vadThreshold
+        : Math.min(settings.vadThreshold || 0.006, 0.006),
+      preRollMs: 300,
+      postRollMs: 650,
     });
+    this.turnAudioMs = 0;
   }
 
   async connect() {
     this.closedByUser = false;
     await new Promise((resolve, reject) => {
+      let settled = false;
       const socket = this.websocketFactory(TRANSCRIPTION_URL, {
         headers: { Authorization: `Bearer ${this.apiKey}` },
       });
       this.socket = socket;
 
+      const settle = (error) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeout);
+        this.rejectConnect = null;
+        if (error) reject(error);
+        else resolve();
+      };
+      this.rejectConnect = (error) =>
+        settle(error || new Error(`${this.channel} transcription connection closed`));
       const timeout = setTimeout(() => {
-        reject(new Error(`${this.channel} transcription connection timed out`));
+        settle(new Error(`${this.channel} transcription connection timed out`));
         socket.close();
       }, 12000);
 
       socket.once('open', () => {
-        clearTimeout(timeout);
-        this.connected = true;
-        this.reconnectAttempts = 0;
         socket.send(
           JSON.stringify({
             type: 'session.update',
+            event_id: `caption-config-${this.channel}`,
             session: {
               type: 'transcription',
               audio: {
@@ -82,33 +104,41 @@ class LiveTranscriptionSession {
                     languages: ['en', 'zh-cn'],
                     delay: this.settings.delayProfile || 'low',
                   },
-                  turn_detection: {
-                    type: 'server_vad',
-                    threshold: 0.45,
-                    prefix_padding_ms: 300,
-                    silence_duration_ms: 550,
-                  },
+                  turn_detection: null,
                 },
               },
             },
           }),
         );
-        for (const pending of this.pendingChunks.splice(0)) {
-          this.sendPcm(pending);
-        }
-        this.onEvent({
-          type: 'connection',
-          channel: this.channel,
-          status: 'connected',
-          at: Date.now(),
-        });
-        resolve();
       });
 
-      socket.on('message', (payload) => this.handleMessage(payload));
+      socket.on('message', (payload) => {
+        const event = this.handleMessage(payload);
+        if (event?.type === 'session.updated' && !settled) {
+          this.connected = true;
+          this.reconnectAttempts = 0;
+          for (const pending of this.pendingChunks.splice(0)) {
+            this.sendPcm(pending);
+          }
+          this.onEvent({
+            type: 'connection',
+            channel: this.channel,
+            status: 'connected',
+            at: Date.now(),
+          });
+          settle();
+        }
+        if (event?.type === 'error' && !settled) {
+          const message =
+            event.error?.message || 'OpenAI rejected the transcription session';
+          const error = new Error(message);
+          error.code = event.error?.code || 'transcription_session_rejected';
+          settle(error);
+          socket.close();
+        }
+      });
       socket.once('error', (error) => {
-        clearTimeout(timeout);
-        if (!this.connected) reject(error);
+        if (!this.connected) settle(error);
         this.onEvent({
           type: 'error',
           channel: this.channel,
@@ -119,6 +149,9 @@ class LiveTranscriptionSession {
       });
       socket.once('close', () => {
         this.connected = false;
+        if (!settled) {
+          settle(new Error(`${this.channel} transcription connection closed`));
+        }
         this.onEvent({
           type: 'connection',
           channel: this.channel,
@@ -150,6 +183,7 @@ class LiveTranscriptionSession {
         this.reportDrop(chunk, 'disconnected_queue_full');
       }
     }
+    if (gated.ended) this.commitAudioTurn();
     this.onEvent({
       type: 'level',
       channel: this.channel,
@@ -171,6 +205,7 @@ class LiveTranscriptionSession {
       }),
     );
     const audioMs = (samples.length / 24000) * 1000;
+    this.turnAudioMs += audioMs;
     this.sentAudioMs += audioMs;
     this.onUsage({ audioMs });
     this.onEvent({
@@ -182,6 +217,19 @@ class LiveTranscriptionSession {
       bufferedBytes: this.socket?.bufferedAmount || 0,
       at: Date.now(),
     });
+  }
+
+  commitAudioTurn() {
+    if (
+      this.turnAudioMs < 100 ||
+      !this.connected ||
+      this.socket?.readyState !== WebSocket.OPEN
+    ) {
+      this.turnAudioMs = 0;
+      return;
+    }
+    this.socket.send(JSON.stringify({ type: 'input_audio_buffer.commit' }));
+    this.turnAudioMs = 0;
   }
 
   reportDrop(samples, reason) {
@@ -205,12 +253,12 @@ class LiveTranscriptionSession {
     try {
       event = JSON.parse(payload.toString());
     } catch {
-      return;
+      return null;
     }
 
     if (event.type === 'input_audio_buffer.speech_started') {
       if (event.item_id) this.startedAtByItem.set(event.item_id, Date.now());
-      return;
+      return event;
     }
 
     if (event.type === 'conversation.item.input_audio_transcription.delta') {
@@ -226,7 +274,7 @@ class LiveTranscriptionSession {
         startedAt: this.startedAtByItem.get(event.item_id) || Date.now(),
         at: Date.now(),
       });
-      return;
+      return event;
     }
 
     if (event.type === 'conversation.item.input_audio_transcription.completed') {
@@ -243,7 +291,7 @@ class LiveTranscriptionSession {
         at: Date.now(),
       });
       this.startedAtByItem.delete(event.item_id);
-      return;
+      return event;
     }
 
     if (event.type === 'error') {
@@ -256,6 +304,7 @@ class LiveTranscriptionSession {
         at: Date.now(),
       });
     }
+    return event;
   }
 
   scheduleReconnect() {
@@ -280,12 +329,16 @@ class LiveTranscriptionSession {
   close() {
     this.closedByUser = true;
     this.connected = false;
+    this.rejectConnect?.(
+      new Error(`${this.channel} transcription connection cancelled`),
+    );
+    this.rejectConnect = null;
     this.vad.reset();
+    this.turnAudioMs = 0;
     this.pendingChunks = [];
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     this.reconnectTimer = null;
     if (this.socket) {
-      this.socket.removeAllListeners('close');
       this.socket.close();
       this.socket = null;
     }

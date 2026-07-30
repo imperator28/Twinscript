@@ -29,7 +29,7 @@ vi.mock('./audioCapture', () => ({
 let statusListener: ((status: { state: string }) => void) | undefined;
 
 const settings = {
-  settingsVersion: 4,
+  settingsVersion: 5,
   layout: 'stacked',
   primaryProfile: 'economy',
   shadowProfile: 'tiered',
@@ -40,7 +40,19 @@ const settings = {
   vadThreshold: 0.012,
   delayProfile: 'low',
   budgetUsd: 5,
-  glossary: [],
+  glossaryConfigurationId: 'south-china-tooling',
+  customGlossaryConfiguration: null,
+  glossary: [
+    {
+      en: 'flash',
+      zh: '飞边',
+      aliases: ['批锋'],
+      doNotTranslate: false,
+      priority: 5,
+    },
+  ],
+  protectedTokens: ['T1', 'T2', 'EVT', 'DVT', 'PVT'],
+  glossaryStoredCount: 38,
   captionFontScale: 1,
   captionPaceMs: 1200,
   showSourceInControl: true,
@@ -67,6 +79,27 @@ describe('meeting caption controls', () => {
       onLayout: () => () => {},
       onSettings: () => () => {},
       getSettings: () => ok(settings),
+      getGlossaryConfigurations: () =>
+        ok([
+          {
+            id: 'mechanical-product-design',
+            name: 'Mechanical & Product Design',
+            description: 'CAD and drawing review.',
+            regions: [],
+            domains: ['mechanical design'],
+            termCount: 36,
+          },
+          {
+            id: 'south-china-tooling',
+            name: 'South China Tooling & Supplier Meetings',
+            description: 'Guangdong tooling and supplier terminology.',
+            regions: ['Guangdong', 'Shenzhen', 'Dongguan'],
+            domains: ['tooling'],
+            termCount: 38,
+          },
+        ]),
+      importGlossary: vi.fn(() => ok({ canceled: true })),
+      exportGlossary: vi.fn(() => ok({ canceled: true })),
       credentialStatus: () =>
         ok({
           available: true,
@@ -77,7 +110,7 @@ describe('meeting caption controls', () => {
       listRecordings: () => ok([]),
       startSession: vi.fn(() => ok({})),
       stopSession: () => ok({}),
-      setSettings: vi.fn((patch) => ok(patch)),
+      setSettings: vi.fn((patch) => ok({ ...settings, ...patch })),
       setScreeningPrompt: (prompt) => ok(prompt),
       rateEvaluation: (rating) =>
         ok({
@@ -225,5 +258,55 @@ describe('meeting caption controls', () => {
       expect.any(Function),
     );
     expect(screen.getByRole('button', { name: 'Retest microphone' })).toBeVisible();
+  });
+
+  it('uses a configuration-first glossary with product terms protected', async () => {
+    render(<ControlApp />);
+    await screen.findByText('Ready for a live meeting');
+    fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+
+    expect(
+      screen.getByRole('combobox', { name: 'Meeting type' }),
+    ).toHaveValue('south-china-tooling');
+    expect(screen.getByText(/T1, T2, EVT, DVT, and PVT stay in English/)).toBeVisible();
+    expect(screen.getByText(/1 active/)).toBeVisible();
+    expect(screen.getByText(/38 stored/)).toBeVisible();
+    expect(screen.getByText(/5 protected tokens/)).toBeVisible();
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Meeting type' }), {
+      target: { value: 'mechanical-product-design' },
+    });
+    await waitFor(() =>
+      expect(window.captions.setSettings).toHaveBeenCalledWith({
+        glossaryConfigurationId: 'mechanical-product-design',
+      }),
+    );
+  });
+
+  it('keeps custom glossary editing behind an advanced disclosure', async () => {
+    render(<ControlApp />);
+    await screen.findByText('Ready for a live meeting');
+    fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+
+    const details = screen
+      .getByText('Advanced · Custom terms and protected tokens')
+      .closest('details');
+    expect(details).not.toHaveAttribute('open');
+    fireEvent.click(screen.getByText('Advanced · Custom terms and protected tokens'));
+    expect(details).toHaveAttribute('open');
+    expect(screen.getByRole('textbox', { name: 'Custom bilingual overrides' })).toBeVisible();
+    expect(screen.getByRole('textbox', { name: 'Additional protected tokens' })).toBeVisible();
+  });
+
+  it('invokes native glossary import and export actions', async () => {
+    render(<ControlApp />);
+    await screen.findByText('Ready for a live meeting');
+    fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Import glossary' }));
+    await waitFor(() => expect(window.captions.importGlossary).toHaveBeenCalled());
+
+    fireEvent.click(screen.getByRole('button', { name: 'Export configuration' }));
+    await waitFor(() => expect(window.captions.exportGlossary).toHaveBeenCalled());
   });
 });

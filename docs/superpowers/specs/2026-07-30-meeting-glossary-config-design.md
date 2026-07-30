@@ -284,8 +284,9 @@ configuration data stays in the existing per-user settings file.
 
 ## Privacy and security
 
-- Import parsing occurs in the sandboxed renderer from a user-selected local
-  file.
+- Import uses a native open dialog and parsing occurs in the trusted main
+  process through a narrow IPC request. The renderer receives only validated
+  configuration data and import diagnostics.
 - File contents are not transmitted merely because they were imported.
 - Only the compiled active terms are later included in OpenAI transcription
   context and normalization requests during a live session.

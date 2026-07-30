@@ -32,6 +32,10 @@ contextBridge.exposeInMainWorld('captions', {
   requestMicrophoneAccess: () =>
     invoke('captions:microphone-request'),
   getSettings: () => invoke('captions:settings-get'),
+  getGlossaryConfigurations: () =>
+    invoke('captions:glossary-configurations'),
+  importGlossary: () => invoke('captions:glossary-import'),
+  exportGlossary: () => invoke('captions:glossary-export'),
   setSettings: (patch) => invoke('captions:settings-set', patch),
   startSession: (request) => invoke('captions:session-start', request),
   stopSession: () => invoke('captions:session-stop'),

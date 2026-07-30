@@ -402,15 +402,17 @@ test('legacy caption settings migrate to product-safe runtime defaults', () => {
     }),
   );
   const settings = new SettingsStore({ getPath: () => userData }).get();
-  assert.equal(settings.settingsVersion, 4);
+  assert.equal(settings.settingsVersion, 5);
   assert.equal(settings.vadEnabled, false);
   assert.equal(settings.captionPaceMs, 1200);
   assert.equal(settings.shadowEnabled, false);
   assert.equal(settings.recordEvaluation, false);
+  assert.equal(settings.glossaryConfigurationId, 'south-china-tooling');
+  assert.ok(settings.protectedTokens.includes('PVT'));
   const persisted = JSON.parse(
     fs.readFileSync(path.join(userData, 'caption-settings.json'), 'utf8'),
   );
-  assert.equal(persisted.settingsVersion, 4);
+  assert.equal(persisted.settingsVersion, 5);
   assert.equal(persisted.shadowEnabled, false);
   assert.equal(persisted.recordEvaluation, false);
   fs.rmSync(userData, { recursive: true, force: true });

@@ -1,0 +1,312 @@
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const {
+  ACTIVE_TERM_LIMIT,
+  BUILTIN_GLOSSARY_CONFIGURATIONS,
+  CORE_PRODUCT_DEVELOPMENT_TOKENS,
+  compileGlossarySelection,
+  createPortableConfiguration,
+  listGlossaryConfigurations,
+  parseGlossaryContent,
+  sanitizeConfiguration,
+} = require('./glossary-config');
+const {
+  findProtectedTokens,
+  glossaryPrompt,
+  OpenAINormalizer,
+} = require('./openai-normalizer');
+const { SettingsStore } = require('./settings-store');
+const { registerCaptionIpc } = require('./register-caption-ipc');
+const { CaptionSessionManager } = require('./caption-session-manager');
+
+test('built-in engineering glossary packs are valid and bounded', () => {
+  const summaries = listGlossaryConfigurations();
+  assert.equal(summaries.length, 4);
+  assert.equal(new Set(summaries.map((item) => item.id)).size, 4);
+  for (const configuration of BUILTIN_GLOSSARY_CONFIGURATIONS) {
+    assert.ok(configuration.terms.length > 20);
+    assert.ok(configuration.terms.length <= ACTIVE_TERM_LIMIT);
+    assert.equal(
+      new Set(configuration.terms.map((entry) => entry.en.toLowerCase())).size,
+      configuration.terms.length,
+    );
+    assert.ok(configuration.terms.every((entry) => entry.en && entry.zh));
+  }
+  const southChina = BUILTIN_GLOSSARY_CONFIGURATIONS.find(
+    (item) => item.id === 'south-china-tooling',
+  );
+  assert.deepEqual(southChina.regions, ['Guangdong', 'Shenzhen', 'Dongguan']);
+  assert.ok(
+    southChina.terms
+      .find((entry) => entry.en === 'flash')
+      .aliases.includes('批锋'),
+  );
+});
+
+test('every meeting type carries canonical product-development tokens', () => {
+  const compiled = compileGlossarySelection('mechanical-product-design', null);
+  for (const token of ['T1', 'T2', 'EVT', 'DVT', 'PVT', 'NPI']) {
+    assert.ok(CORE_PRODUCT_DEVELOPMENT_TOKENS.includes(token));
+    assert.ok(compiled.protectedTokens.includes(token));
+  }
+  assert.equal(compiled.glossary.length, compiled.glossaryStoredCount);
+});
+
+test('custom terms override built-ins and do not consume protected-token slots', () => {
+  const compiled = compileGlossarySelection('mechanical-product-design', {
+    schemaVersion: 1,
+    id: 'project-falcon',
+    name: 'Project Falcon',
+    description: '',
+    regions: [],
+    domains: [],
+    protectedTokens: ['pvt', 'ABC-123'],
+    terms: [
+      {
+        en: 'boss',
+        zh: '凸柱',
+        aliases: ['凸台'],
+        priority: 5,
+      },
+    ],
+  });
+  assert.equal(compiled.glossary[0].en, 'boss');
+  assert.equal(compiled.glossary[0].zh, '凸柱');
+  assert.ok(compiled.glossary[0].aliases.includes('凸台'));
+  assert.equal(
+    compiled.protectedTokens.filter((token) => token.toLowerCase() === 'pvt')
+      .length,
+    1,
+  );
+  assert.ok(compiled.protectedTokens.includes('PVT'));
+  assert.ok(compiled.protectedTokens.includes('ABC-123'));
+});
+
+test('JSON, CSV, TSV, and TXT imports normalize into portable configurations', () => {
+  const json = parseGlossaryContent({
+    extension: 'json',
+    fileName: 'supplier',
+    text: JSON.stringify({
+      schemaVersion: 1,
+      id: 'supplier',
+      name: 'Supplier',
+      description: '<b>Private</b>\u0000 terms',
+      regions: ['Shenzhen'],
+      domains: ['tooling'],
+      protectedTokens: ['Gate-4'],
+      terms: [{ en: 'flash', zh: '飞边', aliases: ['批锋'], priority: 5 }],
+    }),
+  });
+  assert.equal(json.configuration.description, 'Private terms');
+  assert.deepEqual(json.configuration.protectedTokens, ['Gate-4']);
+
+  const csv = parseGlossaryContent({
+    extension: 'csv',
+    fileName: 'csv-file',
+    text:
+      'en,zh,aliases,doNotTranslate,priority\n' +
+      'flash,飞边,批锋|披锋,false,5\n' +
+      'flash,飞边,披锋,false,4\n' +
+      'missing,,,,3\n',
+  });
+  assert.equal(csv.configuration.terms.length, 1);
+  assert.equal(csv.duplicateCount, 1);
+  assert.deepEqual(csv.rejectedRows, [4]);
+
+  const tsv = parseGlossaryContent({
+    extension: 'tsv',
+    fileName: 'tsv-file',
+    text: 'en\tzh\taliases\nboss\t凸台\t凸柱\n',
+  });
+  assert.equal(tsv.configuration.terms[0].zh, '凸台');
+
+  const txt = parseGlossaryContent({
+    extension: 'txt',
+    fileName: 'txt-file',
+    text: '# project terms\nwall thickness = 壁厚\ninvalid row\n',
+  });
+  assert.equal(txt.configuration.terms[0].en, 'wall thickness');
+  assert.deepEqual(txt.rejectedRows, [3]);
+});
+
+test('portable JSON re-imports without losing terms or protected tokens', () => {
+  const settings = compileGlossarySelection('south-china-tooling', {
+    schemaVersion: 1,
+    id: 'custom',
+    name: 'Custom',
+    description: '',
+    regions: [],
+    domains: [],
+    protectedTokens: ['ABC-123'],
+    terms: [{ en: 'project colour', zh: '项目颜色', priority: 5 }],
+  });
+  const exported = createPortableConfiguration(settings);
+  const imported = parseGlossaryContent({
+    extension: 'json',
+    fileName: 'portable',
+    text: JSON.stringify(exported),
+  }).configuration;
+  assert.equal(imported.terms.length, exported.terms.length);
+  assert.deepEqual(imported.protectedTokens, exported.protectedTokens);
+});
+
+test('legacy flat glossary migrates into custom overrides', () => {
+  const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'glossary-settings-'));
+  fs.writeFileSync(
+    path.join(userData, 'caption-settings.json'),
+    JSON.stringify({
+      settingsVersion: 4,
+      glossary: [{ en: 'project falcon', zh: '猎鹰项目' }],
+    }),
+  );
+  const settings = new SettingsStore({ getPath: () => userData }).get();
+  assert.equal(settings.settingsVersion, 5);
+  assert.equal(settings.customGlossaryConfiguration.terms[0].en, 'project falcon');
+  assert.equal(settings.glossary[0].en, 'project falcon');
+  assert.ok(settings.protectedTokens.includes('PVT'));
+  fs.rmSync(userData, { recursive: true, force: true });
+});
+
+test('normalizer preserves and canonicalizes protected tokens in both languages', async () => {
+  let attempts = 0;
+  const usageEvents = [];
+  const normalizer = new OpenAINormalizer({
+    apiKey: 'test-key',
+    onUsage: (usage) => usageEvents.push(usage),
+    fetchImpl: async (_url, options) => {
+      attempts += 1;
+      const request = JSON.parse(options.body);
+      assert.match(
+        request.input[0].content[0].text,
+        /Protected literal tokens.*PVT/,
+      );
+      const text = attempts === 1 ? '生产验证测试将在周五开始。' : 'Pvt 试产将在周五开始。';
+      return {
+        ok: true,
+        json: async () => ({
+          output_text: JSON.stringify({ source_language: 'en', text }),
+          usage: { input_tokens: 10, output_tokens: 4 },
+        }),
+        headers: new Map([['x-request-id', `request-${attempts}`]]),
+      };
+    },
+  });
+  const result = await normalizer.normalize({
+    sourceText: 'The pvt build starts Friday.',
+    target: 'zh',
+    profile: 'economy',
+    final: true,
+    protectedTokens: ['PVT'],
+  });
+  assert.equal(attempts, 2);
+  assert.equal(result.text, 'PVT 试产将在周五开始。');
+  assert.deepEqual(findProtectedTokens(result.text, ['PVT']), ['PVT']);
+  assert.equal(result.usage.inputTokens, 20);
+  assert.equal(usageEvents.length, 2);
+  assert.match(glossaryPrompt([], ['T1', 'PVT']), /T1, PVT/);
+});
+
+test('live transcription receives protected product-development keywords', async () => {
+  const transcriptionOptions = [];
+  const compiled = compileGlossarySelection('mechanical-product-design', null);
+  const manager = new CaptionSessionManager({
+    credentialStore: { get: async () => 'test-key' },
+    settingsStore: {
+      get: () => ({
+        ...compiled,
+        budgetUsd: 5,
+        shadowEnabled: false,
+        recordEvaluation: false,
+        reorderWindowMs: 400,
+        duplicateWindowMs: 1400,
+      }),
+      set: () => {},
+    },
+    transcriptionFactory: (options) => {
+      transcriptionOptions.push(options);
+      return {
+        connect: async () => {},
+        close: () => {},
+        appendAudio: () => {},
+      };
+    },
+    normalizerFactory: () => ({ normalize: async () => ({}) }),
+  });
+  await manager.start({ mode: 'live' });
+  assert.equal(transcriptionOptions.length, 2);
+  assert.ok(transcriptionOptions.every((options) => options.keywords.includes('PVT')));
+  assert.ok(transcriptionOptions.every((options) => options.keywords.includes('T2')));
+  await manager.stop();
+});
+
+test('configuration validation rejects unsupported schemas', () => {
+  assert.throws(
+    () => sanitizeConfiguration({ schemaVersion: 2, name: 'Future', terms: [] }),
+    /schemaVersion must be 1/,
+  );
+  assert.throws(
+    () =>
+      parseGlossaryContent({
+        extension: 'xlsx',
+        fileName: 'unsupported',
+        text: '',
+      }),
+    /\.json, \.csv, \.tsv, or \.txt/,
+  );
+});
+
+test('glossary file operations reject untrusted renderer senders', async () => {
+  const handlers = new Map();
+  registerCaptionIpc({
+    ipcMain: {
+      handle: (channel, handler) => handlers.set(channel, handler),
+      on: () => {},
+    },
+    app: { getPath: () => os.tmpdir() },
+    dialog: {
+      showOpenDialog: async () => ({ canceled: true }),
+      showSaveDialog: async () => ({ canceled: true }),
+    },
+    shell: { openExternal: async () => {} },
+    windows: {
+      controlWindow: {
+        isDestroyed: () => false,
+        webContents: { id: 10 },
+      },
+      captionWindows: new Map(),
+      broadcast: () => {},
+      showAll: () => {},
+      hideAll: () => {},
+      applyLayout: () => {},
+    },
+    sessionManager: {
+      snapshot: () => ({}),
+      export: () => '',
+      rateEvaluation: () => ({}),
+      setScreeningPrompt: () => null,
+      abortShadow: () => ({}),
+      start: async () => ({}),
+      stop: async () => ({}),
+    },
+    settingsStore: {
+      get: () => compileGlossarySelection('south-china-tooling', null),
+      set: () => compileGlossarySelection('south-china-tooling', null),
+    },
+    credentialStore: {
+      status: () => ({}),
+      set: () => ({}),
+      delete: () => ({}),
+      validate: () => ({}),
+    },
+    evaluationRecorder: { list: () => [] },
+    requestMicrophoneAccess: () => ({}),
+  });
+  const result = await handlers.get('captions:glossary-export')({
+    sender: { id: 99 },
+  });
+  assert.equal(result.ok, false);
+  assert.match(result.error.message, /Untrusted IPC sender/);
+});

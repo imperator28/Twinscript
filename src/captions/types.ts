@@ -173,6 +173,34 @@ export interface EvaluationRating {
   ratedAt: number;
 }
 
+export interface GlossaryTerm {
+  en: string;
+  zh: string;
+  aliases: string[];
+  doNotTranslate: boolean;
+  priority: number;
+}
+
+export interface GlossaryConfiguration {
+  schemaVersion: 1;
+  id: string;
+  name: string;
+  description: string;
+  regions: string[];
+  domains: string[];
+  protectedTokens: string[];
+  terms: GlossaryTerm[];
+}
+
+export interface GlossaryConfigurationSummary {
+  id: string;
+  name: string;
+  description: string;
+  regions: string[];
+  domains: string[];
+  termCount: number;
+}
+
 export interface CaptionSettings {
   settingsVersion: number;
   layout: 'stacked' | 'side-by-side';
@@ -185,12 +213,11 @@ export interface CaptionSettings {
   vadThreshold: number;
   delayProfile: 'minimal' | 'low' | 'default';
   budgetUsd: number;
-  glossary: Array<{
-    en: string;
-    zh: string;
-    aliases?: string[];
-    doNotTranslate?: boolean;
-  }>;
+  glossaryConfigurationId: string;
+  customGlossaryConfiguration: GlossaryConfiguration | null;
+  glossary: GlossaryTerm[];
+  protectedTokens: string[];
+  glossaryStoredCount: number;
   captionFontScale: number;
   captionPaceMs: number;
   showSourceInControl: boolean;

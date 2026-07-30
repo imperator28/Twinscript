@@ -17,6 +17,16 @@ interface CaptionsAPI {
   validateCredential(value?: string): Promise<Result<{ valid: boolean; error?: string }>>;
   requestMicrophoneAccess(): Promise<Result<{ granted: boolean; status: string }>>;
   getSettings(): Promise<Result<Record<string, unknown>>>;
+  getGlossaryConfigurations(): Promise<Result<
+    import('./captions/types').GlossaryConfigurationSummary[]
+  >>;
+  importGlossary(): Promise<Result<{
+    canceled: boolean;
+    settings?: Record<string, unknown>;
+    duplicateCount?: number;
+    rejectedRows?: number[];
+  }>>;
+  exportGlossary(): Promise<Result<{ canceled: boolean; filePath?: string }>>;
   setSettings(patch: Record<string, unknown>): Promise<Result<Record<string, unknown>>>;
   startSession(request: Record<string, unknown>): Promise<Result<Record<string, unknown>>>;
   stopSession(): Promise<Result<Record<string, unknown>>>;

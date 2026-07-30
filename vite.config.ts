@@ -142,6 +142,7 @@ export default defineConfig(({ command, mode }) => {
             'captions/cost-meter': 'electron/captions/cost-meter.js',
             'captions/credential-store': 'electron/captions/credential-store.js',
             'captions/evaluation-recorder': 'electron/captions/evaluation-recorder.js',
+            'captions/glossary-config': 'electron/captions/glossary-config.js',
             'captions/live-transcription-session': 'electron/captions/live-transcription-session.js',
             'captions/openai-normalizer': 'electron/captions/openai-normalizer.js',
             'captions/priority-task-queue': 'electron/captions/priority-task-queue.js',

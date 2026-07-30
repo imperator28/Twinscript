@@ -1,5 +1,10 @@
 const fs = require('fs');
 const path = require('path');
+const {
+  createPortableConfiguration,
+  listGlossaryConfigurations,
+  parseGlossaryContent,
+} = require('./glossary-config');
 
 function assertSender(event, windows) {
   const senderId = event.sender.id;
@@ -56,6 +61,63 @@ function registerCaptionIpc({
   );
   handle('captions:microphone-request', () => requestMicrophoneAccess());
   handle('captions:settings-get', () => settingsStore.get());
+  handle('captions:glossary-configurations', () =>
+    listGlossaryConfigurations(),
+  );
+  handle('captions:glossary-import', async () => {
+    const result = await dialog.showOpenDialog(windows.controlWindow, {
+      title: 'Import meeting glossary',
+      properties: ['openFile'],
+      filters: [
+        {
+          name: 'Meeting glossary',
+          extensions: ['json', 'csv', 'tsv', 'txt'],
+        },
+      ],
+    });
+    if (result.canceled || !result.filePaths?.[0]) {
+      return { canceled: true };
+    }
+    const filePath = result.filePaths[0];
+    const stat = fs.statSync(filePath);
+    if (stat.size > 2 * 1024 * 1024) {
+      throw new Error('Glossary files must be smaller than 2 MB');
+    }
+    const extension = path.extname(filePath).slice(1);
+    const parsed = parseGlossaryContent({
+      extension,
+      text: fs.readFileSync(filePath, 'utf8'),
+      fileName: path.basename(filePath, path.extname(filePath)),
+    });
+    const settings = settingsStore.set({
+      customGlossaryConfiguration: parsed.configuration,
+    });
+    windows.broadcast('captions:settings', settings);
+    return {
+      canceled: false,
+      settings,
+      duplicateCount: parsed.duplicateCount,
+      rejectedRows: parsed.rejectedRows,
+    };
+  });
+  handle('captions:glossary-export', async () => {
+    const configuration = createPortableConfiguration(settingsStore.get());
+    const result = await dialog.showSaveDialog(windows.controlWindow, {
+      title: 'Export meeting glossary configuration',
+      defaultPath: path.join(
+        app.getPath('documents'),
+        `${configuration.id}.json`,
+      ),
+      filters: [{ name: 'Meeting glossary JSON', extensions: ['json'] }],
+    });
+    if (result.canceled || !result.filePath) return { canceled: true };
+    fs.writeFileSync(
+      result.filePath,
+      `${JSON.stringify(configuration, null, 2)}\n`,
+      { encoding: 'utf8', mode: 0o600 },
+    );
+    return { canceled: false, filePath: result.filePath };
+  });
   handle('captions:settings-set', (patch) => {
     const settings = settingsStore.set(patch);
     if (patch.layout) windows.applyLayout(patch.layout);

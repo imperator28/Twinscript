@@ -74,6 +74,17 @@ input[type="range"] { width: 100%; }
 .pace-control__heading output { color: #686c73; font-variant-numeric: tabular-nums; font-weight: 600; }
 .pace-control__scale { color: #7a7d83; font-size: 10px; font-weight: 550; }
 .pace-control__note { color: #686c73; font-size: 11px; font-weight: 450; line-height: 1.4; }
+.glossary-summary { margin: -3px 0 18px; padding: 14px; border: 1px solid #d9d8d4; border-radius: 9px; background: #f8f8f5; }
+.glossary-summary > p:first-child { margin-bottom: 11px; color: #4f535a; font-size: 13px; line-height: 1.5; }
+.glossary-tags { display: flex; flex-wrap: wrap; gap: 6px; }
+.glossary-tags span { padding: 5px 8px; border-radius: 999px; background: #e8e8e4; color: #555960; font-size: 10px; font-weight: 650; }
+.glossary-count { margin: 12px 0 0; color: #686c73; font-size: 11px; font-variant-numeric: tabular-nums; }
+.glossary-count strong { color: #2b725b; }
+.glossary-actions { justify-content: flex-start; flex-wrap: wrap; }
+.glossary-advanced { margin-top: 14px; border-top: 1px solid #e1e0dc; }
+.glossary-advanced summary { min-height: 44px; padding: 14px 0 0; cursor: pointer; color: #3a3d43; font-size: 13px; font-weight: 700; }
+.glossary-advanced__body { padding-top: 2px; }
+.glossary-advanced__body .field-note { font-weight: 450; }
 .level { display: block; width: 42%; height: 7px; overflow: hidden; border-radius: 9px; background: #e1e2df; }
 .level i { display: block; height: 100%; border-radius: inherit; background: #288062; transition: width 120ms linear; }
 .audio-row { min-height: 34px; color: #686c73; font-size: 12px; }

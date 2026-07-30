@@ -1,8 +1,16 @@
 const fs = require('fs');
 const path = require('path');
+const {
+  compileGlossarySelection,
+} = require('./glossary-config');
+
+const DEFAULT_GLOSSARY = compileGlossarySelection(
+  'south-china-tooling',
+  null,
+);
 
 const DEFAULT_SETTINGS = Object.freeze({
-  settingsVersion: 4,
+  settingsVersion: 5,
   layout: 'stacked',
   primaryProfile: 'economy',
   shadowProfile: 'tiered',
@@ -13,7 +21,11 @@ const DEFAULT_SETTINGS = Object.freeze({
   vadThreshold: 0.012,
   delayProfile: 'low',
   budgetUsd: 5,
-  glossary: [],
+  glossaryConfigurationId: DEFAULT_GLOSSARY.glossaryConfigurationId,
+  customGlossaryConfiguration: null,
+  glossary: DEFAULT_GLOSSARY.glossary,
+  protectedTokens: DEFAULT_GLOSSARY.protectedTokens,
+  glossaryStoredCount: DEFAULT_GLOSSARY.glossaryStoredCount,
   captionFontScale: 1,
   captionPaceMs: 1200,
   showSourceInControl: true,
@@ -52,6 +64,39 @@ class SettingsStore {
         next.recordEvaluation = false;
         migrated = true;
       }
+      if (!parsed.settingsVersion || parsed.settingsVersion < 5) {
+        const legacyTerms = Array.isArray(parsed.glossary)
+          ? parsed.glossary
+          : [];
+        const legacyCustom = legacyTerms.length
+          ? {
+              schemaVersion: 1,
+              id: 'legacy-custom-glossary',
+              name: 'Migrated custom glossary',
+              description: 'Terms saved before meeting configurations were added.',
+              regions: [],
+              domains: [],
+              protectedTokens: [],
+              terms: legacyTerms,
+            }
+          : null;
+        Object.assign(
+          next,
+          compileGlossarySelection(
+            parsed.glossaryConfigurationId || 'south-china-tooling',
+            parsed.customGlossaryConfiguration || legacyCustom,
+          ),
+        );
+        migrated = true;
+      } else {
+        Object.assign(
+          next,
+          compileGlossarySelection(
+            next.glossaryConfigurationId,
+            next.customGlossaryConfiguration,
+          ),
+        );
+      }
       next.settingsVersion = DEFAULT_SETTINGS.settingsVersion;
       if (migrated) this.write(next);
       return next;
@@ -66,6 +111,18 @@ class SettingsStore {
       Object.entries(patch || {}).filter(([key]) => allowed.includes(key)),
     );
     const next = { ...this.get(), ...cleanPatch };
+    if (
+      Object.hasOwn(cleanPatch, 'glossaryConfigurationId') ||
+      Object.hasOwn(cleanPatch, 'customGlossaryConfiguration')
+    ) {
+      Object.assign(
+        next,
+        compileGlossarySelection(
+          next.glossaryConfigurationId,
+          next.customGlossaryConfiguration,
+        ),
+      );
+    }
     this.write(next);
     return next;
   }

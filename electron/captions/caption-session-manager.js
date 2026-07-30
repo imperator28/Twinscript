@@ -199,11 +199,14 @@ class CaptionSessionManager {
       throw new Error('Add an OpenAI API key before starting a live session');
     }
 
-    const glossaryKeywords = (this.settings.glossary || []).flatMap((entry) => [
-      entry.en,
-      entry.zh,
-      ...(entry.aliases || []),
-    ]);
+    const glossaryKeywords = [
+      ...(this.settings.protectedTokens || []),
+      ...(this.settings.glossary || []).flatMap((entry) => [
+        entry.en,
+        entry.zh,
+        ...(entry.aliases || []),
+      ]),
+    ];
     const normalizerOptions = {
       apiKey,
       scheduler: this.normalizationScheduler,
@@ -495,6 +498,7 @@ class CaptionSessionManager {
             profile: this.settings.primaryProfile,
             final,
             glossary: this.settings.glossary,
+            protectedTokens: this.settings.protectedTokens,
             signal: controller.signal,
             priority: final ? 10 : 0,
           });
@@ -562,6 +566,7 @@ class CaptionSessionManager {
               profile: this.settings.shadowProfile,
               final: true,
               glossary: this.settings.glossary,
+              protectedTokens: this.settings.protectedTokens,
               priority: 2,
               signal: shadowController.signal,
             }),

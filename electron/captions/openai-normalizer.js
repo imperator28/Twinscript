@@ -27,7 +27,7 @@ function extractResponseText(payload) {
   return '';
 }
 
-function glossaryPrompt(glossary) {
+function glossaryPrompt(glossary, protectedTokens = []) {
   const rows = (glossary || [])
     .slice(0, 40)
     .map((entry) => {
@@ -35,7 +35,53 @@ function glossaryPrompt(glossary) {
       return `${entry.en || ''} = ${entry.zh || ''}${suffix}`.trim();
     })
     .filter(Boolean);
-  return rows.length ? `\nTerminology:\n${rows.join('\n')}` : '';
+  const tokens = [
+    ...new Set(
+      (protectedTokens || [])
+        .map((token) => String(token || '').trim())
+        .filter(Boolean),
+    ),
+  ].slice(0, 80);
+  const sections = [];
+  if (rows.length) sections.push(`Terminology:\n${rows.join('\n')}`);
+  if (tokens.length) {
+    sections.push(
+      `Protected literal tokens (keep this exact canonical spelling in every language): ${tokens.join(', ')}`,
+    );
+  }
+  return sections.length ? `\n${sections.join('\n')}` : '';
+}
+
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function protectedTokenPattern(token) {
+  return new RegExp(
+    `(^|[^\\p{L}\\p{N}])(${escapeRegExp(token)})(?=$|[^\\p{L}\\p{N}])`,
+    'giu',
+  );
+}
+
+function findProtectedTokens(text, protectedTokens) {
+  const source = String(text || '');
+  return (protectedTokens || []).filter((token) => {
+    const canonical = String(token || '').trim();
+    return canonical && protectedTokenPattern(canonical).test(source);
+  });
+}
+
+function canonicalizeProtectedTokens(text, protectedTokens) {
+  let next = String(text || '');
+  for (const rawToken of protectedTokens || []) {
+    const canonical = String(rawToken || '').trim();
+    if (!canonical) continue;
+    next = next.replace(
+      protectedTokenPattern(canonical),
+      (_match, prefix) => `${prefix}${canonical}`,
+    );
+  }
+  return next;
 }
 
 function abortableDelay(durationMs, signal) {
@@ -79,6 +125,7 @@ class OpenAINormalizer {
     profile,
     final,
     glossary,
+    protectedTokens,
     signal,
     priority,
   }) {
@@ -88,7 +135,15 @@ class OpenAINormalizer {
       ];
     const targetLabel =
       target === 'zh' ? 'Simplified Chinese' : 'natural professional English';
-    const requestBody = JSON.stringify({
+    const sourceProtectedTokens = findProtectedTokens(
+      sourceText,
+      protectedTokens,
+    );
+    const performRequest = async (preservationRetry = false) => {
+      const retryInstruction = preservationRetry
+        ? ` The source contains ${sourceProtectedTokens.join(', ')}. Include every one of those exact literal tokens in the output.`
+        : '';
+      const requestBody = JSON.stringify({
         model,
         store: false,
         reasoning: { effort: 'none' },
@@ -104,7 +159,8 @@ class OpenAINormalizer {
                   'Preserve dimensions, tolerances, units, part numbers, acronyms, speaker intent, and uncertainty. ' +
                   'If the input already uses the target language, lightly normalize punctuation without changing meaning. ' +
                   'Return only the requested structured object.' +
-                  glossaryPrompt(glossary),
+                  glossaryPrompt(glossary, protectedTokens) +
+                  retryInstruction,
               },
             ],
           },
@@ -123,32 +179,65 @@ class OpenAINormalizer {
           verbosity: 'low',
         },
       });
-    const request = () =>
-      this.requestWithRetry({
-        body: requestBody,
-        signal,
-        maxAttempts: final ? 3 : 1,
-      });
-    const response = this.scheduler
-      ? await this.scheduler.run(request, {
-          priority: priority ?? (final ? 10 : 0),
+      const request = () =>
+        this.requestWithRetry({
+          body: requestBody,
           signal,
-        })
-      : await request();
+          maxAttempts: final ? 3 : 1,
+        });
+      const response = this.scheduler
+        ? await this.scheduler.run(request, {
+            priority: priority ?? (final ? 10 : 0),
+            signal,
+          })
+        : await request();
+      const payload = await response.json();
+      const parsed = JSON.parse(extractResponseText(payload));
+      const usage = {
+        inputTokens: payload.usage?.input_tokens || 0,
+        cachedInputTokens:
+          payload.usage?.input_tokens_details?.cached_tokens || 0,
+        outputTokens: payload.usage?.output_tokens || 0,
+      };
+      this.onUsage({ model, ...usage });
+      return {
+        parsed,
+        usage,
+        requestId: response.headers.get('x-request-id') || undefined,
+      };
+    };
 
-    const payload = await response.json();
-    const parsed = JSON.parse(extractResponseText(payload));
-    const inputTokens = payload.usage?.input_tokens || 0;
-    const cachedInputTokens =
-      payload.usage?.input_tokens_details?.cached_tokens || 0;
-    const outputTokens = payload.usage?.output_tokens || 0;
-    this.onUsage({ model, inputTokens, cachedInputTokens, outputTokens });
+    let response = await performRequest();
+    let normalizedText = canonicalizeProtectedTokens(
+      response.parsed.text,
+      sourceProtectedTokens,
+    );
+    const missingTokens = sourceProtectedTokens.filter(
+      (token) => !findProtectedTokens(normalizedText, [token]).length,
+    );
+    let accumulatedUsage = { ...response.usage };
+    if (final && missingTokens.length) {
+      const retry = await performRequest(true);
+      response = retry;
+      normalizedText = canonicalizeProtectedTokens(
+        retry.parsed.text,
+        sourceProtectedTokens,
+      );
+      accumulatedUsage = {
+        inputTokens:
+          accumulatedUsage.inputTokens + retry.usage.inputTokens,
+        cachedInputTokens:
+          accumulatedUsage.cachedInputTokens + retry.usage.cachedInputTokens,
+        outputTokens:
+          accumulatedUsage.outputTokens + retry.usage.outputTokens,
+      };
+    }
     return {
       model,
-      sourceLanguage: parsed.source_language,
-      text: String(parsed.text || '').trim(),
-      usage: { inputTokens, cachedInputTokens, outputTokens },
-      requestId: response.headers.get('x-request-id') || undefined,
+      sourceLanguage: response.parsed.source_language,
+      text: normalizedText.trim(),
+      usage: accumulatedUsage,
+      requestId: response.requestId,
     };
   }
 
@@ -190,6 +279,8 @@ module.exports = {
   PROFILE_MODELS,
   TARGET_SCHEMA,
   extractResponseText,
+  canonicalizeProtectedTokens,
+  findProtectedTokens,
   glossaryPrompt,
   abortableDelay,
 };

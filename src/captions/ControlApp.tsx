@@ -7,6 +7,9 @@ import {
 } from './audioCapture';
 import type {
   CaptionEvent,
+  GlossaryConfiguration,
+  GlossaryConfigurationSummary,
+  GlossaryTerm,
   CaptionSettings,
   SessionMetrics,
   SessionStatus,
@@ -22,7 +25,7 @@ type CredentialState = {
 };
 
 const DEFAULT_SETTINGS: CaptionSettings = {
-  settingsVersion: 4,
+  settingsVersion: 5,
   layout: 'stacked',
   primaryProfile: 'economy',
   shadowProfile: 'tiered',
@@ -33,7 +36,11 @@ const DEFAULT_SETTINGS: CaptionSettings = {
   vadThreshold: 0.012,
   delayProfile: 'low',
   budgetUsd: 5,
+  glossaryConfigurationId: 'south-china-tooling',
+  customGlossaryConfiguration: null,
   glossary: [],
+  protectedTokens: [],
+  glossaryStoredCount: 0,
   captionFontScale: 1,
   captionPaceMs: 1200,
   showSourceInControl: true,
@@ -80,6 +87,10 @@ export function ControlApp() {
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState('');
   const [glossaryText, setGlossaryText] = useState('');
+  const [protectedTokenText, setProtectedTokenText] = useState('');
+  const [glossaryConfigurations, setGlossaryConfigurations] = useState<
+    GlossaryConfigurationSummary[]
+  >([]);
   const [sessionActive, setSessionActive] = useState(false);
   const [operation, setOperation] = useState<SessionOperation>('idle');
   const [previewing, setPreviewing] = useState(false);
@@ -118,15 +129,24 @@ export function ControlApp() {
     ];
     void Promise.all([
       window.captions.getSettings(),
+      window.captions.getGlossaryConfigurations(),
       window.captions.credentialStatus(),
       window.captions.getSessionStatus(),
       enumerateAudioDevices().catch(() => ({ inputs: [], outputs: [] })),
-    ]).then(([settingsResult, credentialResult, sessionResult, deviceResult]) => {
+    ]).then(([settingsResult, glossaryResult, credentialResult, sessionResult, deviceResult]) => {
       if (settingsResult.ok) {
         const next = settingsResult.data as unknown as CaptionSettings;
         setSettingsState(next);
-        setGlossaryText(next.glossary.map((entry) => `${entry.en} = ${entry.zh}`).join('\n'));
+        setGlossaryText(
+          next.customGlossaryConfiguration?.terms
+            .map((entry) => `${entry.en} = ${entry.zh}`)
+            .join('\n') || '',
+        );
+        setProtectedTokenText(
+          next.customGlossaryConfiguration?.protectedTokens.join(', ') || '',
+        );
       }
+      if (glossaryResult.ok) setGlossaryConfigurations(glossaryResult.data);
       if (credentialResult.ok) setCredential(credentialResult.data);
       if (sessionResult.ok && sessionResult.data.active) {
         setSessionActive(true);
@@ -151,13 +171,18 @@ export function ControlApp() {
   }, [active]);
 
   const saveSettings = async (patch: Partial<CaptionSettings>) => {
+    const previous = settings;
     const optimistic = { ...settings, ...patch };
     setSettingsState(optimistic);
     const result = await window.captions.setSettings(patch as Record<string, unknown>);
     if (!result.ok) {
-      setSettingsState(settings);
+      setSettingsState(previous);
       setNotice(result.error.message);
+      return null;
     }
+    const next = result.data as unknown as CaptionSettings;
+    setSettingsState(next);
+    return next;
   };
 
   const start = async () => {
@@ -312,18 +337,108 @@ export function ControlApp() {
     setBusy(false);
   };
 
-  const parseGlossary = () =>
+  const parseGlossary = (): GlossaryTerm[] =>
     glossaryText
       .split('\n')
       .map((line) => line.split(/=|→/).map((value) => value.trim()))
       .filter(([en, zh]) => en && zh)
-      .map(([en, zh]) => ({ en, zh }));
+      .map(([en, zh]) => ({
+        en,
+        zh,
+        aliases: [],
+        doNotTranslate: false,
+        priority: 5,
+      }));
+
+  const parseProtectedTokens = () =>
+    protectedTokenText
+      .split(/[,\n;]/)
+      .map((token) => token.trim())
+      .filter(Boolean);
+
+  const syncGlossaryEditors = (next: CaptionSettings) => {
+    setGlossaryText(
+      next.customGlossaryConfiguration?.terms
+        .map((entry) => `${entry.en} = ${entry.zh}`)
+        .join('\n') || '',
+    );
+    setProtectedTokenText(
+      next.customGlossaryConfiguration?.protectedTokens.join(', ') || '',
+    );
+  };
+
+  const saveGlossaryOverrides = async () => {
+    const terms = parseGlossary();
+    const protectedTokens = parseProtectedTokens();
+    const customGlossaryConfiguration: GlossaryConfiguration | null =
+      terms.length || protectedTokens.length
+        ? {
+            schemaVersion: 1,
+            id: 'custom-overrides',
+            name: 'Custom overrides',
+            description: 'Project-specific meeting terminology.',
+            regions: [],
+            domains: [],
+            protectedTokens,
+            terms,
+          }
+        : null;
+    const next = await saveSettings({ customGlossaryConfiguration });
+    if (!next) return;
+    syncGlossaryEditors(next);
+    setNotice(
+      customGlossaryConfiguration
+        ? 'Custom glossary overrides saved.'
+        : 'Custom glossary overrides cleared.',
+    );
+  };
+
+  const importGlossary = async () => {
+    setBusy(true);
+    setNotice('');
+    const result = await window.captions.importGlossary();
+    setBusy(false);
+    if (!result.ok) {
+      setNotice(result.error.message);
+      return;
+    }
+    if (result.data.canceled || !result.data.settings) return;
+    const next = result.data.settings as unknown as CaptionSettings;
+    setSettingsState(next);
+    syncGlossaryEditors(next);
+    const details = [
+      result.data.duplicateCount
+        ? `${result.data.duplicateCount} duplicate${result.data.duplicateCount === 1 ? '' : 's'} merged`
+        : '',
+      result.data.rejectedRows?.length
+        ? `${result.data.rejectedRows.length} invalid row${result.data.rejectedRows.length === 1 ? '' : 's'} skipped`
+        : '',
+    ].filter(Boolean);
+    setNotice(`Glossary imported${details.length ? ` · ${details.join(' · ')}` : ''}.`);
+  };
+
+  const exportGlossary = async () => {
+    setBusy(true);
+    setNotice('');
+    const result = await window.captions.exportGlossary();
+    setBusy(false);
+    if (!result.ok) {
+      setNotice(result.error.message);
+      return;
+    }
+    if (!result.data.canceled) {
+      setNotice('Portable glossary configuration saved.');
+    }
+  };
 
   const latest = useMemo(
     () =>
       [...captions].reverse().find((caption) => caption.status === 'final') ||
       captions[captions.length - 1],
     [captions],
+  );
+  const selectedGlossary = glossaryConfigurations.find(
+    (configuration) => configuration.id === settings.glossaryConfigurationId,
   );
   const statusLabel =
     operation === 'starting'
@@ -482,11 +597,85 @@ export function ControlApp() {
             <label className="field"><span>Caption size · {Math.round(settings.captionFontScale * 100)}%</span><input type="range" min="0.8" max="1.4" step="0.05" value={settings.captionFontScale} onChange={(event) => void saveSettings({ captionFontScale: Number(event.target.value) })} /></label>
           </article>
 
-          <article className="card">
+          <article className="card glossary-card">
             <p className="eyebrow">ENGINEERING TERMS</p><h2>Meeting glossary</h2>
-            <p className="supporting-copy">One bilingual pair per line. These terms are supplied to both transcription and normalization.</p>
-            <textarea rows={8} value={glossaryText} onChange={(event) => setGlossaryText(event.target.value)} placeholder={'boss = 凸台\nwall thickness = 壁厚\nDVT = DVT'} />
-            <button className="button button--secondary" onClick={() => void saveSettings({ glossary: parseGlossary() })}>Save glossary</button>
+            <p className="supporting-copy">Choose the closest meeting type. Product-development tokens such as T1, T2, EVT, DVT, and PVT stay in English in both captions.</p>
+            <label className="field">
+              <span>Meeting type</span>
+              <select
+                disabled={active || busy}
+                value={settings.glossaryConfigurationId}
+                onChange={(event) => {
+                  void saveSettings({
+                    glossaryConfigurationId: event.target.value,
+                  }).then((next) => {
+                    if (next) {
+                      setNotice(`${glossaryConfigurations.find((item) => item.id === next.glossaryConfigurationId)?.name || 'Meeting glossary'} selected.`);
+                    }
+                  });
+                }}
+              >
+                {glossaryConfigurations.map((configuration) => (
+                  <option key={configuration.id} value={configuration.id}>
+                    {configuration.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {selectedGlossary && (
+              <div className="glossary-summary">
+                <p>{selectedGlossary.description}</p>
+                <div className="glossary-tags" aria-label="Configuration coverage">
+                  {[...selectedGlossary.domains, ...selectedGlossary.regions].map((tag) => (
+                    <span key={tag}>{tag}</span>
+                  ))}
+                </div>
+                <p className="glossary-count">
+                  <strong>{Math.min(40, settings.glossary.length)} active</strong>
+                  {' / '}
+                  {settings.glossaryStoredCount} stored
+                  {' · '}
+                  {settings.protectedTokens.length} protected tokens
+                </p>
+              </div>
+            )}
+            <div className="button-row glossary-actions">
+              <button className="button button--secondary" disabled={active || busy} onClick={() => void importGlossary()}>Import glossary</button>
+              <button className="button button--quiet" disabled={busy} onClick={() => void exportGlossary()}>Export configuration</button>
+            </div>
+            <p className="field-note">Import is processed locally. Only active terms are supplied to OpenAI while a live session is running.</p>
+            <details className="glossary-advanced">
+              <summary>Advanced · Custom terms and protected tokens</summary>
+              <div className="glossary-advanced__body">
+                <div className="field">
+                  <label htmlFor="custom-glossary-terms">Custom bilingual overrides</label>
+                  <textarea
+                    id="custom-glossary-terms"
+                    rows={7}
+                    disabled={active}
+                    value={glossaryText}
+                    onChange={(event) => setGlossaryText(event.target.value)}
+                    placeholder={'boss = 凸台\nwall thickness = 壁厚'}
+                    aria-describedby="custom-glossary-terms-note"
+                  />
+                  <span id="custom-glossary-terms-note" className="field-note">One pair per line. Custom rows take priority over the selected meeting type.</span>
+                </div>
+                <div className="field">
+                  <label htmlFor="custom-protected-tokens">Additional protected tokens</label>
+                  <input
+                    id="custom-protected-tokens"
+                    type="text"
+                    disabled={active}
+                    value={protectedTokenText}
+                    onChange={(event) => setProtectedTokenText(event.target.value)}
+                    placeholder="Project Falcon, ABC-123, Gate 4"
+                    aria-describedby="custom-protected-tokens-note"
+                  />
+                  <span id="custom-protected-tokens-note" className="field-note">Separate with commas. These tokens remain literal in both languages.</span>
+                </div>
+                <button className="button button--secondary" disabled={active || busy} onClick={() => void saveGlossaryOverrides()}>Save custom overrides</button>
+              </div>
+            </details>
           </article>
 
           <article className="card export-card">

@@ -29,11 +29,11 @@ vi.mock('./audioCapture', () => ({
 let statusListener: ((status: { state: string }) => void) | undefined;
 
 const settings = {
-  settingsVersion: 3,
+  settingsVersion: 4,
   layout: 'stacked',
   primaryProfile: 'economy',
   shadowProfile: 'tiered',
-  shadowEnabled: true,
+  shadowEnabled: false,
   fastPath: true,
   provisionalTranslation: true,
   vadEnabled: true,
@@ -50,7 +50,7 @@ const settings = {
   duplicateWindowMs: 1400,
 };
 
-describe('Phase 1 screening shell', () => {
+describe('meeting caption controls', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     statusListener = undefined;
@@ -122,22 +122,20 @@ describe('Phase 1 screening shell', () => {
     };
   });
 
-  it('starts live capture with a stable screening prompt', async () => {
+  it('starts a focused live session without hidden evaluation work', async () => {
     render(<ControlApp />);
     await screen.findByText('Ready for a live meeting');
-    fireEvent.click(screen.getByLabelText('Use corpus'));
-    expect(screen.getByText(/256 consent-safe prompts/)).toBeInTheDocument();
-    expect(screen.getByText('1 / 256')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Start Live Session' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Start Session' }));
 
     await waitFor(() =>
       expect(window.captions.startSession).toHaveBeenCalledWith(
         expect.objectContaining({
           mode: 'live',
-          screeningPrompt: expect.objectContaining({
-            id: expect.any(String),
-            scripted: true,
+          screeningPrompt: null,
+          settings: expect.objectContaining({
+            shadowEnabled: false,
+            recordEvaluation: false,
           }),
         }),
       ),
@@ -155,7 +153,7 @@ describe('Phase 1 screening shell', () => {
     render(<ControlApp />);
     await screen.findByText('Ready for a live meeting');
 
-    fireEvent.click(screen.getByRole('button', { name: 'Start Live Session' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Start Session' }));
     expect(screen.getByRole('button', { name: 'Stop Session' })).toBeEnabled();
 
     act(() => statusListener?.({ state: 'connected' }));
@@ -196,30 +194,23 @@ describe('Phase 1 screening shell', () => {
     );
   });
 
-  it('keeps model comparison inside Settings advanced validation', async () => {
+  it('keeps evaluation-era controls out of the product interface', async () => {
     render(<ControlApp />);
     await screen.findByText('Ready for a live meeting');
 
-    expect(
-      screen.queryByRole('button', { name: /Compare/ }),
-    ).not.toBeInTheDocument();
+    expect(screen.queryByText(/Phase 1/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/screening/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/corpus/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Demo/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Replay/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Compare/i })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
-    expect(screen.getByText(/Advanced Validation/i)).toBeVisible();
-    expect(screen.getByText('Model comparison')).toBeVisible();
-
-    fireEvent.click(
-      screen.getByRole('button', { name: 'Open comparison review' }),
-    );
-    expect(
-      screen.getByText('Choose what reads better before seeing the profile'),
-    ).toBeVisible();
-    expect(
-      screen.getByRole('button', { name: '← Back to Settings' }),
-    ).toBeVisible();
-
-    fireEvent.click(screen.getByRole('button', { name: '← Back to Settings' }));
-    expect(screen.getByText('Model comparison')).toBeVisible();
+    expect(screen.getByText(/Caption Quality/i)).toBeVisible();
+    expect(screen.getByText('Save this meeting')).toBeVisible();
+    expect(screen.queryByText(/validation/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/shadow/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/evaluation/i)).not.toBeInTheDocument();
   });
 
   it('requests microphone access and starts a visible input preview', async () => {

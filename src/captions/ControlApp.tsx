@@ -5,40 +5,28 @@ import {
   enumerateAudioDevices,
   type AudioDeviceOption,
 } from './audioCapture';
-import { EvaluationPanel } from './EvaluationPanel';
-import {
-  SCREENING_CORPUS,
-  SCREENING_CORPUS_SUMMARY,
-} from './screeningCorpus';
 import type {
   CaptionEvent,
   CaptionSettings,
-  EvaluationResult,
   SessionMetrics,
   SessionStatus,
   TargetText,
 } from './types';
 
-type Tab = 'session' | 'settings' | 'validation';
+type Tab = 'session' | 'settings';
 type SessionOperation = 'idle' | 'starting' | 'stopping';
 type CredentialState = {
   available: boolean;
   source: string;
   encryptionAvailable: boolean;
 };
-type Recording = {
-  id: string;
-  startedAt: number;
-  endedAt?: number;
-  counts: Record<string, number>;
-};
 
 const DEFAULT_SETTINGS: CaptionSettings = {
-  settingsVersion: 3,
+  settingsVersion: 4,
   layout: 'stacked',
   primaryProfile: 'economy',
   shadowProfile: 'tiered',
-  shadowEnabled: true,
+  shadowEnabled: false,
   fastPath: true,
   provisionalTranslation: true,
   vadEnabled: false,
@@ -89,14 +77,9 @@ export function ControlApp() {
   const [status, setStatus] = useState<SessionStatus>({ state: 'ready' });
   const [metrics, setMetrics] = useState<SessionMetrics>({});
   const [captions, setCaptions] = useState<CaptionEvent[]>([]);
-  const [evaluations, setEvaluations] = useState<EvaluationResult[]>([]);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState('');
   const [glossaryText, setGlossaryText] = useState('');
-  const [recordings, setRecordings] = useState<Recording[]>([]);
-  const [recordingId, setRecordingId] = useState('');
-  const [screeningEnabled, setScreeningEnabled] = useState(false);
-  const [screeningIndex, setScreeningIndex] = useState(0);
   const [sessionActive, setSessionActive] = useState(false);
   const [operation, setOperation] = useState<SessionOperation>('idle');
   const [previewing, setPreviewing] = useState(false);
@@ -132,15 +115,13 @@ export function ControlApp() {
         else next.push(event);
         return next.slice(-12);
       })),
-      window.captions.onEvaluation((value) => setEvaluations((current) => [...current, value].slice(-100))),
     ];
     void Promise.all([
       window.captions.getSettings(),
       window.captions.credentialStatus(),
       window.captions.getSessionStatus(),
-      window.captions.listRecordings(),
       enumerateAudioDevices().catch(() => ({ inputs: [], outputs: [] })),
-    ]).then(([settingsResult, credentialResult, sessionResult, recordingResult, deviceResult]) => {
+    ]).then(([settingsResult, credentialResult, sessionResult, deviceResult]) => {
       if (settingsResult.ok) {
         const next = settingsResult.data as unknown as CaptionSettings;
         setSettingsState(next);
@@ -150,10 +131,6 @@ export function ControlApp() {
       if (sessionResult.ok && sessionResult.data.active) {
         setSessionActive(true);
         setStatus({ state: 'running' });
-      }
-      if (recordingResult.ok) {
-        setRecordings(recordingResult.data);
-        setRecordingId(recordingResult.data[0]?.id || '');
       }
       setDevices(deviceResult);
       setMicrophoneId(deviceResult.inputs[0]?.deviceId || '');
@@ -183,26 +160,26 @@ export function ControlApp() {
     }
   };
 
-  const start = async (mode: 'live' | 'mock') => {
+  const start = async () => {
     const id = ++operationId.current;
     setSessionActive(true);
     setOperation('starting');
     setBusy(true);
     setNotice('');
     setCaptions([]);
-    setEvaluations([]);
     setMetrics({});
-    setStatus({ state: 'starting', mode });
+    setStatus({ state: 'starting', mode: 'live' });
     await microphonePreview.current.stop();
     setPreviewing(false);
     setPreviewLevel(0);
     const result = await window.captions.startSession({
-      mode,
-      settings,
-      screeningPrompt:
-        mode === 'live' && screeningEnabled
-          ? SCREENING_CORPUS[screeningIndex]
-          : null,
+      mode: 'live',
+      settings: {
+        ...settings,
+        shadowEnabled: false,
+        recordEvaluation: false,
+      },
+      screeningPrompt: null,
     });
     if (id !== operationId.current) return;
     if (!result.ok) {
@@ -213,49 +190,25 @@ export function ControlApp() {
       setBusy(false);
       return;
     }
-    if (mode === 'live') {
-      try {
-        const capture = await audio.current.start(microphoneId || undefined);
-        if (id !== operationId.current) {
-          await audio.current.stop();
-          return;
-        }
-        if (capture.warning) setNotice(capture.warning);
-      } catch (error) {
-        await window.captions.stopSession();
-        if (id !== operationId.current) return;
-        setNotice(error instanceof Error ? error.message : 'Audio capture could not start');
-        setStatus({ state: 'ready' });
-        setSessionActive(false);
-        setOperation('idle');
-        setBusy(false);
+    try {
+      const capture = await audio.current.start(microphoneId || undefined);
+      if (id !== operationId.current) {
+        await audio.current.stop();
         return;
       }
+      if (capture.warning) setNotice(capture.warning);
+    } catch (error) {
+      await window.captions.stopSession();
+      if (id !== operationId.current) return;
+      setNotice(error instanceof Error ? error.message : 'Audio capture could not start');
+      setStatus({ state: 'ready' });
+      setSessionActive(false);
+      setOperation('idle');
+      setBusy(false);
+      return;
     }
     if (id !== operationId.current) return;
-    setStatus({ state: 'running', mode });
-    setOperation('idle');
-    setBusy(false);
-  };
-
-  const replay = async () => {
-    if (!recordingId) return;
-    const id = ++operationId.current;
-    setSessionActive(true);
-    setOperation('starting');
-    setBusy(true);
-    setCaptions([]);
-    setEvaluations([]);
-    const result = await window.captions.startSession({
-      mode: 'replay',
-      recordingId,
-      settings: { ...settings, recordEvaluation: false },
-    });
-    if (id !== operationId.current) return;
-    if (!result.ok) {
-      setNotice(result.error.message);
-      setSessionActive(false);
-    } else setStatus({ state: 'running', mode: 'replay' });
+    setStatus({ state: 'running', mode: 'live' });
     setOperation('idle');
     setBusy(false);
   };
@@ -372,17 +325,6 @@ export function ControlApp() {
       captions[captions.length - 1],
     [captions],
   );
-  const screeningPrompt = SCREENING_CORPUS[screeningIndex];
-  const selectScreeningPrompt = async (index: number) => {
-    const bounded = Math.max(0, Math.min(SCREENING_CORPUS.length - 1, index));
-    setScreeningIndex(bounded);
-    if (active && screeningEnabled) {
-      const result = await window.captions.setScreeningPrompt(
-        SCREENING_CORPUS[bounded],
-      );
-      if (!result.ok) setNotice(result.error.message);
-    }
-  };
   const statusLabel =
     operation === 'starting'
       ? 'STARTING'
@@ -409,11 +351,8 @@ export function ControlApp() {
       <nav className="tab-bar" aria-label="Primary">
         {(['session', 'settings'] as const).map((item) => (
           <button
-            className={
-              tab === item || (tab === 'validation' && item === 'settings')
-                ? 'is-selected'
-                : ''
-            }
+            className={tab === item ? 'is-selected' : ''}
+            aria-current={tab === item ? 'page' : undefined}
             key={item}
             onClick={() => setTab(item)}
           >
@@ -489,93 +428,19 @@ export function ControlApp() {
 
           <article className="card launch-card">
             <div>
-              <p className="eyebrow">READY CHECK</p>
+              <p className="eyebrow">STATUS</p>
               <h2>{credential?.available ? 'Ready for a live meeting' : 'Add an API key for live mode'}</h2>
-              <p>{credential?.available ? `Credential: ${credential.source.replace('-', ' ')}` : 'Demo mode is available without a key or microphone.'}</p>
+              <p>{credential?.available ? 'OpenAI connection is configured.' : 'Open Settings to add your private API key.'}</p>
             </div>
             <div className="launch-actions">
               {!active ? (
-                <>
-                  <button className="button button--secondary" disabled={busy} onClick={() => void start('mock')}>Demo Session</button>
-                  {recordings.length > 0 && (
-                    <button className="button button--quiet" disabled={busy} onClick={() => void replay()}>Replay Last</button>
-                  )}
-                  <button className="button button--primary" disabled={busy || !credential?.available} onClick={() => void start('live')}>Start Live Session</button>
-                </>
+                <button className="button button--primary" disabled={busy || !credential?.available} onClick={() => void start()}>Start Session</button>
               ) : (
                 <button className="button button--stop" disabled={operation === 'stopping'} onClick={() => void stop()}>
                   {operation === 'stopping' ? 'Stopping…' : 'Stop Session'}
                 </button>
               )}
             </div>
-          </article>
-
-          <article className="card screening-card">
-            <div className="section-heading">
-              <div>
-                <p className="eyebrow">PHASE 1 SCREENING</p>
-                <h2>Scripted bilingual prompt runner</h2>
-              </div>
-              <label className="toggle toggle--compact">
-                <input
-                  type="checkbox"
-                  disabled={active}
-                  checked={screeningEnabled}
-                  onChange={(event) => setScreeningEnabled(event.target.checked)}
-                />
-                <span>Use corpus</span>
-              </label>
-            </div>
-            <p className="supporting-copy">
-              {SCREENING_CORPUS_SUMMARY.total} consent-safe prompts ·{' '}
-              {SCREENING_CORPUS_SUMMARY.codeSwitch} code-switch ·{' '}
-              {SCREENING_CORPUS_SUMMARY.critical} with critical values. Results
-              are evidence only when captured from real speech.
-            </p>
-            {screeningEnabled && (
-              <div className="screening-runner">
-                <div className="screening-meta">
-                  <span>
-                    {screeningIndex + 1} / {SCREENING_CORPUS.length}
-                  </span>
-                  <span>{screeningPrompt.languageClass.replace('-', ' ')}</span>
-                  <span>
-                    {screeningPrompt.sourceChannel === 'microphone'
-                      ? 'Speak into microphone'
-                      : 'Play through meeting/system audio'}
-                  </span>
-                </div>
-                <p className="screening-condition">{screeningPrompt.condition}</p>
-                <blockquote lang={screeningPrompt.languageClass === 'en' ? 'en' : 'zh-Hans'}>
-                  {screeningPrompt.sourceText}
-                </blockquote>
-                <details className="diagnostic-details">
-                  <summary>Reference meaning and protected values</summary>
-                  <p lang="en">{screeningPrompt.englishReference}</p>
-                  <p lang="zh-Hans">{screeningPrompt.chineseReference}</p>
-                  <p>
-                    Protected:{' '}
-                    {screeningPrompt.protectedTokens.join(' · ') || 'None'}
-                  </p>
-                </details>
-                <div className="screening-actions">
-                  <button
-                    className="button button--quiet"
-                    disabled={screeningIndex === 0}
-                    onClick={() => void selectScreeningPrompt(screeningIndex - 1)}
-                  >
-                    Previous
-                  </button>
-                  <button
-                    className="button button--secondary"
-                    disabled={screeningIndex === SCREENING_CORPUS.length - 1}
-                    onClick={() => void selectScreeningPrompt(screeningIndex + 1)}
-                  >
-                    Mark spoken · Next
-                  </button>
-                </div>
-              </div>
-            )}
           </article>
 
           {captions.length > 0 && (
@@ -594,8 +459,8 @@ export function ControlApp() {
       {tab === 'settings' && (
         <section className="settings-layout">
           <article className="card">
-            <p className="eyebrow">OPENAI</p><h2>Private API credential</h2>
-            <p className="supporting-copy">The renderer never reads a saved key. In the packaged app it is encrypted using macOS Keychain; local development may use the git-ignored <code>.env.local</code>.</p>
+            <p className="eyebrow">OPENAI</p><h2>Connection</h2>
+            <p className="supporting-copy">Your API key is stored securely by this computer and is never shown after saving.</p>
             <label className="field"><span>{credential?.available ? 'Replace API key' : 'API key'}</span><input type="password" autoComplete="off" value={keyInput} onChange={(event) => setKeyInput(event.target.value)} placeholder="sk-…" /></label>
             <div className="button-row">
               <button className="button button--primary" disabled={busy || !keyInput.trim()} onClick={() => void saveKey()}>Validate & save</button>
@@ -605,16 +470,15 @@ export function ControlApp() {
           </article>
 
           <article className="card">
-            <p className="eyebrow">CAPTION PIPELINE</p><h2>Translation profile</h2>
-            <label className="field"><span>Primary audience profile</span><select disabled={active} value={settings.primaryProfile} onChange={(event) => void saveSettings({ primaryProfile: event.target.value as CaptionSettings['primaryProfile'] })}><option value="economy">Economy · nano/nano</option><option value="tiered">Tiered · nano/luna final</option><option value="quality">Quality · luna/luna</option></select></label>
+            <p className="eyebrow">CAPTION QUALITY</p><h2>Translation</h2>
+            <label className="field"><span>Quality level</span><select disabled={active} value={settings.primaryProfile} onChange={(event) => void saveSettings({ primaryProfile: event.target.value as CaptionSettings['primaryProfile'] })}><option value="economy">Economy · lower cost</option><option value="tiered">Recommended · balanced</option><option value="quality">Best quality · higher cost</option></select></label>
             <label className="field"><span>Session budget cap (USD)</span><input type="number" min="0.5" max="50" step="0.5" value={settings.budgetUsd} onChange={(event) => void saveSettings({ budgetUsd: Number(event.target.value) })} /></label>
           </article>
 
           <article className="card">
-            <p className="eyebrow">CAPTION BEHAVIOR</p><h2>Stability and timing</h2>
-            <label className="toggle"><input type="checkbox" checked={settings.provisionalTranslation} onChange={(event) => void saveSettings({ provisionalTranslation: event.target.checked })} /><span>Show provisional translation</span></label>
-            <label className="toggle"><input type="checkbox" checked={settings.vadEnabled} onChange={(event) => void saveSettings({ vadEnabled: event.target.checked })} /><span>Stricter local voice gate (advanced)</span></label>
-            <label className="field"><span>Transcription delay</span><select value={settings.delayProfile} onChange={(event) => void saveSettings({ delayProfile: event.target.value as CaptionSettings['delayProfile'] })}><option value="minimal">Minimal</option><option value="low">Low</option><option value="default">Default</option></select></label>
+            <p className="eyebrow">CAPTION DISPLAY</p><h2>Timing and text</h2>
+            <label className="toggle"><input type="checkbox" checked={settings.provisionalTranslation} onChange={(event) => void saveSettings({ provisionalTranslation: event.target.checked })} /><span>Show early captions while speech is processing</span></label>
+            <label className="field"><span>Caption responsiveness</span><select value={settings.delayProfile} onChange={(event) => void saveSettings({ delayProfile: event.target.value as CaptionSettings['delayProfile'] })}><option value="minimal">Fastest</option><option value="low">Fast</option><option value="default">Stable</option></select></label>
             <label className="field"><span>Caption size · {Math.round(settings.captionFontScale * 100)}%</span><input type="range" min="0.8" max="1.4" step="0.05" value={settings.captionFontScale} onChange={(event) => void saveSettings({ captionFontScale: Number(event.target.value) })} /></label>
           </article>
 
@@ -625,82 +489,17 @@ export function ControlApp() {
             <button className="button button--secondary" onClick={() => void saveSettings({ glossary: parseGlossary() })}>Save glossary</button>
           </article>
 
-          <article className="card validation-entry-card">
-            <div>
-              <p className="eyebrow">ADVANCED VALIDATION</p>
-              <h2>Model comparison</h2>
-              <p className="supporting-copy">
-                Runs a private second translation for blinded A/B review. It does not change audience captions and adds API usage, so leave it off for normal meetings.
-              </p>
-            </div>
-            <div className="validation-entry-controls">
-              <label className="toggle">
-                <input
-                  type="checkbox"
-                  disabled={active}
-                  checked={settings.shadowEnabled}
-                  onChange={(event) => void saveSettings({ shadowEnabled: event.target.checked })}
-                />
-                <span>Run a shadow comparison</span>
-              </label>
-              <label className="field">
-                <span>Comparison profile</span>
-                <select
-                  disabled={active || !settings.shadowEnabled}
-                  value={settings.shadowProfile}
-                  onChange={(event) => void saveSettings({ shadowProfile: event.target.value as CaptionSettings['shadowProfile'] })}
-                >
-                  <option value="economy">Economy</option>
-                  <option value="tiered">Tiered</option>
-                  <option value="quality">Quality</option>
-                </select>
-              </label>
-              <div className="button-row">
-                <button className="button button--secondary" onClick={() => setTab('validation')}>
-                  {evaluations.length > 0 ? `Review comparisons · ${evaluations.length}` : 'Open comparison review'}
-                </button>
-                {active && settings.shadowEnabled && (
-                  <button
-                    className="button button--quiet"
-                    onClick={() => void window.captions.abortShadow().then((result) => {
-                      setNotice(result.ok ? 'Shadow comparison stopped. Primary audience captions continue.' : result.error.message);
-                    })}
-                  >
-                    Stop shadow comparison
-                  </button>
-                )}
-              </div>
-            </div>
-          </article>
-
           <article className="card export-card">
-            <p className="eyebrow">VALIDATION LOG</p><h2>Export this session</h2>
-            <p className="supporting-copy">Exports include settings, routing, model profile, latency, token use, and estimated cost. Raw audio is stored only when encrypted evaluation recording is explicitly enabled.</p>
-            <label className="toggle"><input type="checkbox" disabled={active} checked={settings.recordEvaluation} onChange={(event) => void saveSettings({ recordEvaluation: event.target.checked })} /><span>Record an encrypted evaluation fixture</span></label>
-            {settings.recordEvaluation && <p className="recording-warning">Recording stores encrypted microphone and meeting audio on this Mac. Use only with participant consent.</p>}
-            {recordings.length > 0 && (
-              <label className="field"><span>Encrypted replay fixture</span><select value={recordingId} onChange={(event) => setRecordingId(event.target.value)}>{recordings.map((recording) => <option value={recording.id} key={recording.id}>{new Date(recording.startedAt).toLocaleString()} · {recording.counts.caption || 0} captions</option>)}</select></label>
-            )}
-            <div className="button-row"><button className="button button--secondary" onClick={() => void window.captions.exportSession('json')}>Export JSON</button><button className="button button--quiet" onClick={() => void window.captions.exportSession('markdown')}>Export readable log</button></div>
+            <p className="eyebrow">SESSION TRANSCRIPT</p><h2>Save this meeting</h2>
+            <p className="supporting-copy">Save the bilingual captions, timing, and estimated cost. Audio is never included.</p>
+            <div className="button-row"><button className="button button--secondary" onClick={() => void window.captions.exportSession('json')}>Save JSON</button><button className="button button--quiet" onClick={() => void window.captions.exportSession('markdown')}>Save readable transcript</button></div>
           </article>
-        </section>
-      )}
-
-      {tab === 'validation' && (
-        <section className="panel-stack validation-view">
-          <div className="validation-toolbar">
-            <button className="text-button" onClick={() => setTab('settings')}>
-              ← Back to Settings
-            </button>
-            <span>Advanced Validation</span>
-          </div>
-          <EvaluationPanel results={evaluations} />
         </section>
       )}
 
       <footer className="app-footer">
         <span>Estimated session cost <strong>${(metrics.totalUsd || 0).toFixed(3)}</strong> / ${(settings.budgetUsd || 0).toFixed(2)}</span>
-        <span>{settings.recordEvaluation ? 'Encrypted evaluation recording is enabled.' : 'Audio is streamed for transcription and is not written to disk.'}</span>
+        <span>Audio is streamed for transcription and is not written to disk.</span>
       </footer>
     </main>
   );

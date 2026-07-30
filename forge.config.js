@@ -147,7 +147,11 @@ module.exports = {
     new FusesPlugin({
       version: FuseVersion.V1,
       [FuseV1Options.RunAsNode]: false,
-      [FuseV1Options.EnableCookieEncryption]: true,
+      // This local-file meeting client does not store authentication cookies.
+      // Enabling Chromium cookie encryption makes macOS query Keychain before
+      // the first window is created. API credentials remain encrypted through
+      // Electron safeStorage in CredentialStore.
+      [FuseV1Options.EnableCookieEncryption]: false,
       [FuseV1Options.EnableNodeOptionsEnvironmentVariable]: false,
       [FuseV1Options.EnableNodeCliInspectArguments]: false,
       [FuseV1Options.EnableEmbeddedAsarIntegrityValidation]: true,

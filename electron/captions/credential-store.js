@@ -75,10 +75,9 @@ class CredentialStore {
     return {
       available: development || fs.existsSync(this.filePath),
       source: development ? 'development-environment' : fs.existsSync(this.filePath) ? 'secure-storage' : 'missing',
-      encryptionAvailable:
-        typeof this.safeStorage.isAsyncEncryptionAvailable === 'function'
-          ? await this.safeStorage.isAsyncEncryptionAvailable()
-          : this.safeStorage.isEncryptionAvailable(),
+      // A status read happens on every launch and must not unlock Keychain.
+      // Actual availability is checked immediately before saving a credential.
+      encryptionAvailable: ['darwin', 'win32'].includes(process.platform),
     };
   }
 

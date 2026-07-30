@@ -380,6 +380,9 @@ test('credential store decrypts once per app launch', async () => {
     },
     fetchImpl: async () => ({ ok: true }),
   });
+  const status = await store.status();
+  assert.equal(status.available, true);
+  assert.equal(decryptions, 0);
   assert.equal(await store.get(), 'test-key');
   assert.equal(await store.get(), 'test-key');
   assert.deepEqual(await store.validate(), { valid: true });
@@ -387,16 +390,29 @@ test('credential store decrypts once per app launch', async () => {
   fs.rmSync(userData, { recursive: true, force: true });
 });
 
-test('legacy caption settings migrate to safe VAD and presentation pacing', () => {
+test('legacy caption settings migrate to product-safe runtime defaults', () => {
   const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'caption-settings-'));
   fs.writeFileSync(
     path.join(userData, 'caption-settings.json'),
-    JSON.stringify({ vadEnabled: true, vadThreshold: 0.012 }),
+    JSON.stringify({
+      vadEnabled: true,
+      vadThreshold: 0.012,
+      shadowEnabled: true,
+      recordEvaluation: true,
+    }),
   );
   const settings = new SettingsStore({ getPath: () => userData }).get();
-  assert.equal(settings.settingsVersion, 3);
+  assert.equal(settings.settingsVersion, 4);
   assert.equal(settings.vadEnabled, false);
   assert.equal(settings.captionPaceMs, 1200);
+  assert.equal(settings.shadowEnabled, false);
+  assert.equal(settings.recordEvaluation, false);
+  const persisted = JSON.parse(
+    fs.readFileSync(path.join(userData, 'caption-settings.json'), 'utf8'),
+  );
+  assert.equal(persisted.settingsVersion, 4);
+  assert.equal(persisted.shadowEnabled, false);
+  assert.equal(persisted.recordEvaluation, false);
   fs.rmSync(userData, { recursive: true, force: true });
 });
 

@@ -154,8 +154,7 @@ export function EvaluationPanel({ results }: { results: EvaluationResult[] }) {
       </p>
       {results.length === 0 ? (
         <div className="empty-state">
-          Start Demo Session for an immediate walkthrough, or start a live session
-          with comparison enabled.
+          No developer comparison results are available for this session.
         </div>
       ) : (
         <div className="evaluation-list">

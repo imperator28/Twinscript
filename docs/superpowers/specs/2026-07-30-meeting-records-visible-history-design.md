@@ -1,7 +1,7 @@
 # Meeting Records, Clear Session Log, and Visible History Design
 
 Date: 2026-07-30
-Status: Approved for written-spec review
+Status: Approved for implementation on 2026-07-30
 Scope: macOS implementation first, with Windows-compatible data formats and
 Electron boundaries
 

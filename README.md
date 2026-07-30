@@ -20,6 +20,7 @@ instructions below; never add a key to a `VITE_` variable.
 
 Planning and setup:
 
+- [Windows client handoff](docs/windows/README.md)
 - [Phase 0 and Phase 1 implementation plan](docs/superpowers/plans/2026-07-29-phase-0-and-phase-1-implementation-plan.md)
 - [macOS validation guide](docs/validation/phase-1/validation-guide.md)
 - [Screening corpus manifest](docs/validation/phase-1/corpus-manifest.md)

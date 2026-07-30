@@ -8,12 +8,20 @@ interface CredentialStatus {
   available: boolean;
   source: 'development-environment' | 'secure-storage' | 'missing';
   encryptionAvailable: boolean;
+  repairRecommended?: boolean;
 }
 
 interface CaptionsAPI {
   credentialStatus(): Promise<Result<CredentialStatus>>;
   setCredential(value: string): Promise<Result<CredentialStatus>>;
   deleteCredential(): Promise<Result<CredentialStatus>>;
+  repairCredential(): Promise<Result<
+    CredentialStatus & {
+      canceled: boolean;
+      repaired?: boolean;
+      relaunchRequired?: boolean;
+    }
+  >>;
   validateCredential(value?: string): Promise<Result<{ valid: boolean; error?: string }>>;
   requestMicrophoneAccess(): Promise<Result<{ granted: boolean; status: string }>>;
   getSettings(): Promise<Result<Record<string, unknown>>>;

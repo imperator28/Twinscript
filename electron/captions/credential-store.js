@@ -1,5 +1,37 @@
 const fs = require('fs');
 const path = require('path');
+const { execFile } = require('child_process');
+
+const DEFAULT_PRODUCT_NAME = 'Bilingual Meeting Captions';
+
+function secureStorageLabel(platform) {
+  if (platform === 'darwin') return 'macOS Keychain';
+  if (platform === 'win32') return 'Windows secure storage';
+  return 'secure storage';
+}
+
+function runSecurityCommand(
+  executable,
+  args,
+  { execFileImpl = execFile } = {},
+) {
+  return new Promise((resolve, reject) => {
+    execFileImpl(
+      executable,
+      args,
+      { timeout: 10_000, windowsHide: true },
+      (error, stdout, stderr) => {
+        if (error) {
+          error.stdout = stdout;
+          error.stderr = stderr;
+          reject(error);
+          return;
+        }
+        resolve({ stdout, stderr });
+      },
+    );
+  });
+}
 
 function parseDevelopmentKey(contents) {
   const match = String(contents || '').match(
@@ -9,14 +41,23 @@ function parseDevelopmentKey(contents) {
 }
 
 class CredentialStore {
-  constructor({ app, safeStorage, fetchImpl = global.fetch }) {
+  constructor({
+    app,
+    safeStorage,
+    fetchImpl = global.fetch,
+    platform = process.platform,
+    execFileImpl = execFile,
+  }) {
     this.app = app;
     this.safeStorage = safeStorage;
     this.fetch = fetchImpl;
+    this.platform = platform;
+    this.execFile = execFileImpl;
     this.directory = path.join(app.getPath('userData'), 'credentials');
     this.filePath = path.join(this.directory, 'openai.enc');
     this.cachedKey = '';
     this.pendingGet = null;
+    this.unlockFailed = false;
   }
 
   getDevelopmentKey() {
@@ -48,16 +89,19 @@ class CredentialStore {
         if (typeof this.safeStorage.decryptStringAsync === 'function') {
           const decrypted = await this.safeStorage.decryptStringAsync(encrypted);
           this.cachedKey = String(decrypted.result || '').trim();
+          this.unlockFailed = false;
           if (decrypted.shouldReEncrypt && this.cachedKey) {
             await this.set(this.cachedKey);
           }
           return this.cachedKey;
         }
         this.cachedKey = this.safeStorage.decryptString(encrypted).trim();
+        this.unlockFailed = false;
         return this.cachedKey;
       } catch {
+        this.unlockFailed = true;
         const error = new Error(
-          'The saved API key could not be unlocked from macOS Keychain.',
+          `The saved API key could not be unlocked from ${secureStorageLabel(this.platform)}.`,
         );
         error.code = 'credential_unlock_failed';
         throw error;
@@ -77,7 +121,8 @@ class CredentialStore {
       source: development ? 'development-environment' : fs.existsSync(this.filePath) ? 'secure-storage' : 'missing',
       // A status read happens on every launch and must not unlock Keychain.
       // Actual availability is checked immediately before saving a credential.
-      encryptionAvailable: ['darwin', 'win32'].includes(process.platform),
+      encryptionAvailable: ['darwin', 'win32'].includes(this.platform),
+      repairRecommended: this.unlockFailed,
     };
   }
 
@@ -97,18 +142,67 @@ class CredentialStore {
     fs.mkdirSync(this.directory, { recursive: true });
     fs.writeFileSync(this.filePath, encrypted, { mode: 0o600 });
     this.cachedKey = key;
+    this.unlockFailed = false;
     return this.status();
   }
 
   async delete() {
     this.cachedKey = '';
     this.pendingGet = null;
+    this.unlockFailed = false;
     try {
       fs.unlinkSync(this.filePath);
     } catch (error) {
       if (error.code !== 'ENOENT') throw error;
     }
     return this.status();
+  }
+
+  async repair() {
+    await this.delete();
+    if (this.platform !== 'darwin') {
+      return {
+        ...(await this.status()),
+        repaired: true,
+        relaunchRequired: false,
+      };
+    }
+
+    const productName =
+      typeof this.app.getName === 'function'
+        ? this.app.getName()
+        : DEFAULT_PRODUCT_NAME;
+    try {
+      await runSecurityCommand(
+        '/usr/bin/security',
+        [
+          'delete-generic-password',
+          '-s',
+          `${productName} Safe Storage`,
+          '-a',
+          `${productName} Key`,
+        ],
+        { execFileImpl: this.execFile },
+      );
+    } catch (error) {
+      const detail = `${error?.stderr || ''} ${error?.message || ''}`;
+      if (error?.code !== 44 && !/could not be found/i.test(detail)) {
+        const repairError = new Error(
+          'The app credential was removed, but its macOS Keychain entry could not be reset.',
+        );
+        repairError.code = 'credential_repair_failed';
+        throw repairError;
+      }
+    }
+
+    return {
+      ...(await this.status()),
+      repaired: true,
+      // Electron may retain the old Safe Storage key in memory. Relaunch before
+      // accepting a replacement credential so the new encrypted file is
+      // guaranteed to use the newly created Keychain entry.
+      relaunchRequired: true,
+    };
   }
 
   async validate(value) {
@@ -131,4 +225,9 @@ class CredentialStore {
   }
 }
 
-module.exports = { CredentialStore, parseDevelopmentKey };
+module.exports = {
+  CredentialStore,
+  parseDevelopmentKey,
+  runSecurityCommand,
+  secureStorageLabel,
+};

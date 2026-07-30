@@ -106,10 +106,10 @@ normal Windows build and tests must not require an OpenAI key.
 
 ### Windows-specific credential note
 
-`electron/captions/credential-store.js` currently reports a macOS Keychain
-message if decrypting a saved credential fails. W0 should replace it with a
-platform-neutral message before Windows validation. This is a wording defect,
-not a different storage mechanism.
+`electron/captions/credential-store.js` now reports a platform-specific secure
+storage message if decrypting a saved credential fails. The Settings recovery
+action removes only the app's encrypted OpenAI credential on Windows; it does
+not alter meeting records, glossaries, or preferences.
 
 ## 5. Run the local checks
 

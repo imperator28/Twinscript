@@ -67,8 +67,8 @@ Goal: remove setup ambiguity and prove the package can be produced natively.
    with a cross-platform Node script.
 2. Add an early Squirrel startup handler if the application does not already
    consume install, update, and uninstall events.
-3. Replace the macOS-only credential unlock error with a platform-neutral
-   message.
+3. Verify the platform-specific credential unlock message and scoped
+   **Repair secure storage** action on a clean Windows user profile.
 4. Set a Windows App User Model ID that matches the Squirrel package.
 5. Confirm the packaged app includes `build/`, required WASM runtimes,
    `dist-electron/`, `assets/`, and `resources/`.
@@ -87,7 +87,8 @@ Goal: remove setup ambiguity and prove the package can be produced natively.
 ### Tests
 
 - Add a Node test for the cross-platform asset-copy script.
-- Add a unit test for platform-neutral credential errors.
+- Keep the unit coverage for platform-specific credential errors and scoped
+  secure-storage repair behavior passing.
 - Add a main-process test for Squirrel argument handling.
 - Prove `npm run test:captions` and `npx vitest run` both have intentional,
   non-overlapping discovery and exit 0.

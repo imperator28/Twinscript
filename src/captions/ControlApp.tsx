@@ -22,6 +22,7 @@ type CredentialState = {
   available: boolean;
   source: string;
   encryptionAvailable: boolean;
+  repairRecommended?: boolean;
 };
 
 const DEFAULT_SETTINGS: CaptionSettings = {
@@ -75,9 +76,15 @@ function captionPaceLabel(milliseconds: number) {
 }
 
 export function ControlApp() {
-  const [tab, setTab] = useState<Tab>('session');
+  const repairedLaunch = useRef(
+    window.localStorage.getItem('captions.secureStorageRepaired') === '1',
+  );
+  const [tab, setTab] = useState<Tab>(
+    repairedLaunch.current ? 'settings' : 'session',
+  );
   const [settings, setSettingsState] = useState(DEFAULT_SETTINGS);
   const [credential, setCredential] = useState<CredentialState | null>(null);
+  const [credentialIssue, setCredentialIssue] = useState(false);
   const [keyInput, setKeyInput] = useState('');
   const [devices, setDevices] = useState<{ inputs: AudioDeviceOption[]; outputs: AudioDeviceOption[] }>({ inputs: [], outputs: [] });
   const [microphoneId, setMicrophoneId] = useState('');
@@ -97,6 +104,7 @@ export function ControlApp() {
   const [previewLevel, setPreviewLevel] = useState(0);
   const audio = useRef(new AudioCaptureController());
   const microphonePreview = useRef(new MicrophonePreviewController());
+  const apiKeyInput = useRef<HTMLInputElement>(null);
   const operationId = useRef(0);
   const active = sessionActive;
 
@@ -147,7 +155,10 @@ export function ControlApp() {
         );
       }
       if (glossaryResult.ok) setGlossaryConfigurations(glossaryResult.data);
-      if (credentialResult.ok) setCredential(credentialResult.data);
+      if (credentialResult.ok) {
+        setCredential(credentialResult.data);
+        setCredentialIssue(Boolean(credentialResult.data.repairRecommended));
+      }
       if (sessionResult.ok && sessionResult.data.active) {
         setSessionActive(true);
         setStatus({ state: 'running' });
@@ -161,6 +172,14 @@ export function ControlApp() {
       void audio.current.stop();
     };
   }, []);
+
+  useEffect(() => {
+    if (!repairedLaunch.current || tab !== 'settings' || !credential) return;
+    repairedLaunch.current = false;
+    window.localStorage.removeItem('captions.secureStorageRepaired');
+    setNotice('Secure storage was repaired. Enter your API key to continue.');
+    window.requestAnimationFrame(() => apiKeyInput.current?.focus());
+  }, [credential, tab]);
 
   useEffect(() => {
     if (!active) return;
@@ -209,6 +228,9 @@ export function ControlApp() {
     if (id !== operationId.current) return;
     if (!result.ok) {
       setNotice(result.error.message);
+      if (result.error.code === 'credential_unlock_failed') {
+        setCredentialIssue(true);
+      }
       setStatus({ state: 'ready' });
       setSessionActive(false);
       setOperation('idle');
@@ -317,9 +339,13 @@ export function ControlApp() {
     const result = await window.captions.setCredential(keyInput.trim());
     if (result.ok) {
       setCredential(result.data);
+      setCredentialIssue(false);
       setKeyInput('');
-      setNotice('API key validated and stored with macOS Keychain protection.');
-    } else setNotice(result.error.message);
+      setNotice('API key validated and stored in this computer’s secure storage.');
+    } else {
+      setCredentialIssue(result.error.code === 'credential_unlock_failed');
+      setNotice(result.error.message);
+    }
     setBusy(false);
   };
 
@@ -327,6 +353,9 @@ export function ControlApp() {
     setBusy(true);
     setNotice('');
     const result = await window.captions.validateCredential();
+    const unlockFailed =
+      !result.ok && result.error.code === 'credential_unlock_failed';
+    setCredentialIssue(unlockFailed);
     setNotice(
       result.ok && result.data.valid
         ? 'OpenAI API connection succeeded. The saved key can access GPT Live Transcribe.'
@@ -335,6 +364,32 @@ export function ControlApp() {
           : result.error.message,
     );
     setBusy(false);
+  };
+
+  const repairCredential = async () => {
+    setBusy(true);
+    const result = await window.captions.repairCredential();
+    if (!result.ok) {
+      setNotice(result.error.message);
+      setBusy(false);
+      return;
+    }
+    if (result.data.canceled) {
+      setBusy(false);
+      window.requestAnimationFrame(() => apiKeyInput.current?.focus());
+      return;
+    }
+    setCredential(result.data);
+    setCredentialIssue(false);
+    setKeyInput('');
+    if (result.data.relaunchRequired) {
+      window.localStorage.setItem('captions.secureStorageRepaired', '1');
+      setNotice('Secure storage repaired. Restarting the app…');
+      return;
+    }
+    setNotice('Secure storage repaired. Enter your API key to continue.');
+    setBusy(false);
+    window.requestAnimationFrame(() => apiKeyInput.current?.focus());
   };
 
   const parseGlossary = (): GlossaryTerm[] =>
@@ -576,11 +631,26 @@ export function ControlApp() {
           <article className="card">
             <p className="eyebrow">OPENAI</p><h2>Connection</h2>
             <p className="supporting-copy">Your API key is stored securely by this computer and is never shown after saving.</p>
-            <label className="field"><span>{credential?.available ? 'Replace API key' : 'API key'}</span><input type="password" autoComplete="off" value={keyInput} onChange={(event) => setKeyInput(event.target.value)} placeholder="sk-…" /></label>
+            {(credentialIssue || credential?.repairRecommended) && (
+              <div className="credential-recovery" role="alert">
+                <div>
+                  <strong>Saved key is locked</strong>
+                  <p>Repair only this app’s credential storage, then add the API key again.</p>
+                </div>
+                <button
+                  className="button button--secondary"
+                  disabled={busy}
+                  onClick={() => void repairCredential()}
+                >
+                  Repair secure storage
+                </button>
+              </div>
+            )}
+            <label className="field"><span>{credential?.available ? 'Replace API key' : 'API key'}</span><input ref={apiKeyInput} type="password" autoComplete="off" value={keyInput} onChange={(event) => setKeyInput(event.target.value)} placeholder="sk-…" /></label>
             <div className="button-row">
               <button className="button button--primary" disabled={busy || !keyInput.trim()} onClick={() => void saveKey()}>Validate & save</button>
               {credential?.available && <button className="button button--secondary" disabled={busy} onClick={() => void testSavedKey()}>Test saved key</button>}
-              {credential?.source === 'secure-storage' && <button className="button button--quiet" onClick={() => void window.captions.deleteCredential().then((result) => { if (result.ok) setCredential(result.data); })}>Remove saved key</button>}
+              {credential?.source === 'secure-storage' && <button className="button button--quiet" disabled={busy} onClick={() => void window.captions.deleteCredential().then((result) => { if (result.ok) { setCredential(result.data); setCredentialIssue(false); } })}>Remove saved key</button>}
             </div>
           </article>
 

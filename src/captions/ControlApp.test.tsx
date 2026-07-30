@@ -141,6 +141,14 @@ describe('meeting caption controls', () => {
           source: 'missing',
           encryptionAvailable: true,
         }),
+      repairCredential: vi.fn(() =>
+        ok({
+          available: false,
+          source: 'missing',
+          encryptionAvailable: true,
+          canceled: true,
+        }),
+      ),
       openPrivacy: () => ok(undefined),
       sendAudio: () => {},
       supportsSystemAudio: () => Promise.resolve(false),
@@ -308,5 +316,34 @@ describe('meeting caption controls', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Export configuration' }));
     await waitFor(() => expect(window.captions.exportGlossary).toHaveBeenCalled());
+  });
+
+  it('offers a scoped secure-storage repair only after an unlock failure', async () => {
+    window.captions.validateCredential = vi.fn(() =>
+      Promise.resolve({
+        ok: false as const,
+        error: {
+          code: 'credential_unlock_failed',
+          message: 'The saved API key could not be unlocked from macOS Keychain.',
+        },
+      }),
+    );
+    render(<ControlApp />);
+    await screen.findByText('Ready for a live meeting');
+    fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+
+    expect(
+      screen.queryByRole('button', { name: 'Repair secure storage' }),
+    ).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Test saved key' }));
+
+    const repair = await screen.findByRole('button', {
+      name: 'Repair secure storage',
+    });
+    expect(screen.getByText('Saved key is locked')).toBeVisible();
+    fireEvent.click(repair);
+    await waitFor(() =>
+      expect(window.captions.repairCredential).toHaveBeenCalledOnce(),
+    );
   });
 });

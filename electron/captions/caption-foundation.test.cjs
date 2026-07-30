@@ -15,7 +15,10 @@ const {
 } = require('./openai-normalizer');
 const { pcmRms, VadGate } = require('./vad-gate');
 const { EvaluationRecorder } = require('./evaluation-recorder');
-const { CredentialStore } = require('./credential-store');
+const {
+  CredentialStore,
+  secureStorageLabel,
+} = require('./credential-store');
 const { LiveTranscriptionSession } = require('./live-transcription-session');
 const { PriorityTaskQueue } = require('./priority-task-queue');
 const { SettingsStore } = require('./settings-store');
@@ -387,6 +390,56 @@ test('credential store decrypts once per app launch', async () => {
   assert.equal(await store.get(), 'test-key');
   assert.deepEqual(await store.validate(), { valid: true });
   assert.equal(decryptions, 1);
+  fs.rmSync(userData, { recursive: true, force: true });
+});
+
+test('credential errors name the platform secure-storage provider', () => {
+  assert.equal(secureStorageLabel('darwin'), 'macOS Keychain');
+  assert.equal(secureStorageLabel('win32'), 'Windows secure storage');
+  assert.equal(secureStorageLabel('linux'), 'secure storage');
+});
+
+test('credential repair clears only this app credential and macOS Safe Storage entry', async () => {
+  const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'caption-key-repair-'));
+  const credentialPath = path.join(userData, 'credentials', 'openai.enc');
+  fs.mkdirSync(path.dirname(credentialPath), { recursive: true });
+  fs.writeFileSync(credentialPath, Buffer.from('unreadable'));
+  const commands = [];
+  const store = new CredentialStore({
+    app: {
+      isPackaged: true,
+      getPath: () => userData,
+      getName: () => 'Bilingual Meeting Captions',
+    },
+    platform: 'darwin',
+    safeStorage: {
+      decryptStringAsync: async () => {
+        throw new Error('interaction not allowed');
+      },
+    },
+    execFileImpl: (file, args, options, callback) => {
+      commands.push({ file, args, options });
+      callback(null, '', '');
+    },
+  });
+
+  await assert.rejects(store.get(), {
+    code: 'credential_unlock_failed',
+  });
+  assert.equal((await store.status()).repairRecommended, true);
+
+  const repaired = await store.repair();
+  assert.equal(fs.existsSync(credentialPath), false);
+  assert.equal(repaired.available, false);
+  assert.equal(repaired.repairRecommended, false);
+  assert.equal(repaired.relaunchRequired, true);
+  assert.deepEqual(commands[0].args, [
+    'delete-generic-password',
+    '-s',
+    'Bilingual Meeting Captions Safe Storage',
+    '-a',
+    'Bilingual Meeting Captions Key',
+  ]);
   fs.rmSync(userData, { recursive: true, force: true });
 });
 

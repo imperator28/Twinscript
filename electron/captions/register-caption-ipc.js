@@ -56,6 +56,33 @@ function registerCaptionIpc({
   handle('captions:credential-status', () => credentialStore.status());
   handle('captions:credential-set', ({ value }) => credentialStore.set(value));
   handle('captions:credential-delete', () => credentialStore.delete());
+  handle('captions:credential-repair', async () => {
+    const isMac = (credentialStore.platform || process.platform) === 'darwin';
+    const confirmation = await dialog.showMessageBox(windows.controlWindow, {
+      type: 'warning',
+      title: 'Repair secure storage?',
+      message: 'Repair secure storage?',
+      detail:
+        `This removes only the saved OpenAI API key${
+          isMac ? ' and resets this app’s macOS Keychain entry' : ''
+        }. You will need to enter the API key again. Meeting records and settings are not changed.`,
+      buttons: ['Cancel', isMac ? 'Repair & Restart' : 'Repair'],
+      defaultId: 0,
+      cancelId: 0,
+      noLink: true,
+    });
+    if (confirmation.response !== 1) return { canceled: true };
+
+    const result = await credentialStore.repair();
+    if (result.relaunchRequired) {
+      const relaunchTimer = setTimeout(() => {
+        app.relaunch();
+        app.exit(0);
+      }, 1_000);
+      relaunchTimer.unref?.();
+    }
+    return { canceled: false, ...result };
+  });
   handle('captions:credential-validate', ({ value }) =>
     credentialStore.validate(value),
   );

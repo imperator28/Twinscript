@@ -188,6 +188,8 @@
     "package": "npm run build && electron-forge package",
     "make": "npm run build && electron-forge make",
     "make:pkg": "npm run build && electron-builder --mac pkg --publish never -c.directories.output=out/make-mac",
+    "macos:signing:setup": "bash scripts/setup-local-macos-signing.sh",
+    "macos:signing:check": "node scripts/macos-local-signing.cjs",
     "postinstall": "electron-rebuild && bash scripts/copy-ort-wasm.sh",
     "eval": "tsx evals/runner/index.ts",
     "eval:validate": "tsx evals/runner/index.ts validate",

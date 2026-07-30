@@ -2,6 +2,11 @@ const { FusesPlugin } = require('@electron-forge/plugin-fuses');
 const { FuseV1Options, FuseVersion } = require('@electron/fuses');
 const fs = require('fs');
 const path = require('path');
+const {
+  resolveMacSigningIdentity,
+} = require('./scripts/macos-local-signing.cjs');
+
+const macSigningIdentity = resolveMacSigningIdentity();
 
 // Sokuji localizes its product UI through i18next. Electron's locale packs
 // only cover Chromium-native UI, which intentionally falls back to English.
@@ -34,11 +39,12 @@ module.exports = {
     extraResource: ['assets', 'resources'],
     icon: process.platform === 'win32' ? 'assets/icon.ico' : 'assets/icon',
     appBundleId: 'com.jiyu.bilingualcaptions',
-    // Local Phase 1 packages are not notarized, but they must still be
-    // internally consistent macOS bundles. Re-sign every nested executable
-    // and the final app with an ad-hoc identity after metadata/fuse changes.
+    // Prefer the stable self-signed local identity created by
+    // `npm run macos:signing:setup`. It keeps the Keychain caller identity
+    // consistent across local rebuilds without Apple Developer membership.
+    // CI and new machines retain an explicit ad-hoc fallback.
     osxSign: {
-      identity: '-',
+      identity: macSigningIdentity,
       identityValidation: false,
       continueOnError: false,
       // @electron/osx-sign applies hardened runtime in its per-file defaults;

@@ -260,6 +260,8 @@ test('configuration validation rejects unsupported schemas', () => {
 
 test('glossary file operations reject untrusted renderer senders', async () => {
   const handlers = new Map();
+  let confirmationResponse = 0;
+  let credentialRepairs = 0;
   registerCaptionIpc({
     ipcMain: {
       handle: (channel, handler) => handlers.set(channel, handler),
@@ -269,6 +271,7 @@ test('glossary file operations reject untrusted renderer senders', async () => {
     dialog: {
       showOpenDialog: async () => ({ canceled: true }),
       showSaveDialog: async () => ({ canceled: true }),
+      showMessageBox: async () => ({ response: confirmationResponse }),
     },
     shell: { openExternal: async () => {} },
     windows: {
@@ -299,6 +302,10 @@ test('glossary file operations reject untrusted renderer senders', async () => {
       status: () => ({}),
       set: () => ({}),
       delete: () => ({}),
+      repair: () => {
+        credentialRepairs += 1;
+        return { available: false, relaunchRequired: false };
+      },
       validate: () => ({}),
     },
     evaluationRecorder: { list: () => [] },
@@ -309,4 +316,19 @@ test('glossary file operations reject untrusted renderer senders', async () => {
   });
   assert.equal(result.ok, false);
   assert.match(result.error.message, /Untrusted IPC sender/);
+
+  const canceledRepair = await handlers.get('captions:credential-repair')({
+    sender: { id: 10 },
+  });
+  assert.equal(canceledRepair.ok, true);
+  assert.equal(canceledRepair.data.canceled, true);
+  assert.equal(credentialRepairs, 0);
+
+  confirmationResponse = 1;
+  const confirmedRepair = await handlers.get('captions:credential-repair')({
+    sender: { id: 10 },
+  });
+  assert.equal(confirmedRepair.ok, true);
+  assert.equal(confirmedRepair.data.canceled, false);
+  assert.equal(credentialRepairs, 1);
 });

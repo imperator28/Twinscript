@@ -25,6 +25,8 @@ sending the source file to a new service.
 - Import `.json`, `.csv`, `.tsv`, and `.txt` glossary files locally.
 - Export a versioned JSON configuration that is portable between macOS and the
   later Windows client.
+- Preserve common English product-development stage names and acronyms as
+  literal tokens in both English and Chinese captions.
 - Preserve manual editing as an advanced escape hatch.
 - Keep the active glossary bounded so it does not silently increase prompt cost
   or dilute terminology relevance.
@@ -103,6 +105,32 @@ Regional aliases are not treated as universal Chinese terminology. Their
 configuration description explicitly identifies them as South China
 shop-floor usage.
 
+### Core Product Development & NPI vocabulary
+
+Every built-in configuration also carries a compact protected-token vocabulary
+for common English product-development, NPI, quality, and supplier shorthand.
+These tokens do not consume the 40 bilingual term slots because they are sent as
+one concise preservation instruction rather than as duplicated English/Chinese
+pairs.
+
+The initial protected vocabulary is:
+
+```text
+T0, T1, T2, T3, EVT, DVT, PVT, MP, NPI, PRD, BOM, CMF, SKU,
+DFM, DFA, DFMEA, PFMEA, ECO, ECN, FAI, CTQ, APQP, PPAP,
+IQC, IPQC, OQC, SOP, WI, RFQ, MOQ, PO
+```
+
+Matching is case-insensitive at input, but output uses the canonical spelling
+shown above. For example, spoken `pvt` may be corrected to `PVT`, but it must
+not become `生产验证测试`, `小批量试产`, or another translated expansion in
+either audience view. The Chinese caption keeps the English token in context:
+`PVT build` may become `PVT 试产`, while the literal `PVT` remains intact.
+
+Project-specific part numbers and acronyms can be added to a configuration's
+`protectedTokens` list. A bilingual term may still use `doNotTranslate: true`
+when it also needs an explicit paired phrase or aliases.
+
 ## Sources and terminology policy
 
 Canonical mould terminology is anchored to:
@@ -137,6 +165,7 @@ JSON is the canonical shareable format:
   "description": "Injection-mould tooling and supplier terminology used in Guangdong manufacturing meetings.",
   "regions": ["Guangdong", "Shenzhen", "Dongguan"],
   "domains": ["tooling", "injection-moulding", "supplier"],
+  "protectedTokens": ["EVT", "DVT", "PVT", "T1", "T2"],
   "terms": [
     {
       "en": "flash",
@@ -157,6 +186,9 @@ JSON is the canonical shareable format:
 - `en` and `zh` are required and limited to 120 characters each.
 - `aliases` contains at most 10 strings of 120 characters.
 - `priority` is an integer from 1 through 5 and defaults to 3.
+- `protectedTokens` contains at most 80 unique strings of 32 characters.
+  Tokens are trimmed, compared case-insensitively, and exported with their
+  canonical spelling.
 - Unknown properties are ignored during import and omitted during export.
 - HTML and control characters are stripped from displayed metadata.
 
@@ -193,13 +225,15 @@ Only one meeting configuration is selected at a time.
 
 Imported terms form a custom overlay:
 
-1. Normalize whitespace and compare English keys case-insensitively.
-2. A custom term with the same English key replaces the built-in pair.
-3. Merge unique aliases from both records.
-4. Order custom terms first, then built-in terms by descending priority and
+1. Merge the core product-development protected vocabulary with the selected
+   configuration and imported `protectedTokens`, preserving canonical spelling.
+2. Normalize whitespace and compare English keys case-insensitively.
+3. A custom term with the same English key replaces the built-in pair.
+4. Merge unique aliases from both records.
+5. Order custom terms first, then built-in terms by descending priority and
    original configuration order.
-5. Activate the first 40 terms.
-6. Preserve additional imported terms in the portable configuration, but show
+6. Activate the first 40 bilingual terms.
+7. Preserve additional imported terms in the portable configuration, but show
    `40 active / N stored` and explain that lower-priority terms are inactive.
 
 This ordering makes an imported correction effective immediately while keeping
@@ -225,12 +259,14 @@ interface GlossaryConfiguration {
   description: string;
   regions: string[];
   domains: string[];
+  protectedTokens: string[];
   terms: GlossaryTerm[];
 }
 
 interface CaptionSettings {
   glossaryConfigurationId: string;
   customGlossaryConfiguration: GlossaryConfiguration | null;
+  protectedTokens: string[];
   glossary: GlossaryTerm[];
 }
 ```
@@ -238,6 +274,10 @@ interface CaptionSettings {
 `glossary` remains the compiled runtime list for compatibility with the current
 transcription and normalization pipeline. Existing user-entered glossary rows
 migrate into a custom configuration so no saved terminology is lost.
+`protectedTokens` is the compiled runtime list supplied to both transcription
+context and normalization. It is checked after each normalized result; a final
+caption that drops or translates a protected token is retried once with a
+targeted preservation instruction before the normal failure behavior applies.
 
 Built-in configurations are version-controlled application assets. Custom
 configuration data stays in the existing per-user settings file.
@@ -267,6 +307,10 @@ configuration data stays in the existing per-user settings file.
 - Unit tests for JSON, CSV, TSV, and TXT parsing.
 - Unit tests for validation, sanitization, duplicate merging, priority ordering,
   and the 40-term activation boundary.
+- Unit tests proving lowercase spoken forms such as `pvt` normalize to `PVT`
+  and remain literal in both audience outputs.
+- Unit tests proving protected tokens are supplied to transcription context,
+  normalization, export, and re-import without consuming bilingual term slots.
 - Migration test proving the existing flat glossary becomes a custom
   configuration.
 - UI tests for template selection, import feedback, active/stored counts,
@@ -281,6 +325,8 @@ configuration data stays in the existing per-user settings file.
 - Four built-in configurations are immediately available offline.
 - South China terminology uses canonical output pairs with labelled regional
   aliases.
+- T1, T2, EVT, DVT, PVT, and the remaining built-in product-development tokens
+  remain literal in both English and Chinese captions.
 - A valid glossary file imports without network access.
 - A configuration exports as schema-versioned JSON and re-imports without data
   loss.

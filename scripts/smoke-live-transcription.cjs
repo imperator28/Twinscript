@@ -6,6 +6,7 @@ const {
   LiveTranscriptionSession,
 } = require('../electron/captions/live-transcription-session');
 const { parseDevelopmentKey } = require('../electron/captions/credential-store');
+const { OpenAINormalizer } = require('../electron/captions/openai-normalizer');
 
 function synthesizePcm(directory, name, voice, text) {
   const aiffPath = path.join(directory, `${name}.aiff`);
@@ -111,6 +112,31 @@ async function main() {
     if (transcripts.length < 2) {
       throw new Error(`Expected 2 final transcripts, received ${transcripts.length}`);
     }
+    const normalizer = new OpenAINormalizer({ apiKey: key });
+    const [chineseAudience, englishAudience] = await Promise.all([
+      normalizer.normalize({
+        sourceText: transcripts[0],
+        target: 'zh',
+        profile: 'economy',
+        final: true,
+        glossary: [],
+      }),
+      normalizer.normalize({
+        sourceText: transcripts[1],
+        target: 'en',
+        profile: 'economy',
+        final: true,
+        glossary: [],
+      }),
+    ]);
+    if (!/[\u3400-\u9fff]/.test(chineseAudience.text)) {
+      throw new Error('English speech did not produce a Chinese audience caption');
+    }
+    if (!/[A-Za-z]/.test(englishAudience.text)) {
+      throw new Error('Chinese speech did not produce an English audience caption');
+    }
+    console.log(`CHINESE AUDIENCE: ${chineseAudience.text}`);
+    console.log(`ENGLISH AUDIENCE: ${englishAudience.text}`);
   } finally {
     session?.close();
     fs.rmSync(directory, { recursive: true, force: true });

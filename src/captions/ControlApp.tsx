@@ -16,6 +16,7 @@ import type {
   EvaluationResult,
   SessionMetrics,
   SessionStatus,
+  TargetText,
 } from './types';
 
 type Tab = 'session' | 'compare' | 'settings';
@@ -61,6 +62,14 @@ function formatElapsed(milliseconds = 0) {
 function Level({ value = 0 }: { value?: number }) {
   const width = `${Math.max(2, Math.min(100, value * 900))}%`;
   return <span className="level"><i style={{ width }} /></span>;
+}
+
+function targetText(target: TargetText, audience: 'en' | 'zh') {
+  if (target.text) return target.text;
+  if (target.status === 'failed') {
+    return audience === 'en' ? 'Translation unavailable' : '翻译暂不可用';
+  }
+  return audience === 'en' ? 'Translating…' : '正在翻译…';
 }
 
 export function ControlApp() {
@@ -432,8 +441,8 @@ export function ControlApp() {
                 <button className={settings.layout === 'side-by-side' ? 'is-selected' : ''} onClick={() => void saveSettings({ layout: 'side-by-side' })}>Side by side</button>
               </div>
               <div className={`overlay-preview overlay-preview--${settings.layout}`}>
-                <div className="preview-en"><span>ENGLISH</span>{latest?.english.text || 'English audience caption'}</div>
-                <div className="preview-zh"><span>中文</span>{latest?.chinese.text || '中文观众字幕'}</div>
+                <div className="preview-en"><span>ENGLISH</span>{latest ? targetText(latest.english, 'en') : 'English audience caption'}</div>
+                <div className="preview-zh"><span>中文</span>{latest ? targetText(latest.chinese, 'zh') : '中文观众字幕'}</div>
               </div>
             </article>
           </div>
@@ -534,7 +543,7 @@ export function ControlApp() {
               <div className="section-heading"><div><p className="eyebrow">SESSION LOG</p><h2>Latest captions</h2></div><span>{captions.length} lines</span></div>
               <div className="transcript-list">
                 {[...captions].reverse().slice(0, 5).map((caption) => (
-                  <div key={caption.id}><span>{caption.sourceChannel === 'microphone' ? 'YOU' : 'MEETING'}</span><p>{caption.english.text || caption.sourceText}</p><p lang="zh-Hans">{caption.chinese.text || caption.sourceText}</p></div>
+                  <div key={caption.id}><span>{caption.sourceChannel === 'microphone' ? 'YOU' : 'MEETING'}</span><p>{targetText(caption.english, 'en')}</p><p lang="zh-Hans">{targetText(caption.chinese, 'zh')}</p></div>
                 ))}
               </div>
             </article>

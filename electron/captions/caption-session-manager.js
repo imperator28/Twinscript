@@ -12,6 +12,10 @@ const { PriorityTaskQueue } = require('./priority-task-queue');
 const { buildQualitySignals } = require('./quality-signals');
 const { TranscriptCoordinator } = require('./transcript-coordinator');
 
+const PROVISIONAL_INITIAL_DELAY_MS = 650;
+const PROVISIONAL_CADENCE_MS = 1800;
+const MAX_PROVISIONAL_CALLS_PER_ITEM = 8;
+
 function errorTarget(error) {
   return {
     text: '',
@@ -99,6 +103,7 @@ class CaptionSessionManager {
     this.sequence = 0;
     this.pendingTimers = new Map();
     this.abortControllers = new Map();
+    this.lastProvisionalAtByItem = new Map();
     this.shadowControllers = new Set();
     this.primaryNormalizer = null;
     this.shadowNormalizer = null;
@@ -331,7 +336,7 @@ class CaptionSessionManager {
     const caption = this.upsertTranscriptEvent(key, event, false);
     this.publish(caption);
     if (this.settings.provisionalTranslation) {
-      this.scheduleProvisional(key, caption);
+      this.scheduleProvisional(key);
     }
   }
 
@@ -429,17 +434,36 @@ class CaptionSessionManager {
     return duplicateOf;
   }
 
-  scheduleProvisional(key, caption) {
-    clearTimeout(this.pendingTimers.get(key));
+  scheduleProvisional(key) {
+    // Do not debounce forever while transcript deltas are continuously
+    // arriving. Keep one bounded timer and translate the newest available
+    // prefix when it fires.
+    if (this.pendingTimers.has(key)) return;
+    const calls = this.provisionalCallsByItem.get(key) || 0;
+    if (calls >= MAX_PROVISIONAL_CALLS_PER_ITEM) return;
+    const lastAt = this.lastProvisionalAtByItem.get(key) || 0;
+    const delay = lastAt
+      ? Math.max(
+          PROVISIONAL_INITIAL_DELAY_MS,
+          PROVISIONAL_CADENCE_MS - (Date.now() - lastAt),
+        )
+      : PROVISIONAL_INITIAL_DELAY_MS;
     this.pendingTimers.set(
       key,
       setTimeout(() => {
         this.pendingTimers.delete(key);
-        const calls = this.provisionalCallsByItem.get(key) || 0;
-        if (calls >= 2) return;
-        this.provisionalCallsByItem.set(key, calls + 1);
-        void this.normalizePrimary(key, caption, false);
-      }, 700),
+        const current = this.eventsByItem.get(key);
+        if (!current || current.finalTranscriptAt) return;
+        if (this.abortControllers.has(key)) {
+          this.scheduleProvisional(key);
+          return;
+        }
+        const currentCalls = this.provisionalCallsByItem.get(key) || 0;
+        if (currentCalls >= MAX_PROVISIONAL_CALLS_PER_ITEM) return;
+        this.provisionalCallsByItem.set(key, currentCalls + 1);
+        this.lastProvisionalAtByItem.set(key, Date.now());
+        void this.normalizePrimary(key, current, false);
+      }, delay),
     );
   }
 
@@ -447,6 +471,7 @@ class CaptionSessionManager {
     clearTimeout(this.pendingTimers.get(key));
     this.pendingTimers.delete(key);
     this.provisionalCallsByItem.delete(key);
+    this.lastProvisionalAtByItem.delete(key);
     const controller = this.abortControllers.get(key);
     if (controller) controller.abort();
     this.abortControllers.delete(key);
@@ -475,7 +500,9 @@ class CaptionSessionManager {
           });
           if (controller.signal.aborted || !this.active) return;
           const current = this.eventsByItem.get(key);
-          if (!current || current.sourceText !== caption.sourceText) return;
+          if (!current || (final && current.sourceText !== caption.sourceText)) {
+            return;
+          }
           const updated = updateTarget(current, target, {
             text: result.text,
             status: final ? 'final' : 'provisional',

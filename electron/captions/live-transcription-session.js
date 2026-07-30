@@ -60,6 +60,7 @@ class LiveTranscriptionSession {
       postRollMs: 650,
     });
     this.turnAudioMs = 0;
+    this.maxTurnMs = 12000;
   }
 
   async connect() {
@@ -217,9 +218,12 @@ class LiveTranscriptionSession {
       bufferedBytes: this.socket?.bufferedAmount || 0,
       at: Date.now(),
     });
+    if (this.turnAudioMs >= this.maxTurnMs) {
+      this.commitAudioTurn('max_duration');
+    }
   }
 
-  commitAudioTurn() {
+  commitAudioTurn(reason = 'silence') {
     if (
       this.turnAudioMs < 100 ||
       !this.connected ||
@@ -229,6 +233,13 @@ class LiveTranscriptionSession {
       return;
     }
     this.socket.send(JSON.stringify({ type: 'input_audio_buffer.commit' }));
+    this.onEvent({
+      type: 'turn-commit',
+      channel: this.channel,
+      reason,
+      audioMs: this.turnAudioMs,
+      at: Date.now(),
+    });
     this.turnAudioMs = 0;
   }
 

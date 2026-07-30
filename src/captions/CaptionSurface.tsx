@@ -3,6 +3,17 @@ import type { Audience, AudienceCaption, CaptionSettings, SessionStatus } from '
 
 const MAX_VISIBLE_LINES = 3;
 
+export function audienceCaptionText(
+  caption: AudienceCaption,
+  audience: Audience,
+) {
+  if (caption.text) return caption.text;
+  if (caption.status === 'failed') {
+    return audience === 'en' ? 'Translation unavailable' : '翻译暂不可用';
+  }
+  return audience === 'en' ? 'Translating…' : '正在翻译…';
+}
+
 export function CaptionSurface({ audience }: { audience: Audience }) {
   const [captions, setCaptions] = useState<AudienceCaption[]>([]);
   const [status, setStatus] = useState<SessionStatus>({ state: 'ready' });
@@ -103,9 +114,7 @@ export function CaptionSurface({ audience }: { audience: Audience }) {
           <p className="caption-roll__empty">{emptyText}</p>
         ) : (
           visible.map((caption, index) => {
-            const text =
-              caption.text ||
-              (audience === 'en' ? 'Translation unavailable' : '翻译暂不可用');
+            const text = audienceCaptionText(caption, audience);
             return (
               <p
                 className={`caption-line ${caption.status === 'final' ? 'is-final' : 'is-provisional'}`}

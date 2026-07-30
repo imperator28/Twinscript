@@ -330,6 +330,40 @@ test('live transport commits a quiet speech turn after trailing silence', () => 
   );
 });
 
+test('live transport force-commits a bounded turn when speech never pauses', () => {
+  const sent = [];
+  const events = [];
+  const session = new LiveTranscriptionSession({
+    channel: 'microphone',
+    apiKey: 'test',
+    settings: {
+      vadEnabled: false,
+      vadThreshold: 0.012,
+      delayProfile: 'low',
+    },
+    onEvent: (event) => events.push(event),
+  });
+  session.maxTurnMs = 200;
+  session.connected = true;
+  session.socket = {
+    readyState: 1,
+    bufferedAmount: 0,
+    send: (value) => sent.push(JSON.parse(value)),
+  };
+
+  session.appendAudio(new Int16Array(2400).fill(1000));
+  session.appendAudio(new Int16Array(2400).fill(1000));
+
+  assert.equal(
+    sent.filter((event) => event.type === 'input_audio_buffer.commit').length,
+    1,
+  );
+  assert.equal(
+    events.find((event) => event.type === 'turn-commit').reason,
+    'max_duration',
+  );
+});
+
 test('credential store decrypts once per app launch', async () => {
   const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'caption-key-'));
   const credentialPath = path.join(userData, 'credentials', 'openai.enc');
@@ -501,6 +535,71 @@ test('transport events do not replace the active session lifecycle', () => {
   assert.equal(statuses[0].state, 'running');
   assert.equal(statuses[1].state, 'degraded');
   assert.equal(manager.active, true);
+});
+
+test('continuous transcript deltas keep one bounded provisional timer', () => {
+  const manager = new CaptionSessionManager({
+    credentialStore: {},
+    settingsStore: {},
+  });
+  manager.settings = { provisionalTranslation: true };
+  const key = 'microphone:item';
+  manager.eventsByItem.set(key, {
+    sourceText: 'Newest transcript prefix',
+  });
+
+  manager.scheduleProvisional(key);
+  const firstTimer = manager.pendingTimers.get(key);
+  manager.scheduleProvisional(key);
+
+  assert.equal(manager.pendingTimers.size, 1);
+  assert.equal(manager.pendingTimers.get(key), firstTimer);
+  manager.cancelProvisional(key);
+});
+
+test('a safe provisional prefix can update a newer live transcript', async () => {
+  const published = [];
+  const manager = new CaptionSessionManager({
+    credentialStore: {},
+    settingsStore: {},
+    onCaption: (caption) => published.push(caption),
+  });
+  manager.active = true;
+  manager.sessionId = 'session';
+  manager.settings = { primaryProfile: 'economy', glossary: [] };
+  manager.cost = {
+    canSpend: () => true,
+    snapshot: () => ({ totalUsd: 0 }),
+  };
+  manager.primaryNormalizer = {
+    normalize: async () => ({
+      text: '正在翻译的前缀',
+      sourceLanguage: 'en',
+      model: 'test-model',
+      usage: { inputTokens: 1, outputTokens: 1 },
+    }),
+  };
+  const key = 'microphone:item';
+  const stale = createCaptionEvent({
+    sessionId: 'session',
+    sequence: 1,
+    sourceChannel: 'microphone',
+    providerItemId: 'item',
+    sourceText: 'Earlier prefix',
+    sourceStartedAt: 1,
+    profile: 'economy',
+  });
+  const current = {
+    ...stale,
+    sourceText: 'Earlier prefix with newer words',
+  };
+  manager.eventsByItem.set(key, current);
+
+  await manager.normalizePrimary(key, stale, false);
+
+  assert.equal(manager.eventsByItem.get(key).sourceText, current.sourceText);
+  assert.equal(manager.eventsByItem.get(key).chinese.text, '正在翻译的前缀');
+  assert.equal(published.at(-1).chinese.status, 'provisional');
 });
 
 test('screening prompts and structured bilingual ratings fail closed', () => {

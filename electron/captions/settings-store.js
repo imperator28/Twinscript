@@ -2,7 +2,7 @@ const fs = require('fs');
 const path = require('path');
 
 const DEFAULT_SETTINGS = Object.freeze({
-  settingsVersion: 2,
+  settingsVersion: 3,
   layout: 'stacked',
   primaryProfile: 'economy',
   shadowProfile: 'tiered',
@@ -15,6 +15,7 @@ const DEFAULT_SETTINGS = Object.freeze({
   budgetUsd: 5,
   glossary: [],
   captionFontScale: 1,
+  captionPaceMs: 1200,
   showSourceInControl: true,
   recordEvaluation: false,
   recordingRetentionDays: 7,
@@ -35,9 +36,12 @@ class SettingsStore {
         // Phase 1 originally enabled a local RMS gate. It can discard quiet
         // microphones before a transcription turn is committed, so existing
         // installs migrate to the quieter-speech segmentation profile.
-        next.settingsVersion = 2;
         next.vadEnabled = false;
       }
+      if (!parsed.settingsVersion || parsed.settingsVersion < 3) {
+        next.captionPaceMs = DEFAULT_SETTINGS.captionPaceMs;
+      }
+      next.settingsVersion = DEFAULT_SETTINGS.settingsVersion;
       return next;
     } catch {
       return { ...DEFAULT_SETTINGS };

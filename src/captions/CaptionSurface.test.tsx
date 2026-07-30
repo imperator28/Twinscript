@@ -18,7 +18,10 @@ describe('CaptionSurface', () => {
       onStatus: () => () => {},
       onSettings: () => () => {},
       getSettings: () =>
-        Promise.resolve({ ok: true, data: { captionFontScale: 1 } }),
+        Promise.resolve({
+          ok: true,
+          data: { captionFontScale: 1, captionPaceMs: 1200 },
+        }),
       hideWindows,
     } as unknown as typeof window.captions;
   });
@@ -28,6 +31,12 @@ describe('CaptionSurface', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Hide caption windows' }));
     expect(hideWindows).toHaveBeenCalledOnce();
+  });
+
+  it('exposes a dedicated drag affordance across the caption header', () => {
+    const { container } = render(<CaptionSurface audience="en" />);
+    expect(container.querySelector('.caption-surface__header')).toBeTruthy();
+    expect(container.querySelector('.caption-surface__drag-handle')).toBeTruthy();
   });
 
   it('also hides both overlays with Escape', () => {

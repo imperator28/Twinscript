@@ -84,6 +84,7 @@ export function CaptionSurface({ audience }: { audience: Audience }) {
       aria-atomic="false"
     >
       <header className="caption-surface__header">
+        <span className="caption-surface__drag-handle" aria-hidden="true" />
         <span>{label}</span>
         <span className="caption-surface__actions">
           <span className="caption-surface__status" title={status.message}>

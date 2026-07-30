@@ -29,7 +29,7 @@ vi.mock('./audioCapture', () => ({
 let statusListener: ((status: { state: string }) => void) | undefined;
 
 const settings = {
-  settingsVersion: 2,
+  settingsVersion: 3,
   layout: 'stacked',
   primaryProfile: 'economy',
   shadowProfile: 'tiered',
@@ -42,6 +42,7 @@ const settings = {
   budgetUsd: 5,
   glossary: [],
   captionFontScale: 1,
+  captionPaceMs: 1200,
   showSourceInControl: true,
   recordEvaluation: false,
   recordingRetentionDays: 7,
@@ -76,7 +77,7 @@ describe('Phase 1 screening shell', () => {
       listRecordings: () => ok([]),
       startSession: vi.fn(() => ok({})),
       stopSession: () => ok({}),
-      setSettings: (patch) => ok(patch),
+      setSettings: vi.fn((patch) => ok(patch)),
       setScreeningPrompt: (prompt) => ok(prompt),
       rateEvaluation: (rating) =>
         ok({
@@ -155,16 +156,32 @@ describe('Phase 1 screening shell', () => {
     await screen.findByText('Ready for a live meeting');
 
     fireEvent.click(screen.getByRole('button', { name: 'Start Live Session' }));
-    expect(screen.getByRole('button', { name: 'Cancel Start' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Stop Session' })).toBeEnabled();
 
     act(() => statusListener?.({ state: 'connected' }));
-    expect(screen.getByRole('button', { name: 'Cancel Start' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Stop Session' })).toBeEnabled();
 
     await waitFor(() => expect(finishStart).toBeTypeOf('function'));
     await act(async () => {
       finishStart?.({ ok: true, data: {} });
     });
-    await screen.findByRole('button', { name: 'End Session' });
+    await screen.findByRole('button', { name: 'Stop Session' });
+  });
+
+  it('persists a live-adjustable caption presentation pace', async () => {
+    render(<ControlApp />);
+    await screen.findByText('Ready for a live meeting');
+
+    fireEvent.change(screen.getByRole('slider', { name: 'Caption pace' }), {
+      target: { value: '2200' },
+    });
+
+    await waitFor(() =>
+      expect(window.captions.setSettings).toHaveBeenCalledWith({
+        captionPaceMs: 2200,
+      }),
+    );
+    expect(screen.getByText('Relaxed · 2.2s')).toBeVisible();
   });
 
   it('shows layout changes in the audience preview', async () => {

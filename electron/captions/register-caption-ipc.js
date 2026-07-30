@@ -59,6 +59,9 @@ function registerCaptionIpc({
   handle('captions:settings-set', (patch) => {
     const settings = settingsStore.set(patch);
     if (patch.layout) windows.applyLayout(patch.layout);
+    if (patch.captionPaceMs !== undefined) {
+      windows.setCaptionPaceMs(settings.captionPaceMs);
+    }
     windows.broadcast('captions:settings', settings);
     return settings;
   });

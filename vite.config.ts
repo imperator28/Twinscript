@@ -136,6 +136,7 @@ export default defineConfig(({ command, mode }) => {
           entry: {
             'captions-main': 'electron/captions-main.js',
             'captions/caption-domain': 'electron/captions/caption-domain.js',
+            'captions/caption-presentation-pacer': 'electron/captions/caption-presentation-pacer.js',
             'captions/caption-session-manager': 'electron/captions/caption-session-manager.js',
             'captions/caption-window-manager': 'electron/captions/caption-window-manager.js',
             'captions/cost-meter': 'electron/captions/cost-meter.js',

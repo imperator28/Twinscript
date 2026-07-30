@@ -1,5 +1,9 @@
 const path = require('path');
 const { projectForAudience } = require('./caption-domain');
+const {
+  CaptionPresentationPacer,
+  DEFAULT_PACE_MS,
+} = require('./caption-presentation-pacer');
 
 class CaptionWindowManager {
   constructor({ app, BrowserWindow, screen, controlWindow, isDev, preloadPath }) {
@@ -11,6 +15,10 @@ class CaptionWindowManager {
     this.preloadPath = preloadPath;
     this.captionWindows = new Map();
     this.layout = 'stacked';
+    this.presentationPacer = new CaptionPresentationPacer({
+      paceMs: DEFAULT_PACE_MS,
+      onPresent: (event) => this.presentCaption(event),
+    });
   }
 
   createAll() {
@@ -139,6 +147,10 @@ class CaptionWindowManager {
 
   publishCaption(event) {
     this.broadcastControl('captions:event', event);
+    this.presentationPacer.enqueue(event);
+  }
+
+  presentCaption(event) {
     for (const audience of ['en', 'zh']) {
       const window = this.captionWindows.get(audience);
       if (window && !window.isDestroyed()) {
@@ -150,6 +162,10 @@ class CaptionWindowManager {
     }
   }
 
+  setCaptionPaceMs(value) {
+    return this.presentationPacer.setPaceMs(value);
+  }
+
   broadcastControl(channel, payload) {
     if (this.controlWindow && !this.controlWindow.isDestroyed()) {
       this.controlWindow.webContents.send(channel, payload);
@@ -157,6 +173,12 @@ class CaptionWindowManager {
   }
 
   broadcast(channel, payload) {
+    if (
+      channel === 'captions:status' &&
+      ['starting', 'stopped', 'budget-exhausted'].includes(payload?.state)
+    ) {
+      this.presentationPacer.reset();
+    }
     this.broadcastControl(channel, payload);
     for (const window of this.captionWindows.values()) {
       if (!window.isDestroyed()) window.webContents.send(channel, payload);

@@ -34,7 +34,7 @@ type Recording = {
 };
 
 const DEFAULT_SETTINGS: CaptionSettings = {
-  settingsVersion: 2,
+  settingsVersion: 3,
   layout: 'stacked',
   primaryProfile: 'economy',
   shadowProfile: 'tiered',
@@ -47,6 +47,7 @@ const DEFAULT_SETTINGS: CaptionSettings = {
   budgetUsd: 5,
   glossary: [],
   captionFontScale: 1,
+  captionPaceMs: 1200,
   showSourceInControl: true,
   recordEvaluation: false,
   recordingRetentionDays: 7,
@@ -70,6 +71,12 @@ function targetText(target: TargetText, audience: 'en' | 'zh') {
     return audience === 'en' ? 'Translation unavailable' : '翻译暂不可用';
   }
   return audience === 'en' ? 'Translating…' : '正在翻译…';
+}
+
+function captionPaceLabel(milliseconds: number) {
+  if (milliseconds <= 700) return 'Fast';
+  if (milliseconds >= 2100) return 'Relaxed';
+  return 'Balanced';
 }
 
 export function ControlApp() {
@@ -444,6 +451,31 @@ export function ControlApp() {
                 <div className="preview-en"><span>ENGLISH</span>{latest ? targetText(latest.english, 'en') : 'English audience caption'}</div>
                 <div className="preview-zh"><span>中文</span>{latest ? targetText(latest.chinese, 'zh') : '中文观众字幕'}</div>
               </div>
+              <label className="field pace-control">
+                <span className="pace-control__heading">
+                  <span>Caption pace</span>
+                  <output>
+                    {captionPaceLabel(settings.captionPaceMs)} · {(settings.captionPaceMs / 1000).toFixed(1)}s
+                  </output>
+                </span>
+                <input
+                  type="range"
+                  min="400"
+                  max="3000"
+                  step="100"
+                  value={settings.captionPaceMs}
+                  aria-label="Caption pace"
+                  aria-valuetext={`${captionPaceLabel(settings.captionPaceMs)}, ${(settings.captionPaceMs / 1000).toFixed(1)} seconds between updates`}
+                  onChange={(event) => void saveSettings({ captionPaceMs: Number(event.target.value) })}
+                />
+                <span className="pace-control__scale" aria-hidden="true">
+                  <span>Fast</span>
+                  <span>Relaxed</span>
+                </span>
+                <span className="pace-control__note">
+                  Controls the subtitle display rhythm. Transcription and the session log remain live.
+                </span>
+              </label>
             </article>
           </div>
 
@@ -464,7 +496,7 @@ export function ControlApp() {
                 </>
               ) : (
                 <button className="button button--stop" disabled={operation === 'stopping'} onClick={() => void stop()}>
-                  {operation === 'starting' ? 'Cancel Start' : operation === 'stopping' ? 'Ending…' : 'End Session'}
+                  {operation === 'stopping' ? 'Stopping…' : 'Stop Session'}
                 </button>
               )}
             </div>

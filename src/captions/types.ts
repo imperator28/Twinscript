@@ -192,6 +192,7 @@ export interface CaptionSettings {
     doNotTranslate?: boolean;
   }>;
   captionFontScale: number;
+  captionPaceMs: number;
   showSourceInControl: boolean;
   recordEvaluation: boolean;
   recordingRetentionDays: number;

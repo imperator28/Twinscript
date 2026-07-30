@@ -387,15 +387,16 @@ test('credential store decrypts once per app launch', async () => {
   fs.rmSync(userData, { recursive: true, force: true });
 });
 
-test('legacy caption settings migrate away from the lossy local VAD gate', () => {
+test('legacy caption settings migrate to safe VAD and presentation pacing', () => {
   const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'caption-settings-'));
   fs.writeFileSync(
     path.join(userData, 'caption-settings.json'),
     JSON.stringify({ vadEnabled: true, vadThreshold: 0.012 }),
   );
   const settings = new SettingsStore({ getPath: () => userData }).get();
-  assert.equal(settings.settingsVersion, 2);
+  assert.equal(settings.settingsVersion, 3);
   assert.equal(settings.vadEnabled, false);
+  assert.equal(settings.captionPaceMs, 1200);
   fs.rmSync(userData, { recursive: true, force: true });
 });
 

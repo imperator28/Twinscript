@@ -267,7 +267,11 @@ function registerAudioCaptureIpc() {
   });
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  if (process.platform === 'darwin') {
+    app.setActivationPolicy('regular');
+    await app.dock.show();
+  }
   createControlWindow();
   captionWindows = new CaptionWindowManager({
     app,
@@ -321,7 +325,9 @@ app.whenReady().then(() => {
     evaluationRecorder,
     requestMicrophoneAccess,
   });
-  captionWindows.applyLayout(settingsStore.get().layout);
+  const settings = settingsStore.get();
+  captionWindows.applyLayout(settings.layout);
+  captionWindows.setCaptionPaceMs(settings.captionPaceMs);
 });
 
 app.on('activate', () => {
@@ -330,6 +336,7 @@ app.on('activate', () => {
     if (captionWindows) captionWindows.controlWindow = controlWindow;
   } else {
     controlWindow.show();
+    controlWindow.focus();
   }
 });
 

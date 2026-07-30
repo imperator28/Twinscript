@@ -19,7 +19,7 @@ import type {
   TargetText,
 } from './types';
 
-type Tab = 'session' | 'compare' | 'settings';
+type Tab = 'session' | 'settings' | 'validation';
 type SessionOperation = 'idle' | 'starting' | 'stopping';
 type CredentialState = {
   available: boolean;
@@ -407,9 +407,17 @@ export function ControlApp() {
       </header>
 
       <nav className="tab-bar" aria-label="Primary">
-        {(['session', 'compare', 'settings'] as Tab[]).map((item) => (
-          <button className={tab === item ? 'is-selected' : ''} key={item} onClick={() => setTab(item)}>
-            {item === 'session' ? 'Session' : item === 'compare' ? `Compare${evaluations.length ? ` · ${evaluations.length}` : ''}` : 'Settings'}
+        {(['session', 'settings'] as const).map((item) => (
+          <button
+            className={
+              tab === item || (tab === 'validation' && item === 'settings')
+                ? 'is-selected'
+                : ''
+            }
+            key={item}
+            onClick={() => setTab(item)}
+          >
+            {item === 'session' ? 'Session' : 'Settings'}
           </button>
         ))}
       </nav>
@@ -583,8 +591,6 @@ export function ControlApp() {
         </section>
       )}
 
-      {tab === 'compare' && <EvaluationPanel results={evaluations} />}
-
       {tab === 'settings' && (
         <section className="settings-layout">
           <article className="card">
@@ -599,21 +605,9 @@ export function ControlApp() {
           </article>
 
           <article className="card">
-            <p className="eyebrow">A/B FOUNDATION</p><h2>Model profiles</h2>
+            <p className="eyebrow">CAPTION PIPELINE</p><h2>Translation profile</h2>
             <label className="field"><span>Primary audience profile</span><select disabled={active} value={settings.primaryProfile} onChange={(event) => void saveSettings({ primaryProfile: event.target.value as CaptionSettings['primaryProfile'] })}><option value="economy">Economy · nano/nano</option><option value="tiered">Tiered · nano/luna final</option><option value="quality">Quality · luna/luna</option></select></label>
-            <label className="toggle"><input type="checkbox" disabled={active} checked={settings.shadowEnabled} onChange={(event) => void saveSettings({ shadowEnabled: event.target.checked })} /><span>Run a shadow comparison</span></label>
-            <label className="field"><span>Shadow profile</span><select disabled={active || !settings.shadowEnabled} value={settings.shadowProfile} onChange={(event) => void saveSettings({ shadowProfile: event.target.value as CaptionSettings['shadowProfile'] })}><option value="economy">Economy</option><option value="tiered">Tiered</option><option value="quality">Quality</option></select></label>
             <label className="field"><span>Session budget cap (USD)</span><input type="number" min="0.5" max="50" step="0.5" value={settings.budgetUsd} onChange={(event) => void saveSettings({ budgetUsd: Number(event.target.value) })} /></label>
-            {active && settings.shadowEnabled && (
-              <button
-                className="button button--quiet"
-                onClick={() => void window.captions.abortShadow().then((result) => {
-                  setNotice(result.ok ? 'Shadow comparison stopped. Primary audience captions continue.' : result.error.message);
-                })}
-              >
-                Stop shadow comparison
-              </button>
-            )}
           </article>
 
           <article className="card">
@@ -631,6 +625,54 @@ export function ControlApp() {
             <button className="button button--secondary" onClick={() => void saveSettings({ glossary: parseGlossary() })}>Save glossary</button>
           </article>
 
+          <article className="card validation-entry-card">
+            <div>
+              <p className="eyebrow">ADVANCED VALIDATION</p>
+              <h2>Model comparison</h2>
+              <p className="supporting-copy">
+                Runs a private second translation for blinded A/B review. It does not change audience captions and adds API usage, so leave it off for normal meetings.
+              </p>
+            </div>
+            <div className="validation-entry-controls">
+              <label className="toggle">
+                <input
+                  type="checkbox"
+                  disabled={active}
+                  checked={settings.shadowEnabled}
+                  onChange={(event) => void saveSettings({ shadowEnabled: event.target.checked })}
+                />
+                <span>Run a shadow comparison</span>
+              </label>
+              <label className="field">
+                <span>Comparison profile</span>
+                <select
+                  disabled={active || !settings.shadowEnabled}
+                  value={settings.shadowProfile}
+                  onChange={(event) => void saveSettings({ shadowProfile: event.target.value as CaptionSettings['shadowProfile'] })}
+                >
+                  <option value="economy">Economy</option>
+                  <option value="tiered">Tiered</option>
+                  <option value="quality">Quality</option>
+                </select>
+              </label>
+              <div className="button-row">
+                <button className="button button--secondary" onClick={() => setTab('validation')}>
+                  {evaluations.length > 0 ? `Review comparisons · ${evaluations.length}` : 'Open comparison review'}
+                </button>
+                {active && settings.shadowEnabled && (
+                  <button
+                    className="button button--quiet"
+                    onClick={() => void window.captions.abortShadow().then((result) => {
+                      setNotice(result.ok ? 'Shadow comparison stopped. Primary audience captions continue.' : result.error.message);
+                    })}
+                  >
+                    Stop shadow comparison
+                  </button>
+                )}
+              </div>
+            </div>
+          </article>
+
           <article className="card export-card">
             <p className="eyebrow">VALIDATION LOG</p><h2>Export this session</h2>
             <p className="supporting-copy">Exports include settings, routing, model profile, latency, token use, and estimated cost. Raw audio is stored only when encrypted evaluation recording is explicitly enabled.</p>
@@ -641,6 +683,18 @@ export function ControlApp() {
             )}
             <div className="button-row"><button className="button button--secondary" onClick={() => void window.captions.exportSession('json')}>Export JSON</button><button className="button button--quiet" onClick={() => void window.captions.exportSession('markdown')}>Export readable log</button></div>
           </article>
+        </section>
+      )}
+
+      {tab === 'validation' && (
+        <section className="panel-stack validation-view">
+          <div className="validation-toolbar">
+            <button className="text-button" onClick={() => setTab('settings')}>
+              ← Back to Settings
+            </button>
+            <span>Advanced Validation</span>
+          </div>
+          <EvaluationPanel results={evaluations} />
         </section>
       )}
 

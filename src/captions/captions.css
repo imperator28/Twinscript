@@ -116,6 +116,11 @@ input[type="range"] { width: 100%; }
 .quality-review__body { padding: 0 14px 14px; }
 .quality-review__body .field { margin: 10px 0; }
 .quality-flags { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 2px 12px; }
+.validation-entry-card { display: grid; grid-column: 1 / -1; grid-template-columns: minmax(0, .8fr) minmax(320px, 1.2fr); gap: 32px; align-items: start; }
+.validation-entry-card h2 { margin-bottom: 8px; }
+.validation-entry-controls .field { margin: 12px 0 0; }
+.validation-entry-controls .button-row { justify-content: flex-start; margin-top: 16px; }
+.validation-toolbar { display: flex; align-items: center; justify-content: space-between; min-height: 44px; color: #686c73; font-size: 12px; font-weight: 700; letter-spacing: .04em; }
 .empty-state { color: #686c73; text-align: center; line-height: 1.6; }
 .app-footer { margin-top: 24px; padding-top: 16px; border-top: 1px solid #d1d0cc; color: #686c73; font-size: 12px; }
 
@@ -155,6 +160,7 @@ input[type="range"] { width: 100%; }
 @media (max-width: 760px) {
   .control-shell { padding: 22px 18px; }
   .session-grid, .settings-layout, .result-grid { grid-template-columns: 1fr; }
+  .validation-entry-card { grid-template-columns: 1fr; }
   .diagnostic-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .quality-flags { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .launch-card, .app-footer { align-items: flex-start; flex-direction: column; }

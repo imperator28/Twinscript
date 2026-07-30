@@ -196,6 +196,32 @@ describe('Phase 1 screening shell', () => {
     );
   });
 
+  it('keeps model comparison inside Settings advanced validation', async () => {
+    render(<ControlApp />);
+    await screen.findByText('Ready for a live meeting');
+
+    expect(
+      screen.queryByRole('button', { name: /Compare/ }),
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+    expect(screen.getByText(/Advanced Validation/i)).toBeVisible();
+    expect(screen.getByText('Model comparison')).toBeVisible();
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Open comparison review' }),
+    );
+    expect(
+      screen.getByText('Choose what reads better before seeing the profile'),
+    ).toBeVisible();
+    expect(
+      screen.getByRole('button', { name: '← Back to Settings' }),
+    ).toBeVisible();
+
+    fireEvent.click(screen.getByRole('button', { name: '← Back to Settings' }));
+    expect(screen.getByText('Model comparison')).toBeVisible();
+  });
+
   it('requests microphone access and starts a visible input preview', async () => {
     render(<ControlApp />);
     await screen.findByText('Ready for a live meeting');

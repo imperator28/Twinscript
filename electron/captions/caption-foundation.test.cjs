@@ -347,6 +347,32 @@ test('budget exhaustion stops active capture instead of continuing spend', async
   assert.equal(statuses.at(-1).reason, 'budget-exhausted');
 });
 
+test('transport events do not replace the active session lifecycle', () => {
+  const statuses = [];
+  const manager = new CaptionSessionManager({
+    credentialStore: {},
+    settingsStore: {},
+    onStatus: (status) => statuses.push(status),
+  });
+  manager.active = true;
+  manager.sessionId = 'session';
+
+  manager.handleTranscriptionEvent({
+    type: 'connection',
+    status: 'connected',
+    channel: 'microphone',
+  });
+  manager.handleTranscriptionEvent({
+    type: 'connection',
+    status: 'disconnected',
+    channel: 'system',
+  });
+
+  assert.equal(statuses[0].state, 'running');
+  assert.equal(statuses[1].state, 'degraded');
+  assert.equal(manager.active, true);
+});
+
 test('screening prompts and structured bilingual ratings fail closed', () => {
   const prompt = sanitizeScreeningPrompt({
     id: 'tolerance-1-mixed-inline',

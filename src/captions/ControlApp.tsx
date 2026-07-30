@@ -1,5 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { AudioCaptureController, enumerateAudioDevices, type AudioDeviceOption } from './audioCapture';
+import {
+  AudioCaptureController,
+  MicrophonePreviewController,
+  enumerateAudioDevices,
+  type AudioDeviceOption,
+} from './audioCapture';
 import { EvaluationPanel } from './EvaluationPanel';
 import {
   SCREENING_CORPUS,
@@ -14,6 +19,7 @@ import type {
 } from './types';
 
 type Tab = 'session' | 'compare' | 'settings';
+type SessionOperation = 'idle' | 'starting' | 'stopping';
 type CredentialState = {
   available: boolean;
   source: string;
@@ -74,12 +80,27 @@ export function ControlApp() {
   const [recordingId, setRecordingId] = useState('');
   const [screeningEnabled, setScreeningEnabled] = useState(false);
   const [screeningIndex, setScreeningIndex] = useState(0);
+  const [sessionActive, setSessionActive] = useState(false);
+  const [operation, setOperation] = useState<SessionOperation>('idle');
+  const [previewing, setPreviewing] = useState(false);
+  const [previewLevel, setPreviewLevel] = useState(0);
   const audio = useRef(new AudioCaptureController());
-  const active = ['starting', 'running', 'degraded', 'budget-warning'].includes(status.state);
+  const microphonePreview = useRef(new MicrophonePreviewController());
+  const operationId = useRef(0);
+  const active = sessionActive;
 
   useEffect(() => {
+    const handleStatus = (next: SessionStatus) => {
+      setStatus(next);
+      if (['starting', 'running', 'degraded', 'budget-warning'].includes(next.state)) {
+        setSessionActive(true);
+      }
+      if (['stopped', 'budget-exhausted'].includes(next.state)) {
+        setSessionActive(false);
+      }
+    };
     const cleanups = [
-      window.captions.onStatus(setStatus),
+      window.captions.onStatus(handleStatus),
       window.captions.onMetrics((value) => setMetrics((current) => ({ ...current, ...value, levels: { ...current.levels, ...value.levels }, speaking: { ...current.speaking, ...value.speaking } }))),
       window.captions.onCaption((event) => setCaptions((current) => {
         if (event.suppressed) {
@@ -106,7 +127,10 @@ export function ControlApp() {
         setGlossaryText(next.glossary.map((entry) => `${entry.en} = ${entry.zh}`).join('\n'));
       }
       if (credentialResult.ok) setCredential(credentialResult.data);
-      if (sessionResult.ok && sessionResult.data.active) setStatus({ state: 'running' });
+      if (sessionResult.ok && sessionResult.data.active) {
+        setSessionActive(true);
+        setStatus({ state: 'running' });
+      }
       if (recordingResult.ok) {
         setRecordings(recordingResult.data);
         setRecordingId(recordingResult.data[0]?.id || '');
@@ -114,7 +138,11 @@ export function ControlApp() {
       setDevices(deviceResult);
       setMicrophoneId(deviceResult.inputs[0]?.deviceId || '');
     });
-    return () => cleanups.forEach((cleanup) => cleanup());
+    return () => {
+      cleanups.forEach((cleanup) => cleanup());
+      void microphonePreview.current.stop();
+      void audio.current.stop();
+    };
   }, []);
 
   useEffect(() => {
@@ -136,11 +164,18 @@ export function ControlApp() {
   };
 
   const start = async (mode: 'live' | 'mock') => {
+    const id = ++operationId.current;
+    setSessionActive(true);
+    setOperation('starting');
     setBusy(true);
     setNotice('');
     setCaptions([]);
     setEvaluations([]);
     setMetrics({});
+    setStatus({ state: 'starting', mode });
+    await microphonePreview.current.stop();
+    setPreviewing(false);
+    setPreviewLevel(0);
     const result = await window.captions.startSession({
       mode,
       settings,
@@ -149,29 +184,45 @@ export function ControlApp() {
           ? SCREENING_CORPUS[screeningIndex]
           : null,
     });
+    if (id !== operationId.current) return;
     if (!result.ok) {
       setNotice(result.error.message);
       setStatus({ state: 'ready' });
+      setSessionActive(false);
+      setOperation('idle');
       setBusy(false);
       return;
     }
     if (mode === 'live') {
       try {
-        await audio.current.start(microphoneId || undefined);
+        const capture = await audio.current.start(microphoneId || undefined);
+        if (id !== operationId.current) {
+          await audio.current.stop();
+          return;
+        }
+        if (capture.warning) setNotice(capture.warning);
       } catch (error) {
         await window.captions.stopSession();
+        if (id !== operationId.current) return;
         setNotice(error instanceof Error ? error.message : 'Audio capture could not start');
         setStatus({ state: 'ready' });
+        setSessionActive(false);
+        setOperation('idle');
         setBusy(false);
         return;
       }
     }
+    if (id !== operationId.current) return;
     setStatus({ state: 'running', mode });
+    setOperation('idle');
     setBusy(false);
   };
 
   const replay = async () => {
     if (!recordingId) return;
+    const id = ++operationId.current;
+    setSessionActive(true);
+    setOperation('starting');
     setBusy(true);
     setCaptions([]);
     setEvaluations([]);
@@ -180,18 +231,80 @@ export function ControlApp() {
       recordingId,
       settings: { ...settings, recordEvaluation: false },
     });
-    if (!result.ok) setNotice(result.error.message);
-    else setStatus({ state: 'running', mode: 'replay' });
+    if (id !== operationId.current) return;
+    if (!result.ok) {
+      setNotice(result.error.message);
+      setSessionActive(false);
+    } else setStatus({ state: 'running', mode: 'replay' });
+    setOperation('idle');
     setBusy(false);
   };
 
   const stop = async () => {
+    ++operationId.current;
+    setOperation('stopping');
     setBusy(true);
-    await audio.current.stop();
-    const result = await window.captions.stopSession();
+    const [, result] = await Promise.all([
+      audio.current.stop(),
+      window.captions.stopSession(),
+    ]);
     if (!result.ok) setNotice(result.error.message);
     setStatus({ state: 'stopped' });
+    setSessionActive(false);
+    setOperation('idle');
     setBusy(false);
+  };
+
+  const grantAudioAccess = async () => {
+    setBusy(true);
+    setNotice('');
+    try {
+      await microphonePreview.current.stop();
+      setPreviewing(false);
+      setPreviewLevel(0);
+      const permission = await window.captions.requestMicrophoneAccess();
+      if (!permission.ok || !permission.data.granted) {
+        throw new Error(
+          permission.ok
+            ? 'Microphone access is disabled. Enable Bilingual Meeting Captions in System Settings → Privacy & Security → Microphone.'
+            : permission.error.message,
+        );
+      }
+      const next = await enumerateAudioDevices(true);
+      if (!next.inputs.length) throw new Error('No microphone was found.');
+      const selected = next.inputs.some((device) => device.deviceId === microphoneId)
+        ? microphoneId
+        : next.inputs[0].deviceId;
+      setDevices(next);
+      setMicrophoneId(selected);
+      await microphonePreview.current.start(selected, setPreviewLevel);
+      setPreviewing(true);
+      setNotice('Microphone is active. Speak now—the input meter should respond.');
+    } catch (error) {
+      setNotice(
+        error instanceof Error
+          ? error.message
+          : 'Microphone access could not be started.',
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const selectMicrophone = async (deviceId: string) => {
+    setMicrophoneId(deviceId);
+    if (!previewing) return;
+    try {
+      await microphonePreview.current.start(deviceId || undefined, setPreviewLevel);
+    } catch (error) {
+      setPreviewing(false);
+      setPreviewLevel(0);
+      setNotice(
+        error instanceof Error
+          ? error.message
+          : 'The selected microphone could not be started.',
+      );
+    }
   };
 
   const saveKey = async () => {
@@ -209,6 +322,20 @@ export function ControlApp() {
       setKeyInput('');
       setNotice('API key validated and stored with macOS Keychain protection.');
     } else setNotice(result.error.message);
+    setBusy(false);
+  };
+
+  const testSavedKey = async () => {
+    setBusy(true);
+    setNotice('');
+    const result = await window.captions.validateCredential();
+    setNotice(
+      result.ok && result.data.valid
+        ? 'OpenAI API connection succeeded. The saved key can access GPT Live Transcribe.'
+        : result.ok
+          ? result.data.error || 'OpenAI API connection failed.'
+          : result.error.message,
+    );
     setBusy(false);
   };
 
@@ -236,7 +363,16 @@ export function ControlApp() {
       if (!result.ok) setNotice(result.error.message);
     }
   };
-  const statusLabel = active ? 'LIVE' : status.state === 'stopped' ? 'ENDED' : 'READY';
+  const statusLabel =
+    operation === 'starting'
+      ? 'STARTING'
+      : operation === 'stopping'
+        ? 'ENDING'
+        : active
+          ? 'LIVE'
+          : status.state === 'stopped'
+            ? 'ENDED'
+            : 'READY';
 
   return (
     <main className="control-shell">
@@ -266,16 +402,18 @@ export function ControlApp() {
             <article className="card session-card">
               <div className="section-heading">
                 <div><p className="eyebrow">CAPTURE</p><h2>Meeting audio</h2></div>
-                <button className="text-button" onClick={() => void enumerateAudioDevices(true).then((next) => { setDevices(next); setMicrophoneId((current) => current || next.inputs[0]?.deviceId || ''); })}>Grant / refresh</button>
+                <button className="text-button" disabled={active || busy} onClick={() => void grantAudioAccess()}>
+                  {previewing ? 'Retest microphone' : 'Test microphone'}
+                </button>
               </div>
               <label className="field">
                 <span>Microphone</span>
-                <select disabled={active} value={microphoneId} onChange={(event) => setMicrophoneId(event.target.value)}>
+                <select disabled={active} value={microphoneId} onChange={(event) => void selectMicrophone(event.target.value)}>
                   {devices.inputs.length === 0 && <option value="">Permission required</option>}
                   {devices.inputs.map((device) => <option value={device.deviceId} key={device.deviceId}>{device.label}</option>)}
                 </select>
               </label>
-              <div className="audio-row"><span>You / microphone</span><Level value={metrics.levels?.microphone} /></div>
+              <div className="audio-row"><span>You / microphone</span><Level value={active ? metrics.levels?.microphone : previewLevel} /></div>
               <div className="audio-row"><span>Meeting / system</span><Level value={metrics.levels?.system} /></div>
               <p className="field-note">Use headphones to prevent the microphone from capturing meeting playback twice.</p>
             </article>
@@ -289,7 +427,7 @@ export function ControlApp() {
                 <button className={settings.layout === 'stacked' ? 'is-selected' : ''} onClick={() => void saveSettings({ layout: 'stacked' })}>Stacked</button>
                 <button className={settings.layout === 'side-by-side' ? 'is-selected' : ''} onClick={() => void saveSettings({ layout: 'side-by-side' })}>Side by side</button>
               </div>
-              <div className="overlay-preview">
+              <div className={`overlay-preview overlay-preview--${settings.layout}`}>
                 <div className="preview-en"><span>ENGLISH</span>{latest?.english.text || 'English audience caption'}</div>
                 <div className="preview-zh"><span>中文</span>{latest?.chinese.text || '中文观众字幕'}</div>
               </div>
@@ -312,7 +450,9 @@ export function ControlApp() {
                   <button className="button button--primary" disabled={busy || !credential?.available} onClick={() => void start('live')}>Start Live Session</button>
                 </>
               ) : (
-                <button className="button button--stop" disabled={busy} onClick={() => void stop()}>End Session</button>
+                <button className="button button--stop" disabled={operation === 'stopping'} onClick={() => void stop()}>
+                  {operation === 'starting' ? 'Cancel Start' : operation === 'stopping' ? 'Ending…' : 'End Session'}
+                </button>
               )}
             </div>
           </article>
@@ -406,7 +546,11 @@ export function ControlApp() {
             <p className="eyebrow">OPENAI</p><h2>Private API credential</h2>
             <p className="supporting-copy">The renderer never reads a saved key. In the packaged app it is encrypted using macOS Keychain; local development may use the git-ignored <code>.env.local</code>.</p>
             <label className="field"><span>{credential?.available ? 'Replace API key' : 'API key'}</span><input type="password" autoComplete="off" value={keyInput} onChange={(event) => setKeyInput(event.target.value)} placeholder="sk-…" /></label>
-            <div className="button-row"><button className="button button--primary" disabled={busy || !keyInput.trim()} onClick={() => void saveKey()}>Validate & save</button>{credential?.source === 'secure-storage' && <button className="button button--quiet" onClick={() => void window.captions.deleteCredential().then((result) => { if (result.ok) setCredential(result.data); })}>Remove saved key</button>}</div>
+            <div className="button-row">
+              <button className="button button--primary" disabled={busy || !keyInput.trim()} onClick={() => void saveKey()}>Validate & save</button>
+              {credential?.available && <button className="button button--secondary" disabled={busy} onClick={() => void testSavedKey()}>Test saved key</button>}
+              {credential?.source === 'secure-storage' && <button className="button button--quiet" onClick={() => void window.captions.deleteCredential().then((result) => { if (result.ok) setCredential(result.data); })}>Remove saved key</button>}
+            </div>
           </article>
 
           <article className="card">

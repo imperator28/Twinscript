@@ -36,6 +36,7 @@ function registerCaptionIpc({
   settingsStore,
   credentialStore,
   evaluationRecorder,
+  requestMicrophoneAccess,
 }) {
   const handle = (channel, action) => {
     ipcMain.handle(
@@ -53,6 +54,7 @@ function registerCaptionIpc({
   handle('captions:credential-validate', ({ value }) =>
     credentialStore.validate(value),
   );
+  handle('captions:microphone-request', () => requestMicrophoneAccess());
   handle('captions:settings-get', () => settingsStore.get());
   handle('captions:settings-set', (patch) => {
     const settings = settingsStore.set(patch);

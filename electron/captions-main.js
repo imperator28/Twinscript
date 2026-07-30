@@ -294,6 +294,20 @@ app.whenReady().then(() => {
       captionWindows.broadcastControl('captions:evaluation', result),
     evaluationRecorder,
   });
+  const requestMicrophoneAccess = async () => {
+    if (process.platform !== 'darwin') {
+      return { granted: true, status: 'granted' };
+    }
+    const current = systemPreferences.getMediaAccessStatus('microphone');
+    const granted =
+      current === 'granted'
+        ? true
+        : await systemPreferences.askForMediaAccess('microphone');
+    return {
+      granted,
+      status: systemPreferences.getMediaAccessStatus('microphone'),
+    };
+  };
   registerAudioCaptureIpc();
   registerCaptionIpc({
     ipcMain,
@@ -305,6 +319,7 @@ app.whenReady().then(() => {
     settingsStore,
     credentialStore,
     evaluationRecorder,
+    requestMicrophoneAccess,
   });
   captionWindows.applyLayout(settingsStore.get().layout);
 });

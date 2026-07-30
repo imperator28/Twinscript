@@ -15,6 +15,7 @@ interface CaptionsAPI {
   setCredential(value: string): Promise<Result<CredentialStatus>>;
   deleteCredential(): Promise<Result<CredentialStatus>>;
   validateCredential(value?: string): Promise<Result<{ valid: boolean; error?: string }>>;
+  requestMicrophoneAccess(): Promise<Result<{ granted: boolean; status: string }>>;
   getSettings(): Promise<Result<Record<string, unknown>>>;
   setSettings(patch: Record<string, unknown>): Promise<Result<Record<string, unknown>>>;
   startSession(request: Record<string, unknown>): Promise<Result<Record<string, unknown>>>;

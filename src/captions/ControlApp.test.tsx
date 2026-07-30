@@ -1,17 +1,32 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ControlApp } from './ControlApp';
 
+const audioMocks = vi.hoisted(() => ({
+  start: vi.fn().mockResolvedValue({ microphone: true, system: true }),
+  stop: vi.fn().mockResolvedValue(undefined),
+  previewStart: vi.fn().mockImplementation(
+    async (_deviceId: string, onLevel: (level: number) => void) => onLevel(0.04),
+  ),
+  previewStop: vi.fn().mockResolvedValue(undefined),
+}));
+
 vi.mock('./audioCapture', () => ({
   AudioCaptureController: class {
-    start = vi.fn().mockResolvedValue(undefined);
-    stop = vi.fn().mockResolvedValue(undefined);
+    start = audioMocks.start;
+    stop = audioMocks.stop;
+  },
+  MicrophonePreviewController: class {
+    start = audioMocks.previewStart;
+    stop = audioMocks.previewStop;
   },
   enumerateAudioDevices: vi.fn().mockResolvedValue({
     inputs: [{ deviceId: 'mic-1', label: 'Test microphone' }],
     outputs: [],
   }),
 }));
+
+let statusListener: ((status: { state: string }) => void) | undefined;
 
 const settings = {
   layout: 'stacked',
@@ -35,9 +50,14 @@ const settings = {
 
 describe('Phase 1 screening shell', () => {
   beforeEach(() => {
+    vi.clearAllMocks();
+    statusListener = undefined;
     const ok = <T,>(data: T) => Promise.resolve({ ok: true as const, data });
     window.captions = {
-      onStatus: () => () => {},
+      onStatus: (callback) => {
+        statusListener = callback;
+        return () => {};
+      },
       onMetrics: () => () => {},
       onCaption: () => () => {},
       onEvaluation: () => () => {},
@@ -71,6 +91,9 @@ describe('Phase 1 screening shell', () => {
       setLayout: () => ok({ layout: 'stacked' }),
       exportSession: () => ok({ canceled: true }),
       validateCredential: () => ok({ valid: true }),
+      requestMicrophoneAccess: vi.fn(() =>
+        ok({ granted: true, status: 'granted' }),
+      ),
       setCredential: () =>
         ok({
           available: true,
@@ -117,5 +140,55 @@ describe('Phase 1 screening shell', () => {
         }),
       ),
     );
+  });
+
+  it('keeps an end control available while starting and across transport events', async () => {
+    let finishStart: ((value: { ok: true; data: Record<string, never> }) => void) | undefined;
+    window.captions.startSession = vi.fn(
+      (): ReturnType<typeof window.captions.startSession> =>
+        new Promise((resolve) => {
+          finishStart = resolve;
+        }),
+    );
+    render(<ControlApp />);
+    await screen.findByText('Ready for a live meeting');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Start Live Session' }));
+    expect(screen.getByRole('button', { name: 'Cancel Start' })).toBeEnabled();
+
+    act(() => statusListener?.({ state: 'connected' }));
+    expect(screen.getByRole('button', { name: 'Cancel Start' })).toBeEnabled();
+
+    await waitFor(() => expect(finishStart).toBeTypeOf('function'));
+    await act(async () => {
+      finishStart?.({ ok: true, data: {} });
+    });
+    await screen.findByRole('button', { name: 'End Session' });
+  });
+
+  it('shows layout changes in the audience preview', async () => {
+    render(<ControlApp />);
+    await screen.findByText('Ready for a live meeting');
+    const preview = screen.getByText('English audience caption').parentElement;
+    expect(preview).toHaveClass('overlay-preview--stacked');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Side by side' }));
+    await waitFor(() =>
+      expect(preview).toHaveClass('overlay-preview--side-by-side'),
+    );
+  });
+
+  it('requests microphone access and starts a visible input preview', async () => {
+    render(<ControlApp />);
+    await screen.findByText('Ready for a live meeting');
+    fireEvent.click(screen.getByRole('button', { name: 'Test microphone' }));
+
+    await screen.findByText(/Microphone is active/);
+    expect(window.captions.requestMicrophoneAccess).toHaveBeenCalled();
+    expect(audioMocks.previewStart).toHaveBeenCalledWith(
+      'mic-1',
+      expect.any(Function),
+    );
+    expect(screen.getByRole('button', { name: 'Retest microphone' })).toBeVisible();
   });
 });

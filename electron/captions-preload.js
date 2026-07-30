@@ -29,6 +29,8 @@ contextBridge.exposeInMainWorld('captions', {
   deleteCredential: () => invoke('captions:credential-delete'),
   validateCredential: (value) =>
     invoke('captions:credential-validate', { value }),
+  requestMicrophoneAccess: () =>
+    invoke('captions:microphone-request'),
   getSettings: () => invoke('captions:settings-get'),
   setSettings: (patch) => invoke('captions:settings-set', patch),
   startSession: (request) => invoke('captions:session-start', request),

@@ -53,10 +53,7 @@ export async function enumerateAudioDevices(requestPermission = false): Promise<
   outputs: AudioDeviceOption[];
 }> {
   let devices = await navigator.mediaDevices.enumerateDevices();
-  const needsPermission = devices.some(
-    (device) => device.kind === 'audioinput' && !device.label,
-  );
-  if (needsPermission && requestPermission) {
+  if (requestPermission) {
     const warmup = await navigator.mediaDevices.getUserMedia({ audio: true });
     warmup.getTracks().forEach((track) => track.stop());
     devices = await navigator.mediaDevices.enumerateDevices();
@@ -85,6 +82,64 @@ export async function enumerateAudioDevices(requestPermission = false): Promise<
   };
 }
 
+export class MicrophonePreviewController {
+  private stream: MediaStream | null = null;
+  private context: AudioContext | null = null;
+  private source: MediaStreamAudioSourceNode | null = null;
+  private analyser: AnalyserNode | null = null;
+  private animationFrame = 0;
+
+  async start(
+    microphoneDeviceId: string | undefined,
+    onLevel: (level: number) => void,
+  ) {
+    await this.stop();
+    this.stream = await navigator.mediaDevices.getUserMedia({
+      audio: microphoneDeviceId
+        ? { deviceId: { exact: microphoneDeviceId } }
+        : true,
+    });
+    this.context = new AudioContext();
+    if (this.context.state === 'suspended') await this.context.resume();
+    this.source = this.context.createMediaStreamSource(this.stream);
+    this.analyser = this.context.createAnalyser();
+    this.analyser.fftSize = 512;
+    this.analyser.smoothingTimeConstant = 0.72;
+    this.source.connect(this.analyser);
+    const samples = new Float32Array(this.analyser.fftSize);
+    const measure = () => {
+      if (!this.analyser) return;
+      this.analyser.getFloatTimeDomainData(samples);
+      let sum = 0;
+      for (const sample of samples) sum += sample * sample;
+      onLevel(Math.sqrt(sum / samples.length));
+      this.animationFrame = requestAnimationFrame(measure);
+    };
+    measure();
+  }
+
+  async stop() {
+    if (this.animationFrame) cancelAnimationFrame(this.animationFrame);
+    this.animationFrame = 0;
+    this.source?.disconnect();
+    this.analyser?.disconnect();
+    this.stream?.getTracks().forEach((track) => track.stop());
+    if (this.context && this.context.state !== 'closed') {
+      await this.context.close();
+    }
+    this.stream = null;
+    this.context = null;
+    this.source = null;
+    this.analyser = null;
+  }
+}
+
+export interface AudioCaptureStartResult {
+  microphone: true;
+  system: boolean;
+  warning?: string;
+}
+
 export class AudioCaptureController {
   private microphone: ModernAudioRecorder | null = null;
   private system: LoopbackRecorder | null = null;
@@ -99,7 +154,7 @@ export class AudioCaptureController {
     this.systemBatcher = new PcmBatcher('system', send);
   }
 
-  async start(microphoneDeviceId?: string) {
+  async start(microphoneDeviceId?: string): Promise<AudioCaptureStartResult> {
     if (this.microphone || this.system) await this.stop();
 
     this.microphone = new ModernAudioRecorder({
@@ -116,15 +171,22 @@ export class AudioCaptureController {
       this.microphoneBatcher.push(data.mono),
     );
 
-    this.system = new LoopbackRecorder(24000);
-    const systemReady = await this.system.begin();
-    if (!systemReady) {
-      await this.stop();
-      throw new Error(
-        'Could not capture system audio. Check Screen Recording permission.',
-      );
+    try {
+      this.system = new LoopbackRecorder(24000);
+      const systemReady = await this.system.begin();
+      if (!systemReady) throw new Error('System audio capture is unavailable');
+      await this.system.record((data) => this.systemBatcher.push(data.mono));
+    } catch {
+      await this.system?.end().catch(() => undefined);
+      this.system = null;
+      return {
+        microphone: true,
+        system: false,
+        warning:
+          'Microphone is live. Meeting/system audio is unavailable; enable Screen Recording permission to capture other speakers.',
+      };
     }
-    await this.system.record((data) => this.systemBatcher.push(data.mono));
+    return { microphone: true, system: true };
   }
 
   async stop() {

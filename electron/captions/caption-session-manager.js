@@ -301,8 +301,13 @@ class CaptionSessionManager {
       if (event.status === 'disconnected') {
         this.diagnostics.reconnects[event.channel] += 1;
       }
+      const unhealthy =
+        event.type === 'error' || event.status === 'disconnected';
       this.onStatus({
-        state: event.type === 'error' ? 'degraded' : event.status,
+        // Connection events describe one transport, not the whole session.
+        // Keep the public lifecycle stable so the renderer never drops its
+        // End Session control while a channel reconnects.
+        state: unhealthy ? 'degraded' : 'running',
         sessionId: this.sessionId,
         channel: event.channel,
         code: event.code,

@@ -40,7 +40,7 @@ function term(en, zh, aliases = [], priority = 3, doNotTranslate = false) {
   return { en, zh, aliases, priority, doNotTranslate };
 }
 
-const BUILTIN_GLOSSARY_CONFIGURATIONS = Object.freeze([
+const LEGACY_GLOSSARY_CONFIGURATIONS = Object.freeze([
   {
     schemaVersion: 1,
     id: 'mechanical-product-design',
@@ -337,6 +337,55 @@ function dedupeTerms(rawTerms) {
   return { terms, duplicateCount, rejectedCount };
 }
 
+function createUniversalConfiguration(configurations) {
+  const terms = [];
+  const indexByKey = new Map();
+  for (const configuration of configurations) {
+    for (const rawTerm of configuration.terms) {
+      const next = sanitizeTerm(rawTerm);
+      if (!next) continue;
+      const key = `${next.en.toLocaleLowerCase('en-US')}\0${next.zh.toLocaleLowerCase()}`;
+      const existingIndex = indexByKey.get(key);
+      if (existingIndex === undefined) {
+        indexByKey.set(key, terms.length);
+        terms.push(next);
+        continue;
+      }
+      const existing = terms[existingIndex];
+      const preferred = next.priority > existing.priority ? next : existing;
+      terms[existingIndex] = {
+        ...preferred,
+        aliases: mergeAliases(existing.aliases, next.aliases),
+        doNotTranslate: existing.doNotTranslate || next.doNotTranslate,
+        priority: Math.max(existing.priority, next.priority),
+      };
+    }
+  }
+  return {
+    schemaVersion: 1,
+    id: 'universal-engineering',
+    name: 'Universal engineering',
+    description:
+      'Mechanical design, manufacturing, quality, tooling, and supplier terminology.',
+    regions: mergeStrings(
+      configurations.map((configuration) => configuration.regions),
+      { maxCount: 20, maxLength: 80 },
+    ),
+    domains: mergeStrings(
+      configurations.map((configuration) => configuration.domains),
+      { maxCount: 20, maxLength: 80 },
+    ),
+    protectedTokens: mergeProtectedTokens(
+      ...configurations.map((configuration) => configuration.protectedTokens),
+    ),
+    terms: terms.slice(0, STORED_TERM_LIMIT),
+  };
+}
+
+const BUILTIN_GLOSSARY_CONFIGURATIONS = Object.freeze([
+  Object.freeze(createUniversalConfiguration(LEGACY_GLOSSARY_CONFIGURATIONS)),
+]);
+
 function sanitizeConfiguration(raw, fallback = {}) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
     throw new Error('Glossary configuration must be an object');
@@ -369,11 +418,8 @@ function sanitizeConfiguration(raw, fallback = {}) {
   };
 }
 
-function getBuiltinConfiguration(id) {
-  return (
-    BUILTIN_GLOSSARY_CONFIGURATIONS.find((config) => config.id === id) ||
-    BUILTIN_GLOSSARY_CONFIGURATIONS[0]
-  );
+function getBuiltinConfiguration() {
+  return BUILTIN_GLOSSARY_CONFIGURATIONS[0];
 }
 
 function mergeTerms(baseTerms, customTerms) {

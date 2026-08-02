@@ -8,33 +8,6 @@ import { dropDuplicateOrtWasm } from './vite.drop-duplicate-ort-wasm'
 import { workerManualChunks } from './vite.worker-chunks'
 
 /**
- * Dev-only plugin: serve model-packs/tts/ files at /model-packs/tts/ URLs.
- * TTS model .data and package-metadata.json files live in model-packs/tts/wasm-*
- * and need to be accessible to the browser during development.
- */
-function serveModelPacks(): Plugin {
-  return {
-    name: 'serve-model-packs',
-    configureServer(server) {
-      server.middlewares.use((req, res, next) => {
-        if (!req.url?.startsWith('/model-packs/tts/')) return next()
-        const filePath = path.join(process.cwd(), decodeURIComponent(req.url))
-        if (!fs.existsSync(filePath)) return next()
-        const stat = fs.statSync(filePath)
-        if (!stat.isFile()) return next()
-        // Manual pipe bypasses server.headers — set isolation headers here too.
-        res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin')
-        res.setHeader('Cross-Origin-Embedder-Policy', 'require-corp')
-        res.setHeader('Content-Length', stat.size)
-        if (filePath.endsWith('.json')) res.setHeader('Content-Type', 'application/json')
-        else res.setHeader('Content-Type', 'application/octet-stream')
-        fs.createReadStream(filePath).pipe(res)
-      })
-    },
-  }
-}
-
-/**
  * Dev-only plugin: serve onnxruntime-web files from node_modules/onnxruntime-web/dist/.
  *
  * Handles two cases:
@@ -126,7 +99,6 @@ export default defineConfig(({ command, mode }) => {
   return {
     plugins: [
       isServe && crossOriginIsolationHeaders(),
-      isServe && serveModelPacks(),
       isServe && serveOrtWasm(),
       react(),
       dropDuplicateOrtWasm(),
@@ -135,26 +107,34 @@ export default defineConfig(({ command, mode }) => {
           // Entry points for the main process
           entry: {
             'captions-main': 'electron/captions-main.js',
+            'captions/app-lifecycle': 'electron/captions/app-lifecycle.js',
+            'captions/camera-frame-transport': 'electron/captions/camera-frame-transport.js',
             'captions/caption-domain': 'electron/captions/caption-domain.js',
-            'captions/caption-presentation-pacer': 'electron/captions/caption-presentation-pacer.js',
             'captions/caption-session-manager': 'electron/captions/caption-session-manager.js',
             'captions/caption-window-manager': 'electron/captions/caption-window-manager.js',
             'captions/cost-meter': 'electron/captions/cost-meter.js',
             'captions/credential-store': 'electron/captions/credential-store.js',
+            'captions/encrypted-audio-writer': 'electron/captions/encrypted-audio-writer.js',
             'captions/evaluation-recorder': 'electron/captions/evaluation-recorder.js',
             'captions/glossary-config': 'electron/captions/glossary-config.js',
+            'captions/glossary-request-context': 'electron/captions/glossary-request-context.js',
             'captions/live-transcription-session': 'electron/captions/live-transcription-session.js',
+            'captions/meeting-record-controller': 'electron/captions/meeting-record-controller.js',
+            'captions/meeting-record-store': 'electron/captions/meeting-record-store.js',
             'captions/openai-normalizer': 'electron/captions/openai-normalizer.js',
+            'captions/overlay-layout': 'electron/captions/overlay-layout.js',
             'captions/priority-task-queue': 'electron/captions/priority-task-queue.js',
             'captions/quality-signals': 'electron/captions/quality-signals.js',
+            'captions/recording-key-store': 'electron/captions/recording-key-store.js',
             'captions/register-caption-ipc': 'electron/captions/register-caption-ipc.js',
             'captions/settings-store': 'electron/captions/settings-store.js',
+            'captions/squirrel-startup': 'electron/captions/squirrel-startup.js',
             'captions/transcript-coordinator': 'electron/captions/transcript-coordinator.js',
             'captions/vad-gate': 'electron/captions/vad-gate.js',
+            'captions/wav-finalizer': 'electron/captions/wav-finalizer.js',
             'macos-audio-utils': 'electron/macos-audio-utils.js',
             'pulseaudio-utils': 'electron/pulseaudio-utils.js',
             'windows-audio-utils': 'electron/windows-audio-utils.js',
-            'vb-cable-installer': 'electron/vb-cable-installer.js',
           },
           onstart(args) {
             // Override default [".", "--no-sandbox"] to fix DevTools crash on Linux
@@ -186,8 +166,7 @@ export default defineConfig(({ command, mode }) => {
                   // rolldown it gets inlined, baking the whole file — including
                   // the devDependencies list — into the shipped main process.
                   '../package.json',
-                  // The main entries `require()` each other (18 sites, and
-                  // windows-audio-utils <-> vb-cable-installer is circular).
+                  // The main entries `require()` each other (18 sites).
                   // Rollup left those as runtime requires between the emitted
                   // files; rolldown instead inlines the target entry and leaves
                   // a re-export stub, which mangles CJS exports — a required

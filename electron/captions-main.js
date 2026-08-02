@@ -14,10 +14,40 @@ const path = require('path');
 const { initMain } = require('electron-audio-loopback');
 const { CaptionSessionManager } = require('./captions/caption-session-manager');
 const { CaptionWindowManager } = require('./captions/caption-window-manager');
+const { CameraRegionPublisher } = require('./captions/camera-region-publisher');
+const {
+  CameraStageFramePublisher,
+} = require('./captions/camera-stage-frame-publisher');
 const { CredentialStore } = require('./captions/credential-store');
 const { EvaluationRecorder } = require('./captions/evaluation-recorder');
+const {
+  MeetingRecordController,
+} = require('./captions/meeting-record-controller');
 const { registerCaptionIpc } = require('./captions/register-caption-ipc');
+const {
+  NativeCameraInstaller,
+  runSquirrelNativeCameraCleanup,
+} = require('./captions/native-camera-installer');
+const {
+  NativeCameraSupervisor,
+  nativeCameraSupport,
+} = require('./captions/native-camera-supervisor');
 const { SettingsStore } = require('./captions/settings-store');
+const {
+  registerControlWindowLifecycle,
+} = require('./captions/app-lifecycle');
+const {
+  applyAppUserModelId,
+  handleSquirrelStartup,
+} = require('./captions/squirrel-startup');
+
+// Squirrel install/update/uninstall launches must create shortcuts and exit
+// before anything else initializes, or installation flashes a duplicate control
+// window and leaves a stray process running.
+const consumedBySquirrel = handleSquirrelStartup({
+  quit: () => app.quit(),
+  cleanupNativeCamera: () => runSquirrelNativeCameraCleanup(),
+});
 
 process.on('uncaughtException', (error) => {
   console.error('[Bilingual Meeting Captions] Fatal main-process error:', error);
@@ -27,9 +57,10 @@ process.on('unhandledRejection', (error) => {
   console.error('[Bilingual Meeting Captions] Unhandled main-process rejection:', error);
 });
 
-initMain();
+if (!consumedBySquirrel) initMain();
 
 app.setName('Bilingual Meeting Captions');
+applyAppUserModelId({ app });
 app.commandLine.appendSwitch('application-name', 'bilingual-meeting-captions');
 app.commandLine.appendSwitch('disable-renderer-backgrounding');
 app.commandLine.appendSwitch('disable-background-timer-throttling');
@@ -38,6 +69,10 @@ app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');
 let controlWindow = null;
 let captionWindows = null;
 let sessionManager = null;
+let meetingRecordController = null;
+let nativeCameraSupervisor = null;
+let shutdownPromise = null;
+let shutdownComplete = false;
 
 function isDevelopment() {
   return import.meta.env.MODE === 'development' || !app.isPackaged;
@@ -94,8 +129,12 @@ function createControlWindow() {
   hardenWindow(controlWindow);
   loadControlWindow(controlWindow);
   controlWindow.once('ready-to-show', () => controlWindow?.show());
-  controlWindow.on('closed', () => {
-    controlWindow = null;
+  registerControlWindowLifecycle({
+    app,
+    controlWindow,
+    onClosed: () => {
+      controlWindow = null;
+    },
   });
   return controlWindow;
 }
@@ -184,7 +223,12 @@ function installSecurityPolicies() {
     (webContents, permission, callback) => {
       const trusted =
         webContents &&
-        [controlWindow, ...(captionWindows?.captionWindows.values() || [])].some(
+        [
+          controlWindow,
+          ...(captionWindows?.captionWindows.values() || []),
+          captionWindows?.cameraStageWindow,
+          captionWindows?.cameraOutputWindow,
+        ].some(
           (window) =>
             window &&
             !window.isDestroyed() &&
@@ -200,7 +244,12 @@ function installSecurityPolicies() {
     (webContents, permission) => {
       const trusted =
         webContents &&
-        [controlWindow, ...(captionWindows?.captionWindows.values() || [])].some(
+        [
+          controlWindow,
+          ...(captionWindows?.captionWindows.values() || []),
+          captionWindows?.cameraStageWindow,
+          captionWindows?.cameraOutputWindow,
+        ].some(
           (window) =>
             window &&
             !window.isDestroyed() &&
@@ -268,11 +317,45 @@ function registerAudioCaptureIpc() {
 }
 
 app.whenReady().then(async () => {
+  // A Squirrel lifecycle launch is already quitting; `whenReady` can still
+  // resolve first, and creating windows here is what produces the duplicate
+  // window during installation.
+  if (consumedBySquirrel) return;
   if (process.platform === 'darwin') {
     app.setActivationPolicy('regular');
     await app.dock.show();
   }
   createControlWindow();
+  const settingsStore = new SettingsStore(app);
+  const nativeSupport = nativeCameraSupport();
+  const nativeCameraInstaller = new NativeCameraInstaller({
+    support: nativeSupport,
+    isPackaged: app.isPackaged,
+    resourcesPath: process.resourcesPath,
+    appPath: app.getAppPath(),
+  });
+  nativeCameraSupervisor = new NativeCameraSupervisor({
+    expectedHostPath: path.win32.join(
+      nativeCameraInstaller.sourceDirectory,
+      'vcam-host.exe',
+    ),
+    expectedSourcePath: path.win32.join(
+      nativeCameraInstaller.sourceDirectory,
+      'bilingual-vcam-source.dll',
+    ),
+    onHealth: (health) =>
+      captionWindows?.broadcastControl(
+        'captions:native-camera-health',
+        health,
+      ),
+  });
+  const cameraFramePublisher = nativeSupport.supported
+    ? new CameraStageFramePublisher({
+        regionPublisher: new CameraRegionPublisher(),
+        onError: (error) =>
+          nativeCameraSupervisor?.reportPublisherFailure(error),
+      })
+    : null;
   captionWindows = new CaptionWindowManager({
     app,
     BrowserWindow,
@@ -280,6 +363,9 @@ app.whenReady().then(async () => {
     controlWindow,
     isDev: isDevelopment(),
     preloadPath: path.join(__dirname, 'captions-preload.js'),
+    settingsStore,
+    cameraFramePublisher,
+    nativeCameraSupervisor,
   });
   captionWindows.createAll();
   installSecurityPolicies();
@@ -287,16 +373,29 @@ app.whenReady().then(async () => {
 
   const credentialStore = new CredentialStore({ app, safeStorage });
   const evaluationRecorder = new EvaluationRecorder({ app, safeStorage });
-  const settingsStore = new SettingsStore(app);
+  meetingRecordController = new MeetingRecordController({
+    app,
+    safeStorage,
+    settingsStore,
+  });
+  meetingRecordController.onBackupState = (backupState) => {
+    captionWindows.broadcastControl('captions:backup-state', backupState);
+  };
+  const pendingMeetingRecords =
+    await meetingRecordController.recoverPendingSessions({
+      appVersion: app.getVersion(),
+    });
   sessionManager = new CaptionSessionManager({
     credentialStore,
     settingsStore,
     onCaption: (event) => captionWindows.publishCaption(event),
-    onStatus: (status) => captionWindows.broadcast('captions:status', status),
+    onStatus: (status) => captionWindows.publishStatus(status),
     onMetrics: (metrics) => captionWindows.broadcast('captions:metrics', metrics),
     onEvaluation: (result) =>
       captionWindows.broadcastControl('captions:evaluation', result),
     evaluationRecorder,
+    meetingRecordController,
+    appVersion: app.getVersion(),
   });
   const requestMicrophoneAccess = async () => {
     if (process.platform !== 'darwin') {
@@ -323,14 +422,21 @@ app.whenReady().then(async () => {
     settingsStore,
     credentialStore,
     evaluationRecorder,
+    meetingRecordController,
     requestMicrophoneAccess,
+    nativeCameraSupervisor,
+    nativeCameraInstaller,
   });
+  captionWindows.broadcastControl(
+    'captions:pending-meeting-records',
+    pendingMeetingRecords,
+  );
   const settings = settingsStore.get();
-  captionWindows.applyLayout(settings.layout);
-  captionWindows.setCaptionPaceMs(settings.captionPaceMs);
+  captionWindows.applySettings(settings);
 });
 
 app.on('activate', () => {
+  if (consumedBySquirrel) return;
   if (!controlWindow) {
     createControlWindow();
     if (captionWindows) captionWindows.controlWindow = controlWindow;
@@ -340,9 +446,23 @@ app.on('activate', () => {
   }
 });
 
-app.on('before-quit', async () => {
+app.on('before-quit', (event) => {
   app.isQuitting = true;
-  await sessionManager?.stop();
+  if (shutdownComplete) return;
+  event.preventDefault();
+  if (shutdownPromise) return;
+  shutdownPromise = (async () => {
+    await captionWindows?.stopCameraOutput();
+    await sessionManager?.stop();
+    meetingRecordController?.destroy();
+  })()
+    .catch((error) => {
+      console.error('[Bilingual Meeting Captions] Shutdown failed:', error);
+    })
+    .finally(() => {
+      shutdownComplete = true;
+      app.quit();
+    });
 });
 
 app.on('window-all-closed', () => {

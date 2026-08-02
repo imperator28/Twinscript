@@ -22,21 +22,35 @@ const { SettingsStore } = require('./settings-store');
 const { registerCaptionIpc } = require('./register-caption-ipc');
 const { CaptionSessionManager } = require('./caption-session-manager');
 
-test('built-in engineering glossary packs are valid and bounded', () => {
+test('one universal engineering glossary combines every meeting domain', () => {
   const summaries = listGlossaryConfigurations();
-  assert.equal(summaries.length, 4);
-  assert.equal(new Set(summaries.map((item) => item.id)).size, 4);
-  for (const configuration of BUILTIN_GLOSSARY_CONFIGURATIONS) {
-    assert.ok(configuration.terms.length > 20);
-    assert.ok(configuration.terms.length <= ACTIVE_TERM_LIMIT);
-    assert.equal(
-      new Set(configuration.terms.map((entry) => entry.en.toLowerCase())).size,
-      configuration.terms.length,
+  assert.equal(summaries.length, 1);
+  assert.equal(BUILTIN_GLOSSARY_CONFIGURATIONS.length, 1);
+  const southChina = BUILTIN_GLOSSARY_CONFIGURATIONS[0];
+  assert.equal(southChina.id, 'universal-engineering');
+  assert.ok(southChina.terms.length > ACTIVE_TERM_LIMIT);
+  assert.ok(southChina.terms.every((entry) => entry.en && entry.zh));
+  for (const representative of [
+    'boss',
+    'CNC machining',
+    'root cause analysis',
+    'mould trial',
+  ]) {
+    assert.ok(
+      southChina.terms.some((entry) => entry.en === representative),
+      `missing ${representative}`,
     );
-    assert.ok(configuration.terms.every((entry) => entry.en && entry.zh));
   }
-  const southChina = BUILTIN_GLOSSARY_CONFIGURATIONS.find(
-    (item) => item.id === 'south-china-tooling',
+  assert.equal(
+    new Set(
+      southChina.terms.map(
+        (entry) =>
+          `${entry.en.trim().toLocaleLowerCase('en-US')}\0${entry.zh
+            .trim()
+            .toLocaleLowerCase()}`,
+      ),
+    ).size,
+    southChina.terms.length,
   );
   assert.deepEqual(southChina.regions, ['Guangdong', 'Shenzhen', 'Dongguan']);
   assert.ok(
@@ -46,13 +60,15 @@ test('built-in engineering glossary packs are valid and bounded', () => {
   );
 });
 
-test('every meeting type carries canonical product-development tokens', () => {
+test('universal glossary carries canonical product-development tokens', () => {
   const compiled = compileGlossarySelection('mechanical-product-design', null);
+  assert.equal(compiled.glossaryConfigurationId, 'universal-engineering');
   for (const token of ['T1', 'T2', 'EVT', 'DVT', 'PVT', 'NPI']) {
     assert.ok(CORE_PRODUCT_DEVELOPMENT_TOKENS.includes(token));
     assert.ok(compiled.protectedTokens.includes(token));
   }
-  assert.equal(compiled.glossary.length, compiled.glossaryStoredCount);
+  assert.equal(compiled.glossary.length, ACTIVE_TERM_LIMIT);
+  assert.ok(compiled.glossaryStoredCount > compiled.glossary.length);
 });
 
 test('custom terms override built-ins and do not consume protected-token slots', () => {
@@ -83,6 +99,27 @@ test('custom terms override built-ins and do not consume protected-token slots',
   );
   assert.ok(compiled.protectedTokens.includes('PVT'));
   assert.ok(compiled.protectedTokens.includes('ABC-123'));
+});
+
+test('legacy and unknown configuration IDs normalize without losing custom data', () => {
+  for (const legacyId of [
+    'mechanical-product-design',
+    'manufacturing-dfm',
+    'manufacturing-quality',
+    'south-china-tooling',
+    'unknown-meeting-type',
+  ]) {
+    const compiled = compileGlossarySelection(legacyId, {
+      schemaVersion: 1,
+      id: 'project-falcon',
+      name: 'Project Falcon',
+      protectedTokens: ['ABC-123'],
+      terms: [{ en: 'project falcon', zh: '猎鹰项目', priority: 5 }],
+    });
+    assert.equal(compiled.glossaryConfigurationId, 'universal-engineering');
+    assert.equal(compiled.glossary[0].en, 'project falcon');
+    assert.ok(compiled.protectedTokens.includes('ABC-123'));
+  }
 });
 
 test('JSON, CSV, TSV, and TXT imports normalize into portable configurations', () => {
@@ -163,7 +200,7 @@ test('legacy flat glossary migrates into custom overrides', () => {
     }),
   );
   const settings = new SettingsStore({ getPath: () => userData }).get();
-  assert.equal(settings.settingsVersion, 5);
+  assert.equal(settings.settingsVersion, 9);
   assert.equal(settings.customGlossaryConfiguration.terms[0].en, 'project falcon');
   assert.equal(settings.glossary[0].en, 'project falcon');
   assert.ok(settings.protectedTokens.includes('PVT'));

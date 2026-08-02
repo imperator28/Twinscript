@@ -21,7 +21,7 @@ const {
 } = require('./credential-store');
 const { LiveTranscriptionSession } = require('./live-transcription-session');
 const { PriorityTaskQueue } = require('./priority-task-queue');
-const { SettingsStore } = require('./settings-store');
+const { CAPTION_THEMES, SettingsStore } = require('./settings-store');
 const {
   TranscriptCoordinator,
   diceSimilarity,
@@ -66,6 +66,32 @@ test('fast path passes the source only to its matching audience', () => {
   });
   assert.equal(translated.status, 'final');
   assert.equal(projectForAudience(translated, 'zh').text, '请更新 CAD。');
+});
+
+test('audience projections share aggregate completion while target states differ', () => {
+  const event = createCaptionEvent({
+    sessionId: 'session',
+    sequence: 1,
+    sourceChannel: 'microphone',
+    providerItemId: 'item',
+    sourceText: 'Please update the CAD.',
+    sourceStartedAt: 1,
+    transcriptStatus: 'final',
+    profile: 'economy',
+  });
+  const english = projectForAudience(event, 'en');
+  const chinese = projectForAudience(event, 'zh');
+  assert.equal(english.status, 'final');
+  assert.equal(chinese.status, 'pending');
+  assert.equal(english.settled, false);
+  assert.equal(chinese.settled, false);
+
+  const translated = updateTarget(event, 'zh', {
+    text: 'CAD updated.',
+    status: 'final',
+  });
+  assert.equal(projectForAudience(translated, 'en').settled, true);
+  assert.equal(projectForAudience(translated, 'zh').settled, true);
 });
 
 test('a final caption cannot regress to provisional', () => {
@@ -287,6 +313,15 @@ test('live transport waits for OpenAI to accept session configuration', async ()
     socket.sent[0].session.audio.input.transcription.model,
     'gpt-live-transcribe',
   );
+  assert.deepEqual(
+    socket.sent[0].session.audio.input.format,
+    { type: 'audio/pcm', rate: 24000 },
+  );
+  assert.deepEqual(
+    socket.sent[0].session.audio.input.transcription.languages,
+    ['en', 'zh-cn'],
+  );
+  assert.equal(socket.sent[0].session.audio.input.transcription.delay, 'low');
   assert.equal(socket.sent[0].session.audio.input.turn_detection, null);
   socket.emit(
     'message',
@@ -365,6 +400,56 @@ test('live transport force-commits a bounded turn when speech never pauses', () 
     events.find((event) => event.type === 'turn-commit').reason,
     'max_duration',
   );
+});
+
+test('live transport drains the current turn before closing', async () => {
+  const sent = [];
+  let closed = false;
+  const session = new LiveTranscriptionSession({
+    channel: 'microphone',
+    apiKey: 'test',
+    settings: {
+      vadEnabled: false,
+      vadThreshold: 0.012,
+      delayProfile: 'low',
+    },
+  });
+  session.connected = true;
+  session.socket = {
+    readyState: 1,
+    bufferedAmount: 0,
+    send: (value) => sent.push(JSON.parse(value)),
+    close: () => {
+      closed = true;
+    },
+  };
+  session.appendAudio(new Int16Array(2400).fill(1000));
+
+  let drained = false;
+  const draining = session.finish({ timeoutMs: 1000 }).then(() => {
+    drained = true;
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(
+    sent.filter((event) => event.type === 'input_audio_buffer.commit').length,
+    1,
+  );
+  assert.equal(drained, false);
+  assert.equal(closed, false);
+
+  session.handleMessage(
+    Buffer.from(
+      JSON.stringify({
+        type: 'conversation.item.input_audio_transcription.completed',
+        item_id: 'tail-item',
+        transcript: 'the final phrase',
+      }),
+    ),
+  );
+  await draining;
+  assert.equal(drained, true);
+  assert.equal(closed, true);
 });
 
 test('credential store decrypts once per app launch', async () => {
@@ -455,19 +540,59 @@ test('legacy caption settings migrate to product-safe runtime defaults', () => {
     }),
   );
   const settings = new SettingsStore({ getPath: () => userData }).get();
-  assert.equal(settings.settingsVersion, 5);
+  assert.equal(settings.settingsVersion, 9);
   assert.equal(settings.vadEnabled, false);
-  assert.equal(settings.captionPaceMs, 1200);
+  assert.equal(Object.hasOwn(settings, 'captionPaceMs'), false);
   assert.equal(settings.shadowEnabled, false);
   assert.equal(settings.recordEvaluation, false);
-  assert.equal(settings.glossaryConfigurationId, 'south-china-tooling');
+  assert.equal(settings.glossaryConfigurationId, 'universal-engineering');
   assert.ok(settings.protectedTokens.includes('PVT'));
+  assert.equal(settings.autoSaveTranscript, true);
+  assert.equal(settings.keepAudioAutomatically, false);
+  assert.equal(settings.meetingRecordsDirectory, null);
+  assert.equal(settings.captionHistoryEntries, 6);
+  assert.equal(settings.captionTheme, 'blueprint');
+  assert.equal(settings.captionOverlayHeight, null);
+  assert.equal(settings.outputMode, 'overlays');
   const persisted = JSON.parse(
     fs.readFileSync(path.join(userData, 'caption-settings.json'), 'utf8'),
   );
-  assert.equal(persisted.settingsVersion, 5);
+  assert.equal(persisted.settingsVersion, 9);
   assert.equal(persisted.shadowEnabled, false);
   assert.equal(persisted.recordEvaluation, false);
+  assert.equal(persisted.autoSaveTranscript, true);
+  fs.rmSync(userData, { recursive: true, force: true });
+});
+
+test('a v6-already settings file keeps its meeting-record preferences and clamps history entries', () => {
+  const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'caption-settings-'));
+  fs.writeFileSync(
+    path.join(userData, 'caption-settings.json'),
+    JSON.stringify({
+      settingsVersion: 6,
+      autoSaveTranscript: false,
+      keepAudioAutomatically: true,
+      meetingRecordsDirectory: '/custom/records',
+      captionHistoryEntries: 99,
+    }),
+  );
+  const settings = new SettingsStore({ getPath: () => userData }).get();
+  assert.equal(settings.autoSaveTranscript, false);
+  assert.equal(settings.keepAudioAutomatically, true);
+  assert.equal(settings.meetingRecordsDirectory, '/custom/records');
+  // Clamped to the documented 3-10 range rather than trusting a corrupt value.
+  assert.equal(settings.captionHistoryEntries, 10);
+  assert.equal(settings.captionTheme, 'blueprint');
+  assert.equal(settings.captionOverlayHeight, null);
+  fs.rmSync(userData, { recursive: true, force: true });
+});
+
+test('captionHistoryEntries is clamped to 3-10 on write', () => {
+  const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'caption-settings-'));
+  const store = new SettingsStore({ getPath: () => userData });
+  assert.equal(store.set({ captionHistoryEntries: 1 }).captionHistoryEntries, 3);
+  assert.equal(store.set({ captionHistoryEntries: 999 }).captionHistoryEntries, 10);
+  assert.equal(store.set({ captionHistoryEntries: 7 }).captionHistoryEntries, 7);
   fs.rmSync(userData, { recursive: true, force: true });
 });
 
@@ -674,6 +799,169 @@ test('a safe provisional prefix can update a newer live transcript', async () =>
   assert.equal(published.at(-1).chinese.status, 'provisional');
 });
 
+test('output mode defaults safely, persists supported values, and rejects unknown values', () => {
+  const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'caption-settings-'));
+  const store = new SettingsStore({ getPath: () => userData });
+  assert.equal(store.get().outputMode, 'overlays');
+  assert.equal(
+    store.set({ outputMode: 'virtual-camera' }).outputMode,
+    'virtual-camera',
+  );
+  assert.equal(store.set({ outputMode: 'invalid' }).outputMode, 'overlays');
+  fs.rmSync(userData, { recursive: true, force: true });
+});
+
+test('caption themes accept the curated IDs and reject unknown IDs', () => {
+  const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'caption-settings-'));
+  const store = new SettingsStore({ getPath: () => userData });
+  assert.deepEqual(
+    CAPTION_THEMES.map((theme) => theme.id),
+    ['blueprint', 'graphite', 'red-blue'],
+  );
+  for (const captionTheme of ['blueprint', 'graphite', 'red-blue']) {
+    assert.equal(store.set({ captionTheme }).captionTheme, captionTheme);
+  }
+  for (const removedTheme of ['blue-air', 'steel', 'telemetry', 'warm-pink']) {
+    assert.equal(store.set({ captionTheme: removedTheme }).captionTheme, 'blueprint');
+  }
+  fs.rmSync(userData, { recursive: true, force: true });
+});
+
+test('v7 glossary and theme settings migrate without losing custom terms', () => {
+  const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'caption-settings-'));
+  fs.writeFileSync(
+    path.join(userData, 'caption-settings.json'),
+    JSON.stringify({
+      settingsVersion: 7,
+      glossaryConfigurationId: 'manufacturing-quality',
+      customGlossaryConfiguration: {
+        schemaVersion: 1,
+        id: 'project-falcon',
+        name: 'Project Falcon',
+        protectedTokens: ['ABC-123'],
+        terms: [{ en: 'project falcon', zh: '猎鹰项目', priority: 5 }],
+      },
+      captionTheme: 'steel',
+    }),
+  );
+  const settings = new SettingsStore({ getPath: () => userData }).get();
+  assert.equal(settings.settingsVersion, 9);
+  assert.equal(settings.glossaryConfigurationId, 'universal-engineering');
+  assert.equal(settings.customGlossaryConfiguration.terms[0].en, 'project falcon');
+  assert.equal(settings.glossary[0].en, 'project falcon');
+  assert.ok(settings.protectedTokens.includes('ABC-123'));
+  assert.equal(settings.captionTheme, 'blueprint');
+  assert.equal(settings.outputMode, 'overlays');
+  fs.rmSync(userData, { recursive: true, force: true });
+});
+
+test('caption theme text colors meet WCAG AA contrast on their surfaces', () => {
+  const luminance = (hex) => {
+    const channels = hex
+      .slice(1)
+      .match(/.{2}/g)
+      .map((channel) => Number.parseInt(channel, 16) / 255)
+      .map((channel) =>
+        channel <= 0.04045
+          ? channel / 12.92
+          : ((channel + 0.055) / 1.055) ** 2.4,
+      );
+    return (
+      channels[0] * 0.2126 +
+      channels[1] * 0.7152 +
+      channels[2] * 0.0722
+    );
+  };
+  const contrast = (foreground, background) => {
+    const lighter = Math.max(luminance(foreground), luminance(background));
+    const darker = Math.min(luminance(foreground), luminance(background));
+    return (lighter + 0.05) / (darker + 0.05);
+  };
+  for (const theme of CAPTION_THEMES) {
+    for (const [audience, surface] of Object.entries(theme.surfaces)) {
+      for (const role of ['primary', 'secondary']) {
+        assert.ok(
+          contrast(surface[role], surface.background) >= 4.5,
+          `${theme.id} ${audience} ${role} lacks 4.5:1 contrast`,
+        );
+      }
+    }
+  }
+});
+
+test('caption overlay height persists only a valid requested height or null', () => {
+  const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'caption-settings-'));
+  const store = new SettingsStore({ getPath: () => userData });
+  assert.equal(store.set({ captionOverlayHeight: 284.6 }).captionOverlayHeight, 285);
+  assert.equal(store.set({ captionOverlayHeight: null }).captionOverlayHeight, null);
+  assert.equal(store.set({ captionOverlayHeight: Number.POSITIVE_INFINITY }).captionOverlayHeight, null);
+  assert.equal(store.set({ captionOverlayHeight: 20 }).captionOverlayHeight, null);
+  assert.equal(store.set({ captionOverlayHeight: 5000 }).captionOverlayHeight, null);
+  fs.rmSync(userData, { recursive: true, force: true });
+});
+
+test('every normalization request receives bounded utterance-specific glossary context and metrics', async () => {
+  const requests = [];
+  const glossary = Array.from({ length: 20 }, (_, index) => ({
+    en: `term-${index}`,
+    zh: `术语-${index}`,
+    aliases: index === 0 ? ['区域叫法'] : [],
+    doNotTranslate: false,
+    priority: 5 - (index % 5),
+  }));
+  const manager = new CaptionSessionManager({
+    credentialStore: {},
+    settingsStore: {},
+    onMetrics: () => {},
+  });
+  manager.active = true;
+  manager.sessionId = 'session';
+  manager.startedAt = Date.now();
+  manager.settings = {
+    primaryProfile: 'economy',
+    glossary,
+    customGlossaryConfiguration: { terms: [glossary[0]] },
+    protectedTokens: ['T1', 'T2', 'DVT'],
+  };
+  manager.cost = {
+    canSpend: () => true,
+    snapshot: () => ({ totalUsd: 0 }),
+  };
+  manager.primaryNormalizer = {
+    normalize: async (request) => {
+      requests.push(request);
+      return {
+        text: request.target === 'en' ? request.sourceText : '已确认',
+        sourceLanguage: 'en',
+        model: 'test-model',
+        usage: { inputTokens: 1, outputTokens: 1 },
+      };
+    },
+  };
+  const caption = createCaptionEvent({
+    sessionId: 'session',
+    sequence: 1,
+    sourceChannel: 'microphone',
+    providerItemId: 'item',
+    sourceText: 'Use 区域叫法 for T2.',
+    sourceStartedAt: 1,
+    transcriptStatus: 'final',
+    profile: 'economy',
+  });
+  manager.eventsByItem.set('microphone:item', caption);
+
+  await manager.normalizePrimary('microphone:item', caption, true);
+
+  assert.equal(requests.length, 2);
+  assert.ok(requests.every((request) => request.glossary.length <= 16));
+  assert.ok(requests.every((request) => request.protectedTokens.join(',') === 'T2'));
+  assert.equal(requests[0].glossary[0].en, 'term-0');
+  assert.equal(manager.lastMetrics.normalizationContext.requests, 2);
+  assert.ok(
+    manager.lastMetrics.normalizationContext.lastPromptCharacters <= 800,
+  );
+});
+
 test('screening prompts and structured bilingual ratings fail closed', () => {
   const prompt = sanitizeScreeningPrompt({
     id: 'tolerance-1-mixed-inline',
@@ -734,4 +1022,294 @@ test('each new session starts with isolated captions and judgments', async () =>
   assert.equal(manager.evaluationHistory.length, 0);
   assert.equal(manager.evaluationRatings.size, 0);
   await manager.stop();
+});
+
+test('live sessions tee timestamped audio and settled captions into the meeting record', async () => {
+  const calls = [];
+  const appendedAudio = [];
+  const recordedCaptions = [];
+  const meetingRecordController = {
+    startSession: async (request) => {
+      calls.push(['record-start', request]);
+      return { recording: true, sessionDir: 'C:\\records\\session' };
+    },
+    writeAudioChunk: (channel, samples, capturedAt, durationMs) => {
+      calls.push(['record-audio', channel]);
+      appendedAudio.push({ channel, samples: [...samples], capturedAt, durationMs });
+    },
+    appendFinalRecord: (caption) => {
+      calls.push(['record-caption', caption.sequence]);
+      recordedCaptions.push(caption);
+    },
+    stopSession: async (request) => {
+      calls.push(['record-stop', request]);
+      return {
+        recording: true,
+        sessionId: 'recorded-session',
+        sessionDir: 'C:\\records\\session',
+        session: { audioRetention: 'pending' },
+      };
+    },
+  };
+  const sessions = [];
+  const manager = new CaptionSessionManager({
+    credentialStore: { get: async () => 'test-key' },
+    settingsStore: {
+      get: () => ({
+        budgetUsd: 5,
+        shadowEnabled: false,
+        reorderWindowMs: 400,
+        duplicateWindowMs: 1400,
+        autoSaveTranscript: true,
+        keepAudioAutomatically: false,
+        glossary: [],
+        protectedTokens: [],
+        primaryProfile: 'economy',
+      }),
+      set: () => {},
+    },
+    meetingRecordController,
+    appVersion: '0.1.0-test',
+    transcriptionFactory: ({ channel }) => {
+      const session = {
+        channel,
+        connect: async () => calls.push(['transport-connect', channel]),
+        appendAudio: (samples) => {
+          calls.push(['transport-audio', channel]);
+          assert.deepEqual([...samples], [100, -100, 50]);
+        },
+        close: () => calls.push(['transport-close', channel]),
+      };
+      sessions.push(session);
+      return session;
+    },
+    normalizerFactory: () => ({
+      normalize: async ({ sourceText, target }) => ({
+        text: target === 'en' ? sourceText : 'å·²ç¡®è®¤',
+        sourceLanguage: 'en',
+        model: 'test-model',
+        usage: { inputTokens: 1, outputTokens: 1 },
+      }),
+    }),
+  });
+
+  const started = await manager.start({ mode: 'live' });
+  assert.equal(started.meetingRecord.sessionDir, 'C:\\records\\session');
+  assert.equal(calls[0][0], 'record-start');
+
+  manager.appendAudio({
+    channel: 'microphone',
+    samples: new Int16Array([100, -100, 50]),
+    capturedAt: 12_345,
+  });
+  assert.deepEqual(
+    calls.slice(-2).map(([name]) => name),
+    ['transport-audio', 'record-audio'],
+  );
+  assert.deepEqual(appendedAudio[0], {
+    channel: 'microphone',
+    samples: [100, -100, 50],
+    capturedAt: 12_345,
+    durationMs: 0.125,
+  });
+
+  manager.releaseFinalTranscript({
+    channel: 'microphone',
+    itemId: 'item-1',
+    transcript: 'Confirmed',
+    startedAt: 100,
+    at: 200,
+    final: true,
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(recordedCaptions.length, 1);
+  assert.equal(recordedCaptions[0].sourceText, 'Confirmed');
+  assert.equal(recordedCaptions[0].chinese.status, 'final');
+
+  const stopped = await manager.stop();
+  assert.equal(stopped.meetingRecord.session.audioRetention, 'pending');
+  assert.ok(
+    calls.findIndex(([name]) => name === 'transport-close') <
+      calls.findIndex(([name]) => name === 'record-stop'),
+  );
+  assert.equal(sessions.length, 2);
+});
+
+test('mock and replay sessions never create meeting records', async () => {
+  let starts = 0;
+  const meetingRecordController = {
+    startSession: async () => {
+      starts += 1;
+    },
+  };
+  const settingsStore = {
+    get: () => ({
+      budgetUsd: 5,
+      shadowEnabled: false,
+      reorderWindowMs: 400,
+      duplicateWindowMs: 1400,
+    }),
+    set: () => {},
+  };
+  const mock = new CaptionSessionManager({
+    credentialStore: {},
+    settingsStore,
+    meetingRecordController,
+  });
+  await mock.start({ mode: 'mock' });
+  await mock.stop();
+  assert.equal(starts, 0);
+});
+
+test('stop waits for an in-flight final caption before finalizing its transcript record', async () => {
+  const resolveNormalizations = [];
+  const order = [];
+  const manager = new CaptionSessionManager({
+    credentialStore: { get: async () => 'test-key' },
+    settingsStore: {
+      get: () => ({
+        budgetUsd: 5,
+        shadowEnabled: false,
+        reorderWindowMs: 400,
+        duplicateWindowMs: 1400,
+        autoSaveTranscript: true,
+        glossary: [],
+        protectedTokens: [],
+        primaryProfile: 'economy',
+      }),
+      set: () => {},
+    },
+    meetingRecordController: {
+      startSession: async () => ({ recording: true }),
+      appendFinalRecord: () => order.push('caption'),
+      stopSession: async () => {
+        order.push('record-stop');
+        return { recording: true };
+      },
+    },
+    transcriptionFactory: () => ({
+      connect: async () => {},
+      appendAudio: () => {},
+      close: () => order.push('transport-close'),
+    }),
+    normalizerFactory: () => ({
+      normalize: () =>
+        new Promise((resolve) => {
+          resolveNormalizations.push(() =>
+            resolve({
+              text: '已确认',
+              sourceLanguage: 'en',
+              model: 'test-model',
+              usage: { inputTokens: 1, outputTokens: 1 },
+            }),
+          );
+        }),
+    }),
+  });
+  await manager.start({ mode: 'live' });
+  manager.releaseFinalTranscript({
+    channel: 'microphone',
+    itemId: 'item-final',
+    transcript: 'Confirmed',
+    startedAt: 1,
+    at: 2,
+    final: true,
+  });
+
+  let stopped = false;
+  const stopping = manager.stop().then(() => {
+    stopped = true;
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(stopped, false);
+  assert.equal(order.includes('record-stop'), false);
+
+  resolveNormalizations.forEach((resolve) => resolve());
+  await stopping;
+  assert.deepEqual(order.slice(-2), ['caption', 'record-stop']);
+});
+
+test('stop accepts a final transcript emitted while transports drain', async () => {
+  const recorded = [];
+  const manager = new CaptionSessionManager({
+    credentialStore: { get: async () => 'test-key' },
+    settingsStore: {
+      get: () => ({
+        budgetUsd: 5,
+        shadowEnabled: false,
+        reorderWindowMs: 400,
+        duplicateWindowMs: 1400,
+        autoSaveTranscript: true,
+        glossary: [],
+        protectedTokens: [],
+        primaryProfile: 'economy',
+      }),
+      set: () => {},
+    },
+    meetingRecordController: {
+      startSession: async () => ({ recording: true }),
+      appendFinalRecord: (caption) => recorded.push(caption.sourceText),
+      stopSession: async () => ({ recording: true }),
+    },
+    transcriptionFactory: ({ channel, onEvent }) => ({
+      connect: async () => {},
+      appendAudio: () => {},
+      finish: async () => {
+        if (channel === 'microphone') {
+          onEvent({
+            type: 'transcript',
+            channel,
+            itemId: 'tail-item',
+            transcript: 'Keep the final phrase',
+            final: true,
+            startedAt: 10,
+            at: 20,
+          });
+        }
+      },
+      close: () => {},
+    }),
+    normalizerFactory: () => ({
+      normalize: async ({ sourceText, target }) => ({
+        text: target === 'en' ? sourceText : '保留最后一句',
+        sourceLanguage: 'en',
+        model: 'test-model',
+        usage: { inputTokens: 1, outputTokens: 1 },
+      }),
+    }),
+  });
+
+  await manager.start({ mode: 'live' });
+  await manager.stop();
+
+  assert.deepEqual(recorded, ['Keep the final phrase']);
+});
+
+test('a meeting-record readiness failure leaves no active live session', async () => {
+  const manager = new CaptionSessionManager({
+    credentialStore: { get: async () => 'test-key' },
+    settingsStore: {
+      get: () => ({
+        budgetUsd: 5,
+        shadowEnabled: false,
+        reorderWindowMs: 400,
+        duplicateWindowMs: 1400,
+        autoSaveTranscript: true,
+      }),
+      set: () => {},
+    },
+    meetingRecordController: {
+      startSession: async () => {
+        const error = new Error('Meeting records folder is unavailable');
+        error.code = 'records_directory_unavailable';
+        throw error;
+      },
+    },
+  });
+
+  await assert.rejects(manager.start({ mode: 'live' }), {
+    code: 'records_directory_unavailable',
+  });
+  assert.equal(manager.active, false);
+  assert.equal(manager.sessions.size, 0);
 });

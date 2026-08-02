@@ -126,3 +126,6 @@ __pycache__/
 
 # Architecture-review screenshots (scratch, same batch as .playwright-mcp/)
 /arch-review-*.png
+
+# W4 native camera companion build output (MSBuild refuses to build under %TEMP%).
+native/camera-companion/build/

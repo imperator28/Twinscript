@@ -63,36 +63,77 @@ Goal: remove setup ambiguity and prove the package can be produced natively.
 
 ### Changes
 
-1. Replace the Bash-only `scripts/copy-ort-wasm.sh` post-install dependency
-   with a cross-platform Node script.
-2. Add an early Squirrel startup handler if the application does not already
-   consume install, update, and uninstall events.
-3. Verify the platform-specific credential unlock message and scoped
-   **Repair secure storage** action on a clean Windows user profile.
-4. Set a Windows App User Model ID that matches the Squirrel package.
-5. Confirm the packaged app includes `build/`, required WASM runtimes,
-   `dist-electron/`, `assets/`, and `resources/`.
-6. Make the Windows CI artifact available for validation builds, not only
-   version tags. A pull-request or manually dispatched build should upload the
-   unsigned setup artifact with short retention.
-7. Remove or quarantine inherited extension/Linux release behavior from the
-   Windows validation path. Do not require unrelated Sokuji products to pass
-   the Windows caption gate.
-8. Separate Vitest discovery from the `node:test` caption files. Resolve the
-   retained legacy tests that currently require undeclared `fzstd` and
-   `electron-conf` modules: declare a real runtime dependency when production
-   code still uses it, otherwise remove that subsystem from this focused
-   client and its test job.
+| # | Change | State |
+| --- | --- | --- |
+| 1 | Replace the Bash-only `scripts/copy-ort-wasm.sh` post-install dependency with a cross-platform Node script. | Done — `scripts/copy-ort-wasm.cjs`, called with `node` from `postinstall`. |
+| 2 | Add an early Squirrel startup handler if the application does not already consume install, update, and uninstall events. | Done — `electron/captions/squirrel-startup.js`, called before `initMain()`. |
+| 3 | Verify the platform-specific credential unlock message and scoped **Repair secure storage** action on a clean Windows user profile. | Open — needs a real installed profile. |
+| 4 | Set a Windows App User Model ID that matches the Squirrel package. | Done — `com.squirrel.BilingualMeetingCaptions.bilingual-meeting-captions`, asserted against `forge.config.js`. |
+| 5 | Confirm the packaged app includes `build/`, required WASM runtimes, `dist-electron/`, `assets/`, and `resources/`. | Done — see "Packaged contents" below. |
+| 6 | Make the Windows CI artifact available for validation builds, not only version tags. | Done — `.github/workflows/windows-ci.yml`. |
+| 7 | Remove or quarantine inherited extension/Linux release behavior from the Windows validation path. | Done — the Windows gate is its own workflow and depends on no extension, Linux, or macOS job. |
+| 8 | Separate Vitest discovery from the `node:test` caption files and resolve the legacy tests requiring undeclared `fzstd`/`electron-conf`. | Done — pinned globs in `vitest.config.ts`, guarded by `electron/captions/test-discovery.test.cjs`. |
+
+One defect was found while validating change 5 and is fixed: closing the control
+window left the app running with seven live processes. The audience windows
+intercept `close` and hide themselves, so `window-all-closed` never fired. On
+Windows those windows set `skipTaskbar`, so the control window is the app's only
+taskbar entry and closing it left an unreachable process holding microphone and
+loopback capture. `electron/captions/app-lifecycle.js` now ends the app when the
+control window closes on Windows and Linux, and keeps the macOS dock behavior.
+
+### Packaged contents
+
+`npm run make` on Windows x64 produces `out/make/squirrel.windows/x64/` with
+`Setup.exe`, `*-full.nupkg`, and `RELEASES`. The asar contains `package.json`,
+`dist-electron/` (every caption module including `squirrel-startup.js` and
+`app-lifecycle.js`), `build/`, and pruned `node_modules/`; `assets/` and
+`resources/` ship beside it as extra resources.
+
+Only two WASM directories are packaged, `build/wasm/ort` and `build/wasm/gtcrn`.
+This client transcribes through OpenAI WebSockets, and the sole WASM it loads is
+GTCRN noise suppression on the microphone path
+(`src/lib/modern-audio/gtcrn/gtcrn-worker.ts`) plus the ONNX Runtime it runs on.
+The upstream local-inference runtimes — sherpa-onnx ASR/streaming-ASR/TTS,
+piper-plus, and vad-web, about 37 MB — are not reachable from `src/App.tsx` and
+no built artifact references their paths, so `forge.config.js` excludes them.
+Restore an entry there if a later work package adopts one of those runtimes.
 
 ### Tests
 
-- Add a Node test for the cross-platform asset-copy script.
-- Keep the unit coverage for platform-specific credential errors and scoped
-  secure-storage repair behavior passing.
-- Add a main-process test for Squirrel argument handling.
-- Prove `npm run test:captions` and `npx vitest run` both have intentional,
-  non-overlapping discovery and exit 0.
-- Run the W0 manual install/uninstall checks.
+- `electron/captions/copy-ort-wasm.test.cjs` — the cross-platform asset copy.
+- `electron/captions/squirrel-startup.test.cjs` — every Squirrel argument, the
+  bounded exit when `Update.exe` stalls or is missing, the AppUserModelID, and
+  that `captions-main.js` still consumes the event before creating windows.
+- `electron/captions/app-lifecycle.test.cjs` — control-window close semantics
+  per platform.
+- `electron/captions/test-discovery.test.cjs` — the two runners stay disjoint.
+- `electron/captions/macos-local-signing.test.cjs` and the credential-store
+  coverage in `caption-foundation.test.cjs` continue to pass.
+- Manual install/uninstall checks remain outstanding.
+
+### Known follow-ups
+
+Recorded here rather than fixed inside W0, because each is a separate reviewable
+change:
+
+- **Remove the legacy Sokuji main-process tree.** `electron/main.js`,
+  `preload.js`, `ipc-channels.js`, `better-auth-adapter.js`, `sidecar-bundle.js`,
+  `sidecar-sku.js`, `native-host-manager.js`, `update-manager.js`,
+  `subtitle-window.js`, and `squirrel-events.js` are not build entries in
+  `vite.config.ts` and never ship. Two of their suites are quarantined in
+  `vitest.config.ts`; drop those exclusions when the modules go.
+  `electron/sandbox-recovery.js` is Windows-specific and worth reviewing for
+  adoption by the caption client before deletion, not deleting blindly.
+- **Consolidate CI.** `build.yml` still carries the upstream extension, Linux,
+  and macOS release jobs and a SignPath job gated on
+  `github.repository == 'kizuna-ai-lab/sokuji'`. W5 replaces it with focused
+  `test` / `windows-build` / `windows-smoke` / `windows-sign` /
+  `windows-release` jobs.
+- **`package.json`'s `build.files`** (electron-builder, used for the macOS PKG
+  and Linux packages) still lists the unused WASM runtime directories that
+  `forge.config.js` no longer packages. Align it when macOS packaging is next
+  touched.
 
 ### Exit
 
@@ -129,6 +170,27 @@ If loopback fails, continue microphone captions and show a persistent,
 actionable warning. Never claim the meeting channel is live when its RMS and
 sent-audio counters remain zero.
 
+**Implemented.** `src/captions/captureHealth.ts` holds both rules as pure
+functions:
+
+- `describeSystemCaptureFailure({ platform, error })` produces the recovery step
+  that actually applies. The previous message told every platform to grant
+  Screen Recording permission, which on Windows points at a setting that does
+  not exist; Windows now gets "confirm Windows is playing the meeting through an
+  active output device", Linux gets the PulseAudio/PipeWire monitor source, and
+  macOS keeps Screen Recording. `AudioCaptureController` takes the platform as a
+  constructor argument so each branch is testable.
+- `deriveChannelHealth(...)` labels each channel `IDLE`, `UNAVAILABLE`,
+  `STARTING`, `NO AUDIO`, or `LIVE`. A channel reaches `LIVE` only once
+  `transport.<channel>.sentAudioMs > 0` or its RMS clears an audible floor; a
+  started-but-silent channel reads `STARTING` for a four-second grace period and
+  `NO AUDIO` after it.
+
+`ControlApp` keeps the capture facts in state separate from the dismissible
+notice, so a failed loopback stays on screen for the whole session as a
+per-channel badge plus a warning paragraph. Dismissing the transient notice does
+not hide it.
+
 ### Windows overlay behavior
 
 Validate and correct:
@@ -143,6 +205,27 @@ Validate and correct:
 - taskbar position on any screen edge.
 
 Keep caption windows out of the taskbar. Keep the control window in it.
+
+**Geometry implemented.** The placement math moved out of
+`CaptionWindowManager` into the pure `electron/captions/overlay-layout.js`, so
+display situations that are awkward to stage by hand are table-tested: a taskbar
+on each of the four edges, a monitor at negative x or y, a work area too short
+for two full-height overlays, and a display narrower than the side-by-side
+threshold. Bounds are always integers clamped inside the work area — Windows
+reports the taskbar as a `workArea` inset, so honoring the work area is what
+keeps the overlays clear of it.
+
+`CaptionWindowManager` now also subscribes to `display-added`,
+`display-removed`, and `display-metrics-changed` and reapplies the layout.
+Without that, unplugging a monitor or changing scaling left the frameless,
+taskbar-skipping overlays at coordinates belonging to no display, with no way to
+recover them. A side-by-side request on a too-narrow display is remembered rather
+than downgraded, so moving to a wide display honors the original choice; the
+broadcast reports the layout actually on screen.
+
+Still needing a human: `alwaysOnTop` against real meeting clients and
+full-screen shares, the drag and resize hit regions, and the visual taskbar
+check.
 
 ### Bilingual correctness
 
@@ -159,15 +242,33 @@ audiences receive every retained entry.
 
 ### Tests
 
-- Unit tests for lifecycle states so reconnecting cannot remove the stop action.
-- Loopback startup/failure tests with mocked media streams.
-- Projection tests for English, Chinese, and inline code-switching.
-- Manual two-person Teams or Zoom test on a physical Windows machine.
+- `src/captions/captureHealth.test.ts` — platform-specific recovery guidance and
+  every channel-health transition, including the rule that zero sent audio and
+  zero RMS can never read as live.
+- `src/captions/ControlApp.test.tsx` — the stop control survives `degraded`,
+  `reconnecting`, and `budget-warning`; a failed loopback keeps the session
+  running with a persistent warning that outlives dismissing the notice; the
+  meeting badge only turns `LIVE` once its transport counter moves; capture state
+  clears on stop.
+- `electron/captions/overlay-layout.test.cjs` — overlay geometry across taskbar
+  edges, negative-coordinate monitors, short and tiny work areas, plus
+  `CaptionWindowManager` reapplying the layout on display changes.
+- Projection tests for English, Chinese, and inline code-switching — existing
+  coverage in `caption-foundation.test.cjs`.
+- Manual two-person Teams or Zoom test on a physical Windows machine — still
+  outstanding, and it is the gate for W1.
 
 ## Work package W2 — meeting records and visible history
 
 Goal: implement the approved recording/history spec on both macOS and Windows
 before camera work depends on it.
+
+**Implementation status (2026-07-30):** W2a, W2b, and W2c are implemented in
+the working tree. The main-process and renderer suites, production build, and
+unsigned Squirrel make complete on Windows. This is readiness for owner
+validation, not a passed W2 gate: real Windows/macOS audio, forced-termination
+recovery, retained-WAV playback/alignment, privacy deletion, DPI/multi-monitor,
+and soak evidence remain open.
 
 **Approval:** This work package was approved for implementation on 2026-07-30.
 It is part of the core meeting client, not an optional recording extension.
@@ -351,6 +452,13 @@ installation is acceptable for private validation.
 
 ## Work package W4 — native Windows 11 camera
 
+**Status 2026-08-01:** production implementation is complete and automated
+checks pass. The gate remains pending user manual validation. The owner directed
+this implementation work to proceed before W2/W3 manual gates were signed off;
+that does not waive those gates or the real-client W4 checks. Current evidence
+and the exact remaining checklist are in
+[`evidence/2026-08-01-w4-production/README.md`](evidence/2026-08-01-w4-production/README.md).
+
 Goal: replace OBS for supported Windows 11 systems without changing caption
 semantics or stage design.
 
@@ -395,7 +503,7 @@ Required lifecycle:
 5. recover from a companion crash without stopping transcription; and
 6. remove/unregister cleanly on uninstall.
 
-Do not start W4 until W3 passes a 60-minute real-meeting soak.
+Do not mark W4 passed until W3 and the W4 real-client/60-minute checks pass.
 
 ## Work package W5 — release engineering
 

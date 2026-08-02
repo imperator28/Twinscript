@@ -8,6 +8,10 @@ const EVENT_CHANNELS = new Set([
   'captions:evaluation',
   'captions:layout',
   'captions:settings',
+  'captions:backup-state',
+  'captions:pending-meeting-records',
+  'captions:preview-visibility',
+  'captions:native-camera-health',
 ]);
 
 function invoke(channel, payload) {
@@ -38,6 +42,18 @@ contextBridge.exposeInMainWorld('captions', {
   importGlossary: () => invoke('captions:glossary-import'),
   exportGlossary: () => invoke('captions:glossary-export'),
   setSettings: (patch) => invoke('captions:settings-set', patch),
+  chooseMeetingRecordsDirectory: () =>
+    invoke('captions:meeting-records-directory-choose'),
+  listPendingMeetingRecords: () =>
+    invoke('captions:meeting-records-pending'),
+  keepMeetingAudio: (sessionId) =>
+    invoke('captions:meeting-record-keep', { sessionId }),
+  discardMeetingAudio: (sessionId) =>
+    invoke('captions:meeting-record-discard', { sessionId }),
+  revealMeetingRecord: (sessionId) =>
+    invoke('captions:meeting-record-reveal', { sessionId }),
+  exportMeetingRecord: (sessionId) =>
+    invoke('captions:meeting-record-export', { sessionId }),
   startSession: (request) => invoke('captions:session-start', request),
   stopSession: () => invoke('captions:session-stop'),
   getSessionStatus: () => invoke('captions:session-status'),
@@ -48,7 +64,18 @@ contextBridge.exposeInMainWorld('captions', {
   listRecordings: () => invoke('captions:recordings-list'),
   showWindows: () => invoke('captions:windows-show'),
   hideWindows: () => invoke('captions:windows-hide'),
+  showCameraStage: () => invoke('captions:camera-stage-show'),
+  hideCameraStage: () => invoke('captions:camera-stage-hide'),
+  getPreviewVisibility: () => invoke('captions:preview-visibility-get'),
+  getCameraStageSnapshot: () => invoke('captions:camera-stage-snapshot'),
+  getNativeCameraHealth: () => invoke('captions:native-camera-health-get'),
+  installNativeCamera: () => invoke('captions:native-camera-install'),
+  repairNativeCamera: () => invoke('captions:native-camera-repair'),
+  removeNativeCamera: () => invoke('captions:native-camera-remove'),
+  retryNativeCamera: () => invoke('captions:native-camera-retry'),
   setLayout: (layout) => invoke('captions:layout-set', { layout }),
+  reportCaptionContentHeight: (audience, height, generation) =>
+    invoke('captions:overlay-content-height', { audience, height, generation }),
   exportSession: (format) => invoke('captions:export', { format }),
   openPrivacy: () => invoke('captions:open-privacy'),
   sendAudio: (channel, samples) => {
@@ -80,6 +107,13 @@ contextBridge.exposeInMainWorld('captions', {
   onEvaluation: (callback) => subscribe('captions:evaluation', callback),
   onLayout: (callback) => subscribe('captions:layout', callback),
   onSettings: (callback) => subscribe('captions:settings', callback),
+  onBackupState: (callback) => subscribe('captions:backup-state', callback),
+  onPendingMeetingRecords: (callback) =>
+    subscribe('captions:pending-meeting-records', callback),
+  onPreviewVisibility: (callback) =>
+    subscribe('captions:preview-visibility', callback),
+  onNativeCameraHealth: (callback) =>
+    subscribe('captions:native-camera-health', callback),
 });
 
 // Compatibility bridge for Sokuji's retained audio capture classes. It is

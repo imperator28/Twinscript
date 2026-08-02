@@ -1,7 +1,7 @@
 # Overlay focus, synchronized sizing, and caption themes
 
 Date: 2026-07-30  
-Status: approved interaction design, awaiting written-spec review
+Status: implemented, awaiting operator validation
 
 ## Purpose
 

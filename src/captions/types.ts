@@ -54,6 +54,7 @@ export interface AudienceCaption {
   audience: Audience;
   text: string;
   status: CaptionStatus;
+  settled: boolean;
   revision: number;
   passthrough: boolean;
   error?: { code: string; message: string };
@@ -71,6 +72,34 @@ export interface SessionStatus {
   channel?: string;
   code?: string;
   message?: string;
+  meetingRecord?: MeetingRecordReview | null;
+}
+
+export interface BackupState {
+  channel: 'microphone' | 'system';
+  state: 'healthy' | 'degraded' | 'failed';
+  chunkCount?: number;
+  droppedMs?: number;
+  reason?: string;
+  error?: string;
+}
+
+export interface MeetingRecordManifest {
+  sessionId: string;
+  startedAt?: number;
+  endedAt?: number;
+  captionCount?: number;
+  audioRetention: 'pending' | 'kept' | 'discarded' | 'unavailable';
+  channelAvailability?: Partial<Record<'microphone' | 'system', boolean>>;
+  audioTracks?: Record<string, { status: string; filePath?: string }>;
+}
+
+export interface MeetingRecordReview {
+  recording: boolean;
+  sessionId?: string;
+  sessionDir?: string;
+  session?: MeetingRecordManifest;
+  error?: { code: string; message?: string; channels?: Record<string, unknown> };
 }
 
 export interface SessionMetrics {
@@ -111,6 +140,13 @@ export interface SessionMetrics {
     >
   >;
   normalizationQueue?: { running: number; queued: number };
+  normalizationContext?: {
+    requests: number;
+    totalGlossaryRows: number;
+    totalPromptCharacters: number;
+    lastGlossaryRows: number;
+    lastPromptCharacters: number;
+  };
 }
 
 export interface EvaluationResult {
@@ -204,6 +240,7 @@ export interface GlossaryConfigurationSummary {
 export interface CaptionSettings {
   settingsVersion: number;
   layout: 'stacked' | 'side-by-side';
+  outputMode: 'overlays' | 'virtual-camera';
   primaryProfile: 'economy' | 'tiered' | 'quality';
   shadowProfile: 'economy' | 'tiered' | 'quality';
   shadowEnabled: boolean;
@@ -219,10 +256,37 @@ export interface CaptionSettings {
   protectedTokens: string[];
   glossaryStoredCount: number;
   captionFontScale: number;
-  captionPaceMs: number;
+  autoSaveTranscript: boolean;
+  keepAudioAutomatically: boolean;
+  meetingRecordsDirectory: string | null;
+  captionHistoryEntries: number;
+  captionTheme: 'blueprint' | 'graphite' | 'red-blue';
+  captionOverlayHeight: number | null;
+  captionAutoSizeGeneration?: number;
   showSourceInControl: boolean;
   recordEvaluation: boolean;
   recordingRetentionDays: number;
   reorderWindowMs: number;
   duplicateWindowMs: number;
+}
+
+export interface NativeCameraHealth {
+  state:
+    | 'unsupported'
+    | 'not-installed'
+    | 'repair-required'
+    | 'stopped'
+    | 'starting'
+    | 'ready'
+    | 'streaming'
+    | 'restarting'
+    | 'stopping'
+    | 'failed';
+  supported: boolean;
+  installed: boolean;
+  windowsBuild?: number;
+  reason?: string | null;
+  restartCount?: number;
+  message?: string | null;
+  code?: string | number | null;
 }

@@ -8,8 +8,49 @@ const {
 
 const macSigningIdentity = resolveMacSigningIdentity();
 
-// Sokuji localizes its product UI through i18next. Electron's locale packs
-// only cover Chromium-native UI, which intentionally falls back to English.
+const WINDOWS_NATIVE_CAMERA_RESOURCES = [
+  {
+    from: path.join('native', 'camera-companion', 'build', 'Release', 'vcam-host.exe'),
+    name: 'vcam-host.exe',
+  },
+  {
+    from: path.join(
+      'native',
+      'camera-companion',
+      'build',
+      'Release',
+      'bilingual-vcam-source.dll',
+    ),
+    name: 'bilingual-vcam-source.dll',
+  },
+  {
+    from: path.join('scripts', 'install-native-camera.ps1'),
+    name: 'install-native-camera.ps1',
+  },
+  {
+    from: path.join('scripts', 'uninstall-native-camera.ps1'),
+    name: 'uninstall-native-camera.ps1',
+  },
+];
+
+function stageNativeCameraResources(buildPath, platform) {
+  if (platform !== 'win32') return;
+  const target = path.resolve(buildPath, '..', 'native-camera');
+  fs.mkdirSync(target, { recursive: true });
+  for (const resource of WINDOWS_NATIVE_CAMERA_RESOURCES) {
+    const source = path.resolve(__dirname, resource.from);
+    if (!fs.existsSync(source)) {
+      throw new Error(
+        `Missing Windows native-camera resource: ${resource.from}. ` +
+          'Build native/camera-companion Release before packaging.',
+      );
+    }
+    fs.copyFileSync(source, path.join(target, resource.name));
+  }
+}
+
+// Electron's locale packs only cover Chromium-native UI. This client ships an
+// English product UI, so every other pack is pruned.
 // Windows/Linux use en-US.pak; macOS uses en.lproj.
 const ELECTRON_LANGUAGES = new Set([
   'en', 'en-US',
@@ -92,13 +133,15 @@ module.exports = {
         if (filePath.startsWith('/build/wasm')) {
           // Must include the /build/wasm directory itself so its children are traversed
           if (filePath === '/build/wasm') return false;
+          // This caption client transcribes through OpenAI WebSockets; the only
+          // WASM it loads is GTCRN noise suppression on the microphone path
+          // (src/lib/modern-audio/gtcrn/gtcrn-worker.ts), which needs the GTCRN
+          // model plus the ONNX Runtime it runs on. The upstream local-inference
+          // runtimes (sherpa-onnx ASR/TTS, piper-plus, vad-web — ~37 MB) are not
+          // reachable from src/App.tsx and no built artifact references their
+          // paths, so they are excluded from the Windows package.
           const wasmRuntimeDirs = [
-            '/build/wasm/sherpa-onnx-asr',
-            '/build/wasm/sherpa-onnx-asr-stream',
-            '/build/wasm/sherpa-onnx-tts',
             '/build/wasm/ort',
-            '/build/wasm/vad',
-            '/build/wasm/piper-plus',
             '/build/wasm/gtcrn',
           ];
           // Keep runtime dirs and their contents, exclude everything else
@@ -130,7 +173,10 @@ module.exports = {
         exe: 'bilingual-meeting-captions.exe',
         description: 'Private realtime English and Chinese meeting captions',
         setupIcon: 'assets/icon.ico',
-        iconUrl: 'https://raw.githubusercontent.com/kizuna-ai-lab/sokuji/main/assets/icon.ico',
+        // Add/Remove Programs fetches this over HTTP. It must resolve in this
+        // repository, not the upstream Sokuji one.
+        iconUrl:
+          'https://raw.githubusercontent.com/imperator28/bilingualmeetingcaption/main/assets/icon.ico',
         noMsi: true
       }
     },
@@ -168,6 +214,7 @@ module.exports = {
   hooks: {
     packageAfterCopy: async (_forgeConfig, buildPath, _electronVersion, platform) => {
       pruneElectronLocales(buildPath, platform);
+      stageNativeCameraResources(buildPath, platform);
     },
     packageAfterPrune: async (forgeConfig, buildPath) => {
       // List of directories to check and remove unnecessary files

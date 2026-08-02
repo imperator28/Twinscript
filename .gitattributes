@@ -1,0 +1,7 @@
+# The ONNX Runtime files under public/wasm/ are copied verbatim out of
+# node_modules by scripts/copy-ort-wasm.cjs, which writes them byte for byte
+# (LF). A Windows checkout with core.autocrlf=true converts the .mjs/.js ones to
+# CRLF, so every `npm ci` left four tracked files reported as modified with an
+# empty diff. Exempt the whole tree from end-of-line conversion: these are
+# generated runtime assets, and the .wasm files are binary regardless.
+public/wasm/** -text

@@ -157,6 +157,7 @@ function projectForAudience(event, audience) {
     audience,
     text: target.text,
     status: target.status,
+    settled: event.status === 'final' || event.status === 'failed',
     revision: target.revision,
     passthrough: target.passthrough,
     error: target.error,

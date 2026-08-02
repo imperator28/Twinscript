@@ -137,6 +137,20 @@ Record:
 Microsoft's `IMFVirtualCamera` API has a minimum supported client of Windows
 Build 22000. Use it for Windows 11 only.
 
+**Verified behavior that changes how this must be tested:**
+`MFCreateVirtualCamera` returns `S_OK` even when the source CLSID is not
+registered — Windows defers COM source resolution until a consumer opens the
+camera. A successful create, and a camera appearing in the device list, therefore
+prove nothing about whether the feed works: a broken or unloadable media source
+looks identical. Every W4 check must go through a real consumer opening the
+camera and receiving frames. See
+[`evidence/2026-07-31-w4-probe/README.md`](evidence/2026-07-31-w4-probe/README.md).
+
+Production implementation status and the remaining manual checks are tracked in
+[`../../native/camera-companion/README.md`](../../native/camera-companion/README.md)
+and
+[`evidence/2026-08-01-w4-production/README.md`](evidence/2026-08-01-w4-production/README.md).
+
 ### Selected architecture
 
 Use a signed x64 C++ companion process:
@@ -167,6 +181,25 @@ The companion owns:
 - native diagnostics that never include transcript text.
 
 ### Frame transport contract
+
+**Production path implemented, 2026-08-01.** The header is pinned in two places
+that must change together, guarded both ways:
+
+- [`../../electron/captions/camera-frame-transport.js`](../../electron/captions/camera-frame-transport.js)
+  — geometry, writer, reader, and the seqlock publication protocol.
+- [`../../native/camera-companion/include/frame_transport.h`](../../native/camera-companion/include/frame_transport.h)
+  — the C++ mirror, whose `static_assert`s run when `frame_transport_check`
+  builds.
+- `electron/captions/camera-frame-transport.test.cjs` parses the C++ header and
+  fails on any divergence in a constant, offset, or writer-state value.
+
+Electron preallocates
+`C:\ProgramData\Bilingual Meeting Captions\runtime\camera-frame-v1.bin` and publishes payload,
+monotonic timestamp, writer state, then sequence with positioned writes. The
+Frame Server source maps that same file read-only. The file-backed mapping keeps
+pixels off Electron IPC while avoiding an in-process native addon; the named
+pipe carries lifecycle and health only. A full 8,294,400-byte Node→C++ frame is
+part of the automated suite.
 
 Version the shared-memory header from the first prototype:
 

@@ -26,7 +26,9 @@ x64 client passes W3.
 Install:
 
 1. Git for Windows.
-2. Node.js 20 LTS. The repository's GitHub Actions workflow also uses Node 20.
+2. Node.js 20 LTS. The repository's GitHub Actions workflows also use Node 20.
+   Node 24 has been verified locally for `npm ci`, both test commands, the
+   production build, and `electron-forge make`; CI remains the Node-20 record.
 3. Visual Studio 2022 Build Tools with:
    - **Desktop development with C++**;
    - MSVC v143 x64/x86 build tools; and
@@ -36,20 +38,30 @@ Install:
 Do not install VB-CABLE. It belongs to retained Sokuji voice-routing code and is
 not part of this subtitle or camera validation.
 
-### Known W0 setup blocker
+### Resolved W0 setup blocker
 
-`package.json` currently runs:
+`postinstall` previously ran `bash scripts/copy-ort-wasm.sh`, which fails in a
+normal PowerShell session because Git Bash is not guaranteed to be on `PATH`.
+It now runs:
 
 ```text
-electron-rebuild && bash scripts/copy-ort-wasm.sh
+electron-rebuild && node scripts/copy-ort-wasm.cjs
 ```
 
-That assumes `bash` is available. Git for Windows includes Git Bash, but Bash is
-not guaranteed to be on a normal PowerShell `PATH`. The durable W0 fix is to
-replace `scripts/copy-ort-wasm.sh` with a cross-platform Node script and call it
-with `node`. Until that fix is committed, run `npm ci` from Git Bash or expose
-Git's Bash executable on the current shell path. Do not omit the copy step,
-because packaged runtime assets may otherwise be incomplete.
+`scripts/copy-ort-wasm.cjs` is the cross-platform port and is covered by
+`electron/captions/copy-ort-wasm.test.cjs`. `npm ci` needs no shell beyond
+PowerShell or cmd.exe. Never skip the copy step with `--ignore-scripts`; the
+GTCRN noise-suppression worker loads its ONNX Runtime from `public/wasm/ort/`.
+
+The copy writes those files with LF. A Windows checkout with
+`core.autocrlf=true` used to convert the `.mjs`/`.js` ones to CRLF, so every
+`npm ci` left four tracked files reported as modified with an empty diff.
+`.gitattributes` now marks `public/wasm/**` as `-text`. If you cloned before that
+existed and still see the phantom modifications, run once:
+
+```powershell
+git add --renormalize public/wasm/ort/
+```
 
 ## 3. Clone and install
 
@@ -121,20 +133,25 @@ npx vitest run
 npm run build
 ```
 
-The focused caption suite and production build are known to pass at this
-handoff. The full `npx vitest run` command currently exposes inherited
-repository test-configuration defects:
+All three commands exit 0 on Windows. The two test runners have deliberately
+non-overlapping discovery:
 
-- Vitest collects three `node:test` `.cjs` files and reports that they contain
-  no Vitest suite, even though `npm run test:captions` runs them correctly.
-- Legacy sidecar/auth tests load `fzstd` and `electron-conf`, which are not
-  declared by the current caption package.
+- `npm run test:captions` runs `node --test electron/captions/*.test.cjs` — the
+  main-process caption suites.
+- `npx vitest run` runs `src/**/*.test.{ts,tsx}` and `electron/**/*.test.js`.
 
-W0 must separate the Vitest and Node test globs, then either declare the
-dependencies needed by retained production code or exclude removed legacy
-subsystems from the caption client. Do not hide a real dependency behind a
-test-only mock. After that W0 cleanup, all three commands above must finish
-with exit code 0.
+`vitest.config.ts` pins both globs. `electron/better-auth-adapter.test.js` and
+`electron/sidecar-bundle.test.js` are excluded: they test main-process
+subsystems reachable only from `electron/main.js`, which is not a build entry in
+`vite.config.ts` and never ships in `dist-electron/`, and they require `fzstd`
+and `electron-conf`, which this client does not depend on. They are quarantined,
+not mocked — see the follow-up list in
+[`implementation-guide.md`](implementation-guide.md#known-follow-ups).
+`extension/` is likewise out of the caption gate; it is the upstream browser
+extension and this client neither builds nor ships it.
+
+`electron/captions/test-discovery.test.cjs` fails if either glob drifts back
+into the other's files.
 
 Then start development mode:
 
@@ -156,11 +173,16 @@ Before using API credit:
    prompts.
 4. Grant microphone access.
 5. Select the intended microphone and confirm the level meter moves.
-6. Switch stacked and side-by-side layout and confirm both the preview and
+6. Reveal the caption windows with **Show captions** or `Ctrl+Shift+C`. They are
+   created hidden and are otherwise revealed by starting a session, so an empty
+   screen before this step is expected, not a failure.
+7. Switch stacked and side-by-side layout and confirm both the preview and
    native caption windows move.
-7. Start and stop a demo session.
-8. Close either caption window with its visible close button.
-9. Use **Show captions** to restore both caption windows.
+8. Start and stop a demo session.
+9. Close either caption window with its visible close button.
+10. Use **Show captions** to restore both caption windows.
+11. Close the control window and confirm the app exits: no
+    `bilingual-meeting-captions` process should remain.
 
 Do not advance to a live API test if any lifecycle control disappears or the
 window alternates between ready and live.
@@ -206,10 +228,18 @@ Expected artifacts include:
 Install the setup executable on a clean Windows user profile. Unsigned builds
 may trigger Windows warnings and are for internal validation only.
 
-The app should handle Squirrel startup/update/uninstall arguments before
-creating windows. Electron Forge recommends `electron-squirrel-startup`; the
-current app must be checked and corrected in W0 if those events are not already
-handled.
+Squirrel arguments are handled by `electron/captions/squirrel-startup.js`, which
+`electron/captions-main.js` calls before `initMain()` and before any window is
+created. It creates shortcuts on `--squirrel-install`/`--squirrel-updated`,
+removes them on `--squirrel-uninstall`, exits on `--squirrel-obsolete`, and
+treats `--squirrel-firstrun` as an ordinary launch. It also sets the
+AppUserModelID `com.squirrel.BilingualMeetingCaptions.bilingual-meeting-captions`
+so Windows groups the taskbar entry with the shortcut Squirrel installed. A test
+asserts that value still matches the Forge maker configuration.
+
+If you need a build made by CI instead, run the **Windows caption client**
+workflow (`.github/workflows/windows-ci.yml`) and download the
+`windows-x64-unsigned-<sha>` artifact. It is retained for 14 days.
 
 ## 9. Useful diagnostics
 

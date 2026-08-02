@@ -1,0 +1,155 @@
+name: Windows caption client
+
+# The W0 validation gate for the Windows caption client. Deliberately separate
+# from build.yml: that workflow is the inherited Sokuji release pipeline and also
+# builds the browser extension, Linux packages, and macOS PKGs. A Windows
+# caption build must not be gated on any of those, and a validation build must
+# produce an installable artifact without waiting for a version tag.
+#
+# Signing is out of scope here — see docs/windows/implementation-guide.md (W5).
+# Every artifact this workflow produces is unsigned and internal-only. No
+# OpenAI key is required to build or test.
+
+on:
+  push:
+    branches:
+      - main
+      - 'codex/**'
+      - 'win/**'
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Two runners with intentionally non-overlapping discovery: node:test owns
+      # the main-process caption suites, Vitest owns the renderer and the
+      # electron/*.test.js suites. Guarded by
+      # electron/captions/test-discovery.test.cjs.
+      - name: Caption main-process tests
+        run: npm run test:captions
+
+      - name: Renderer and component tests
+        run: npx vitest run
+
+      - name: Production build
+        run: npm run build
+
+  windows-build:
+    name: Windows x64 unsigned installer
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Proves the cross-platform postinstall and the caption suites work in a
+      # native Windows shell, not only on Linux.
+      - name: Caption main-process tests
+        run: npm run test:captions
+
+      - name: Build native camera companion
+        shell: pwsh
+        run: |
+          cmake -S native/camera-companion -B native/camera-companion/build -A x64
+          cmake --build native/camera-companion/build --config Release
+
+      - name: Native camera protocol and source smoke checks
+        shell: pwsh
+        run: |
+          $release = 'native/camera-companion/build/Release'
+          & "$release/mapped-frame-reader-check.exe"
+          if ($LASTEXITCODE -ne 0) { throw 'Mapped frame reader check failed' }
+          & "$release/vcam-host.exe" register
+          if ($LASTEXITCODE -ne 0) { throw 'Per-user source registration failed' }
+          try {
+            & "$release/vcam-host.exe" drive 20
+            if ($LASTEXITCODE -ne 0) { throw 'Media source drive check failed' }
+          } finally {
+            & "$release/vcam-host.exe" unregister
+          }
+
+      - name: Build and package
+        run: npm run make -- --arch=x64
+
+      - name: Verify Squirrel output
+        shell: pwsh
+        run: |
+          $dir = 'out/make/squirrel.windows/x64'
+          if (-not (Test-Path $dir)) { throw "Missing $dir" }
+          $setup = Get-ChildItem $dir -Filter '*.exe'
+          $nupkg = Get-ChildItem $dir -Filter '*.nupkg'
+          $releases = Get-ChildItem $dir -Filter 'RELEASES'
+          if (-not $setup) { throw 'No Setup executable produced' }
+          if (-not $nupkg) { throw 'No .nupkg produced' }
+          if (-not $releases) { throw 'No RELEASES file produced' }
+          Get-ChildItem $dir | Select-Object Name, Length | Format-Table
+
+      - name: Verify packaged native camera resources
+        shell: pwsh
+        run: |
+          $resources = 'out/Bilingual Meeting Captions-win32-x64/resources/native-camera'
+          $required = @(
+            'vcam-host.exe',
+            'bilingual-vcam-source.dll',
+            'install-native-camera.ps1',
+            'uninstall-native-camera.ps1'
+          )
+          foreach ($name in $required) {
+            $target = Join-Path $resources $name
+            if (-not (Test-Path -LiteralPath $target -PathType Leaf)) {
+              throw "Missing packaged native camera resource: $target"
+            }
+          }
+
+      # An API key must never reach a build artifact. The scan is cheap and
+      # catches an accidentally committed or generated key before download.
+      - name: Scan packaged output for API keys
+        shell: pwsh
+        run: |
+          # Classic keys are `sk-` + 48 alphanumerics; project and service keys
+          # carry a typed prefix. Both patterns avoid matching hyphenated prose.
+          $patterns = 'sk-[A-Za-z0-9]{32,}', 'sk-(proj|svcacct|admin)-[A-Za-z0-9_-]{20,}'
+          $hits = Get-ChildItem -Recurse -File 'out/make' |
+            Select-String -Pattern $patterns -List
+          if ($hits) {
+            $hits | ForEach-Object { Write-Output $_.Path }
+            throw 'Possible API key found in build output'
+          }
+          Write-Output 'No API key patterns found in out/make.'
+
+      - name: Upload unsigned installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-x64-unsigned-${{ github.sha }}
+          retention-days: 14
+          if-no-files-found: error
+          path: |
+            out/make/squirrel.windows/x64/*.exe
+            out/make/squirrel.windows/x64/*.nupkg
+            out/make/squirrel.windows/x64/RELEASES

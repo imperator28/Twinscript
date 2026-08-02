@@ -1,0 +1,71 @@
+[
+  {
+    "id": "blueprint",
+    "label": "Blueprint",
+    "palette": ["#0D47A1", "#2196F3", "#90CAF9", "#E3F2FD"],
+    "surfaces": {
+      "en": {
+        "background": "#0D47A1",
+        "primary": "#FFFFFF",
+        "secondary": "#E3F2FD",
+        "accent": "#90CAF9",
+        "border": "#2196F3",
+        "nativeBackground": "#0D47A1"
+      },
+      "zh": {
+        "background": "#E3F2FD",
+        "primary": "#102A43",
+        "secondary": "#0D47A1",
+        "accent": "#2196F3",
+        "border": "#90CAF9",
+        "nativeBackground": "#E3F2FD"
+      }
+    }
+  },
+  {
+    "id": "graphite",
+    "label": "Graphite",
+    "palette": ["#30343B", "#6D7682", "#9DA5B0", "#D9DEE5"],
+    "surfaces": {
+      "en": {
+        "background": "#30343B",
+        "primary": "#FFFFFF",
+        "secondary": "#D9DEE5",
+        "accent": "#9DA5B0",
+        "border": "#565D66",
+        "nativeBackground": "#30343B"
+      },
+      "zh": {
+        "background": "#D9DEE5",
+        "primary": "#1D232B",
+        "secondary": "#3D4652",
+        "accent": "#6D7682",
+        "border": "#B6BDC7",
+        "nativeBackground": "#D9DEE5"
+      }
+    }
+  },
+  {
+    "id": "red-blue",
+    "label": "Red / Blue",
+    "palette": ["#164E87", "#73B3E7", "#E58A99", "#8B2635"],
+    "surfaces": {
+      "en": {
+        "background": "#164E87",
+        "primary": "#FFFFFF",
+        "secondary": "#D7E9F8",
+        "accent": "#73B3E7",
+        "border": "#2C6CA6",
+        "nativeBackground": "#164E87"
+      },
+      "zh": {
+        "background": "#8B2635",
+        "primary": "#FFFFFF",
+        "secondary": "#F7DCE1",
+        "accent": "#E58A99",
+        "border": "#B84354",
+        "nativeBackground": "#8B2635"
+      }
+    }
+  }
+]

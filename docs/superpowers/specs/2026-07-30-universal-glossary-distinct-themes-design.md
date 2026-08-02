@@ -1,7 +1,7 @@
 # Universal glossary and distinct caption themes
 
 Date: 2026-07-30  
-Status: approved design, awaiting written-spec review
+Status: implemented, awaiting owner validation
 
 ## Purpose
 

@@ -46,6 +46,10 @@ class LiveTranscriptionSession {
     this.reconnectTimer = null;
     this.partialByItem = new Map();
     this.startedAtByItem = new Map();
+    this.pendingCompletions = 0;
+    this.finishResolve = null;
+    this.finishTimer = null;
+    this.finishing = false;
     this.rejectConnect = null;
     this.vad = new VadGate({
       // gpt-live-transcribe currently requires explicit turn commits. Keep a
@@ -165,6 +169,7 @@ class LiveTranscriptionSession {
   }
 
   appendAudio(samples) {
+    if (this.finishing) return;
     const int16 =
       samples instanceof Int16Array
         ? samples
@@ -233,6 +238,7 @@ class LiveTranscriptionSession {
       return;
     }
     this.socket.send(JSON.stringify({ type: 'input_audio_buffer.commit' }));
+    this.pendingCompletions += 1;
     this.onEvent({
       type: 'turn-commit',
       channel: this.channel,
@@ -302,6 +308,8 @@ class LiveTranscriptionSession {
         at: Date.now(),
       });
       this.startedAtByItem.delete(event.item_id);
+      this.pendingCompletions = Math.max(0, this.pendingCompletions - 1);
+      this.resolveFinishIfDrained();
       return event;
     }
 
@@ -337,6 +345,40 @@ class LiveTranscriptionSession {
     }, delay);
   }
 
+  resolveFinishIfDrained(force = false) {
+    if (!force && this.pendingCompletions > 0) return;
+    if (this.finishTimer) clearTimeout(this.finishTimer);
+    this.finishTimer = null;
+    const resolve = this.finishResolve;
+    this.finishResolve = null;
+    resolve?.();
+  }
+
+  async finish({ timeoutMs = 3000 } = {}) {
+    if (this.finishing) {
+      if (!this.finishResolve) return;
+      await new Promise((resolve) => {
+        const previous = this.finishResolve;
+        this.finishResolve = () => {
+          previous?.();
+          resolve();
+        };
+      });
+      return;
+    }
+
+    this.finishing = true;
+    this.closedByUser = true;
+    this.commitAudioTurn('session_stop');
+    if (this.pendingCompletions > 0) {
+      await new Promise((resolve) => {
+        this.finishResolve = resolve;
+        this.finishTimer = setTimeout(() => this.resolveFinishIfDrained(true), timeoutMs);
+      });
+    }
+    this.close();
+  }
+
   close() {
     this.closedByUser = true;
     this.connected = false;
@@ -346,6 +388,7 @@ class LiveTranscriptionSession {
     this.rejectConnect = null;
     this.vad.reset();
     this.turnAudioMs = 0;
+    this.pendingCompletions = 0;
     this.pendingChunks = [];
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     this.reconnectTimer = null;
@@ -353,6 +396,7 @@ class LiveTranscriptionSession {
       this.socket.close();
       this.socket = null;
     }
+    this.resolveFinishIfDrained(true);
   }
 }
 

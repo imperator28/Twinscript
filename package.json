@@ -190,13 +190,10 @@
     "make:pkg": "npm run build && electron-builder --mac pkg --publish never -c.directories.output=out/make-mac",
     "macos:signing:setup": "bash scripts/setup-local-macos-signing.sh",
     "macos:signing:check": "node scripts/macos-local-signing.cjs",
-    "postinstall": "electron-rebuild && bash scripts/copy-ort-wasm.sh",
+    "postinstall": "electron-rebuild && node scripts/copy-ort-wasm.cjs",
     "eval": "tsx evals/runner/index.ts",
     "eval:validate": "tsx evals/runner/index.ts validate",
-    "eval:list": "tsx evals/runner/index.ts list",
-    "extension:build": "cd extension && npx vite build",
-    "extension:dev": "cd extension && npx vite build --watch --mode development",
-    "sidecar:setup": "bash sidecar/setup.sh"
+    "eval:list": "tsx evals/runner/index.ts list"
   },
   "eslintConfig": {
     "extends": [

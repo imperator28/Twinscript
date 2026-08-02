@@ -1,5 +1,11 @@
 name: Build and Release
 
+# The inherited Sokuji release pipeline: Linux packages, macOS PKGs, the browser
+# extension, and the tagged Windows release. The Windows caption client's own
+# validation gate lives in windows-ci.yml and does not depend on any job here —
+# see docs/windows/implementation-guide.md (W0 item 6, W5) for the planned
+# consolidation into focused test / windows-build / windows-sign jobs.
+
 on:
   push:
     branches: [main, master]
@@ -7,6 +13,7 @@ on:
       - 'v*'
   pull_request:
     branches: [main, master]
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -76,8 +83,11 @@ jobs:
           VITE_ENABLE_ANALYTICS: ${{ startsWith(github.ref, 'refs/tags/v') && 'true' || '' }}
           VITE_EXTENSION_ID: ${{ startsWith(github.ref, 'refs/tags/v') && secrets.VITE_EXTENSION_ID_PROD || '' }}
 
+      # Tag builds only. windows-ci.yml already produces an unsigned installer
+      # for every branch, pull request, and manual run, so packaging here on a
+      # pull request would just duplicate a ten-minute Forge make.
       - name: Build Electron app with Forge
-        if: runner.os == 'Windows'
+        if: runner.os == 'Windows' && startsWith(github.ref, 'refs/tags/v')
         run: npx electron-forge make --arch=${{ matrix.arch || 'x64' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

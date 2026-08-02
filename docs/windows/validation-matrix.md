@@ -46,6 +46,13 @@ the non-sensitive evidence filename.
 W0 fails if installation works only from an elevated developer shell or if a
 real API key is required to build.
 
+Recorded runs:
+
+- [2026-07-30, working tree on `4a3f7be2`](evidence/2026-07-30-w0-working-tree/README.md)
+  — build, tests, dev launch, package, fresh install, Squirrel events, exit,
+  uninstall, and secret scan PASS. Outstanding: a visual taskbar check, the
+  API-key round trip, and the secure-storage recovery action.
+
 ## W1 — real meeting parity
 
 ### Input and lifecycle
@@ -76,7 +83,7 @@ Use at least 20 utterances per scenario.
 | Inline switching | Mixed terms such as “T2 治具 tolerance stack-up” remain intelligible in both outputs. |
 | Numbers and units | Part numbers, dimensions, tolerances, currency, dates, and quantities retain their values. |
 | Protected tokens | `T1`, `T2`, `EVT`, `DVT`, `PVT`, `MP`, `NPI`, `BOM`, and `ECO` are not translated. |
-| Regional glossary | Selected South China shop-floor terms normalize consistently without flooding the prompt. |
+| Regional glossary | South China shop-floor aliases from the universal engineering glossary normalize consistently without flooding the prompt. |
 
 Suggested release threshold for the scripted bilingual corpus:
 
@@ -97,9 +104,12 @@ performance.
 | --- | --- |
 | Close/restore | Either close control hides both overlays; **Show captions** restores them. |
 | Drag | The visible top handle moves each window reliably. |
-| Resize | User resize works without breaking text layout. |
+| Synchronized resize | Drag the height of either English or Chinese. The peer follows live, both remain equal, and neither snaps back as captions arrive. |
+| Resize persistence | A manually chosen height survives Stop/Start and full app restart. |
+| History resets size | Changing Visible history clears the manual height and recomputes one equal automatic height from natural content. |
 | Stacked | Windows remain separate, ordered, and inside the work area. |
 | Side by side | Both windows are visibly side by side on a wide display. |
+| Balanced caps | The stacked pair blocks no more than about 45% of the work area; side-by-side panels block no more than about 33%. Overflow scrolls. |
 | DPI | Layout is usable at 100%, 125%, and 150%. |
 | Multi-monitor | Moving between primary/secondary monitors preserves anchoring and visibility. |
 | Always on top | Captions remain above the chosen meeting/shared-screen workflow. |
@@ -107,6 +117,12 @@ performance.
 | Reduced motion | History changes remain clear with Windows animation reduction enabled. |
 
 ## W2 — records, retention, and visible history
+
+Automated readiness was rechecked on 2026-07-30 in
+[`evidence/2026-07-30-w2-working-tree/README.md`](evidence/2026-07-30-w2-working-tree/README.md).
+Those checks prove unit/integration behavior, renderer contracts, production
+bundling, and unsigned packaging. They do not satisfy the real-device pass
+conditions below; complete those checks before marking W2 passed.
 
 ### Transcript and attribution
 
@@ -142,16 +158,31 @@ performance.
 | Default | A new or migrated install uses 6 entries. |
 | Completeness | The count refers to completed entries, not wrapped text lines. |
 | Provisional update | Current speech revises in place and does not consume multiple history slots. |
+| Translation-lag focus | If either audience translation is still processing, the row remains prominent in both panels even if the other audience text is final. |
+| Multiple in-flight rows | Several simultaneously translating rows remain full-size/full-opacity together. |
+| Settled focus | The two newest fully settled rows remain prominent; only older settled rows become compact history. |
 | Upward growth | Lower edge remains fixed while added history moves the top edge upward. |
 | Readability | Older retained entries remain readable with age-based opacity. |
 | No pace delay | Setting history to 10 does not delay transcription or translation. |
 | Layout modes | Stacked and side-by-side remain in the display work area at maximum history. |
 
+### Session boundary and caption themes
+
+| Check | Pass condition |
+| --- | --- |
+| Fresh start | Stop a session, then Start Session. Both overlays are empty/Listening before new speech; no prior row overlaps the new conversation. |
+| Saved records | Starting fresh does not remove the prior transcript or meeting record. |
+| Theme choices | Blueprint, Graphite, and Red / Blue each update both visible panels immediately; Red / Blue maps English to blue and Chinese to red. |
+| Theme persistence | The selected paired theme survives app restart. |
+| Pair clarity | English and Chinese surfaces remain visually distinct, labels remain explicit, and text is readable over bright and dark underlying apps. |
+| Default | A new or migrated install selects Blueprint. |
+
 ### Glossary request budget
 
 | Check | Pass condition |
 | --- | --- |
-| Local library | Complete selected/imported glossary remains available to the UI and matching code. |
+| Universal library | The settings card has no meeting-type selector and reports the complete universal built-in glossary. |
+| Custom preservation | Imported terms, custom overrides, and additional protected tokens survive restart and take priority over built-ins. |
 | Matched context | Normalization receives relevant custom, built-in, and regional-alias rows first. |
 | Row bound | No normalization request receives more than 16 glossary rows. |
 | Character bound | Terminology and protected-token prompt content never exceeds 800 characters. |
@@ -159,6 +190,16 @@ performance.
 | Usage evidence | Metrics record selected glossary rows and prompt characters per request. |
 
 ## W3 — OBS virtual camera
+
+**Direct evidence captured 2026-07-30 and 2026-07-31:** the packaged app exposes a dedicated
+1920×1080 stage; official OBS Studio 32.1.2 from GitHub captures
+`Bilingual Camera Stage` into a 1920×1080/30 fps `Bilingual Captions` scene
+without chrome, clipping, transparency, or private state. See
+[the W3 working-tree evidence](evidence/2026-07-30-w3-working-tree/README.md).
+System installation, both virtual-camera registrations, authenticated virtual
+camera startup, and Chrome enumeration/format negotiation are directly
+observed. Chrome visual rendering and every remaining meeting-client row below
+remain unpassed until directly observed.
 
 | Check | Pass condition |
 | --- | --- |
@@ -176,17 +217,18 @@ performance.
 
 | Check | Pass condition |
 | --- | --- |
-| OS gate | Native option appears only on Windows Build 22000 or newer. |
-| Registration | Install registers one stable camera identity; uninstall removes it. |
-| Enumeration | Teams, Zoom, and Chromium list and render the camera. |
-| Format | 1920×1080 at 15 or 30 fps negotiates without distortion. |
-| Frame stall | Latest frame repeats briefly, then a neutral slate appears. |
-| Crash isolation | Killing the companion does not stop transcription. |
-| Recovery | One automatic companion restart restores the feed. |
-| Mode switch | Native camera starts/stops without restarting the caption session. |
-| Standard user | Installed camera operates without repeated elevation. |
-| 60-minute soak | No registration loss, black frame, or unrecoverable companion failure. |
-| Windows 10 | App offers OBS and does not show a broken native action. |
+| OS gate | **Automated pass.** Native actions are limited to Windows Build 22000+ x64; unsupported systems retain the OBS path. Manual Windows 10 visual confirmation remains. |
+| Registration | **Implemented; manual pending.** Install/Repair/Remove use one verified ProgramData target and the stable CLSID. `bin` remains Administrator/SYSTEM-owned; only the dedicated runtime/log directories are user-writable. Approve UAC and verify install/update/repair/uninstall on the test profile. |
+| Enumeration | **Manual pending.** Teams, Zoom, and Chromium must list and render the newly installed camera. |
+| Format | **Automated transport/source pass; manual display pending.** Full-size 1920×1080 BGRA crosses Node→C++; the source offers NV12 and RGB32 at 15 fps. Confirm undistorted meeting-client display. |
+| Frame stall | **Automated pass.** Reader tests cover fresh, repeat, two-second expiry, idle, stopped, malformed, and neutral-slate substitution. |
+| Crash isolation | **Automated supervisor pass; manual live-session pending.** No transcription callback is coupled to camera failure. Kill the real companion during a live session. |
+| Recovery | **Automated supervisor-contract pass; real-process manual pending.** Exit and spawn-error paths clear ownership, allow exactly one restart, and require manual Retry after the second failure. Kill the installed process to confirm the real feed. |
+| Mode switch | **Automated lifecycle pass; manual live-session pending.** Start/stop is serialized, rapid races are rejected, 50 accelerated mode cycles leave no offscreen renderer/companion alive, and Preview/Hide preview remains independent. |
+| Version drift | **Automated pass; update manual pending.** Installed host/DLL bytes are compared with packaged resources and surface Repair required before launch when they differ. Confirm the state across an actual app update. |
+| Standard user | **Manual pending.** Installed camera must operate without repeated elevation after the one-time explicit install. |
+| 60-minute soak | **Manual pending.** No registration loss, black/frozen frame, runaway memory, or unrecoverable companion failure. |
+| Windows 10 | **Automated gate pass; manual visual pending.** App offers OBS and does not expose an installable native action. |
 
 ## W5 — signed release
 

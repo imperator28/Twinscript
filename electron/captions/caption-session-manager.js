@@ -8,6 +8,9 @@ const {
 const { CostMeter } = require('./cost-meter');
 const { LiveTranscriptionSession } = require('./live-transcription-session');
 const { OpenAINormalizer } = require('./openai-normalizer');
+const {
+  compileGlossaryRequestContext,
+} = require('./glossary-request-context');
 const { PriorityTaskQueue } = require('./priority-task-queue');
 const { buildQualitySignals } = require('./quality-signals');
 const { TranscriptCoordinator } = require('./transcript-coordinator');
@@ -71,6 +74,8 @@ class CaptionSessionManager {
     transcriptionFactory,
     normalizerFactory,
     evaluationRecorder,
+    meetingRecordController,
+    appVersion,
     coordinatorFactory,
     schedulerFactory,
   }) {
@@ -86,6 +91,8 @@ class CaptionSessionManager {
     this.normalizerFactory =
       normalizerFactory || ((options) => new OpenAINormalizer(options));
     this.evaluationRecorder = evaluationRecorder;
+    this.meetingRecordController = meetingRecordController;
+    this.appVersion = appVersion;
     this.coordinatorFactory =
       coordinatorFactory || ((options) => new TranscriptCoordinator(options));
     this.schedulerFactory =
@@ -96,6 +103,7 @@ class CaptionSessionManager {
   reset() {
     this.coordinator?.reset();
     this.sessionId = null;
+    this.mode = null;
     this.settings = null;
     this.sessions = new Map();
     this.eventsByItem = new Map();
@@ -128,12 +136,24 @@ class CaptionSessionManager {
     this.screeningPromptByItem = new Map();
     this.provisionalCallsByItem = new Map();
     this.lastMetricsRecordedAt = 0;
+    this.meetingRecord = null;
+    this.recordedFinalKeys = new Set();
+    this.normalizationContextMetrics = {
+      requests: 0,
+      totalGlossaryRows: 0,
+      totalPromptCharacters: 0,
+      lastGlossaryRows: 0,
+      lastPromptCharacters: 0,
+    };
+    this.pendingFinalizations = new Set();
+    this.finalizingStop = false;
   }
 
   async start(request = {}) {
     if (this.active) await this.stop();
     this.reset();
     this.sessionId = crypto.randomUUID();
+    this.mode = request.mode || 'live';
     this.settings = { ...this.settingsStore.get(), ...(request.settings || {}) };
     this.settingsStore.set(this.settings);
     this.startedAt = Date.now();
@@ -158,7 +178,7 @@ class CaptionSessionManager {
     this.onStatus({
       state: 'starting',
       sessionId: this.sessionId,
-      mode: request.mode || 'live',
+      mode: this.mode,
     });
 
     if (this.settings.recordEvaluation && request.mode !== 'replay') {
@@ -197,6 +217,17 @@ class CaptionSessionManager {
     if (!apiKey) {
       this.active = false;
       throw new Error('Add an OpenAI API key before starting a live session');
+    }
+
+    try {
+      this.meetingRecord = await this.meetingRecordController?.startSession({
+        sessionId: this.sessionId,
+        startedAt: this.startedAt,
+        settings: this.settings,
+      });
+    } catch (error) {
+      this.active = false;
+      throw error;
     }
 
     const glossaryKeywords = [
@@ -255,7 +286,7 @@ class CaptionSessionManager {
     }
   }
 
-  appendAudio({ channel, samples }) {
+  appendAudio({ channel, samples, capturedAt }) {
     if (!this.active) return;
     const session = this.sessions.get(channel);
     if (!session) return;
@@ -276,10 +307,16 @@ class CaptionSessionManager {
       });
     }
     session.appendAudio(pcm);
+    this.meetingRecordController?.writeAudioChunk(
+      channel,
+      pcm,
+      Number.isFinite(capturedAt) ? capturedAt : Date.now(),
+      (pcm.length / 24000) * 1000,
+    );
   }
 
   handleTranscriptionEvent(event) {
-    if (!this.active) return;
+    if (!this.active && !this.finalizingStop) return;
     this.evaluationRecorder?.record('provider-event', event);
     if (event.type === 'level') {
       this.emitMetrics({
@@ -396,15 +433,20 @@ class CaptionSessionManager {
   }
 
   releaseFinalTranscript(transcript) {
-    if (!this.active) return;
+    if (!this.active && !this.finalizingStop) return;
     const key = `${transcript.channel}:${transcript.itemId}`;
     const caption = this.upsertTranscriptEvent(key, transcript, true);
     this.publish(caption);
-    void this.normalizeFinal(key, caption);
+    const finalization = this.normalizeFinal(key, caption);
+    this.pendingFinalizations.add(finalization);
+    void finalization.then(
+      () => this.pendingFinalizations.delete(finalization),
+      () => this.pendingFinalizations.delete(finalization),
+    );
   }
 
   handleDuplicate({ event, duplicateOf, similarity }) {
-    if (!this.active) return;
+    if (!this.active && !this.finalizingStop) return;
     this.diagnostics.duplicateCandidates += 1;
     const suppress = event.channel === 'microphone' ? event : duplicateOf;
     const keep = event.channel === 'system' ? event : duplicateOf;
@@ -487,22 +529,34 @@ class CaptionSessionManager {
       final || caption.routedAs === 'mixed' || caption.routedAs === 'unknown'
         ? ['en', 'zh']
         : [caption.routedAs === 'en' ? 'zh' : 'en'];
+    const requestContext = compileGlossaryRequestContext({
+      sourceText: caption.sourceText,
+      glossary: this.settings.glossary,
+      customTerms: this.settings.customGlossaryConfiguration?.terms,
+      protectedTokens: this.settings.protectedTokens,
+    });
 
     await Promise.all(
       targets.map(async (target) => {
         if (!this.cost.canSpend()) return;
         try {
+          this.recordNormalizationContext(requestContext.metrics);
           const result = await this.primaryNormalizer.normalize({
             sourceText: caption.sourceText,
             target,
             profile: this.settings.primaryProfile,
             final,
-            glossary: this.settings.glossary,
-            protectedTokens: this.settings.protectedTokens,
+            glossary: requestContext.glossary,
+            protectedTokens: requestContext.protectedTokens,
             signal: controller.signal,
             priority: final ? 10 : 0,
           });
-          if (controller.signal.aborted || !this.active) return;
+          if (
+            controller.signal.aborted ||
+            (!this.active && !this.finalizingStop)
+          ) {
+            return;
+          }
           const current = this.eventsByItem.get(key);
           if (!current || (final && current.sourceText !== caption.sourceText)) {
             return;
@@ -551,6 +605,14 @@ class CaptionSessionManager {
     await this.normalizePrimary(key, caption, true);
     const primary = this.eventsByItem.get(key);
     if (!primary) return;
+    if (
+      !primary.suppressed &&
+      !this.recordedFinalKeys.has(key) &&
+      ['final', 'failed'].includes(primary.status)
+    ) {
+      this.recordedFinalKeys.add(key);
+      this.meetingRecordController?.appendFinalRecord(primary);
+    }
 
     let shadow = null;
     if (this.shadowActive && this.cost.canSpend()) {
@@ -558,19 +620,26 @@ class CaptionSessionManager {
       const shadowController = new AbortController();
       this.shadowControllers.add(shadowController);
       try {
+        const requestContext = compileGlossaryRequestContext({
+          sourceText: caption.sourceText,
+          glossary: this.settings.glossary,
+          customTerms: this.settings.customGlossaryConfiguration?.terms,
+          protectedTokens: this.settings.protectedTokens,
+        });
         const [english, chinese] = await Promise.all(
-          ['en', 'zh'].map((target) =>
-            this.shadowNormalizer.normalize({
+          ['en', 'zh'].map((target) => {
+            this.recordNormalizationContext(requestContext.metrics);
+            return this.shadowNormalizer.normalize({
               sourceText: caption.sourceText,
               target,
               profile: this.settings.shadowProfile,
               final: true,
-              glossary: this.settings.glossary,
-              protectedTokens: this.settings.protectedTokens,
+              glossary: requestContext.glossary,
+              protectedTokens: requestContext.protectedTokens,
               priority: 2,
               signal: shadowController.signal,
-            }),
-          ),
+            });
+          }),
         );
         shadow = {
           profile: this.settings.shadowProfile,
@@ -908,28 +977,56 @@ class CaptionSessionManager {
     }
   }
 
+  recordNormalizationContext({ glossaryRows, promptCharacters }) {
+    const current = this.normalizationContextMetrics;
+    current.requests += 1;
+    current.totalGlossaryRows += glossaryRows;
+    current.totalPromptCharacters += promptCharacters;
+    current.lastGlossaryRows = glossaryRows;
+    current.lastPromptCharacters = promptCharacters;
+    this.emitMetrics({ normalizationContext: { ...current } });
+  }
+
   async stop(reason = 'user') {
     if (!this.active) return this.snapshot();
     this.active = false;
+    this.finalizingStop = true;
     for (const timer of this.pendingTimers.values()) clearTimeout(timer);
     for (const timer of this.mockTimers) clearTimeout(timer);
-    for (const controller of this.abortControllers.values()) controller.abort();
-    for (const controller of this.shadowControllers) controller.abort();
     this.pendingTimers.clear();
     this.mockTimers = [];
-    this.abortControllers.clear();
-    this.shadowControllers.clear();
     this.provisionalCallsByItem.clear();
     this.screeningPromptByItem.clear();
-    this.coordinator?.reset();
-    for (const session of this.sessions.values()) session.close();
+    const sessions = [...this.sessions.values()];
+    await Promise.allSettled(
+      sessions.map((session) =>
+        typeof session.finish === 'function'
+          ? session.finish()
+          : Promise.resolve(session.close()),
+      ),
+    );
     this.sessions.clear();
+    this.coordinator?.flush();
+    this.coordinator?.reset();
+    await Promise.allSettled([...this.pendingFinalizations]);
+    this.finalizingStop = false;
+    for (const controller of this.abortControllers.values()) controller.abort();
+    for (const controller of this.shadowControllers) controller.abort();
+    this.abortControllers.clear();
+    this.shadowControllers.clear();
     await this.evaluationRecorder?.stop();
+    if (this.mode === 'live' && this.meetingRecordController) {
+      this.meetingRecord = await this.meetingRecordController.stopSession({
+        appVersion: this.appVersion,
+        estimatedCostUsd: this.cost?.snapshot().totalUsd,
+      });
+    }
     this.onStatus({
       state: 'stopped',
       sessionId: this.sessionId,
       metrics: this.cost?.snapshot(),
       reason,
+      meetingRecord: this.meetingRecord,
     });
     return this.snapshot();
   }
@@ -945,6 +1042,7 @@ class CaptionSessionManager {
       shadowActive: this.shadowActive,
       evaluationCount: this.evaluationHistory.length,
       ratingCount: this.evaluationRatings.size,
+      meetingRecord: this.meetingRecord,
     };
   }
 

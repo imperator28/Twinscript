@@ -1,5 +1,10 @@
 import { LoopbackRecorder } from '../lib/modern-audio/LoopbackRecorder';
 import { ModernAudioRecorder } from '../lib/modern-audio/ModernAudioRecorder';
+import {
+  type CapturePlatform,
+  describeSystemCaptureFailure,
+  detectCapturePlatform,
+} from './captureHealth';
 
 type Channel = 'microphone' | 'system';
 
@@ -145,13 +150,24 @@ export class AudioCaptureController {
   private system: LoopbackRecorder | null = null;
   private microphoneBatcher: PcmBatcher;
   private systemBatcher: PcmBatcher;
+  private readonly platform: CapturePlatform;
 
   constructor(
     send: (channel: Channel, samples: Int16Array) => void =
       (channel, samples) => window.captions.sendAudio(channel, samples),
+    platform: CapturePlatform = detectCapturePlatform(),
   ) {
     this.microphoneBatcher = new PcmBatcher('microphone', send);
     this.systemBatcher = new PcmBatcher('system', send);
+    this.platform = platform;
+  }
+
+  /** Which channels currently hold a live recorder. */
+  capturing(): { microphone: boolean; system: boolean } {
+    return {
+      microphone: Boolean(this.microphone),
+      system: Boolean(this.system),
+    };
   }
 
   async start(microphoneDeviceId?: string): Promise<AudioCaptureStartResult> {
@@ -171,19 +187,23 @@ export class AudioCaptureController {
       this.microphoneBatcher.push(data.mono),
     );
 
+    // Loopback failure must never take the microphone down with it: the local
+    // speaker's captions keep flowing and the operator is told what to fix.
     try {
       this.system = new LoopbackRecorder(24000);
       const systemReady = await this.system.begin();
       if (!systemReady) throw new Error('System audio capture is unavailable');
       await this.system.record((data) => this.systemBatcher.push(data.mono));
-    } catch {
+    } catch (error) {
       await this.system?.end().catch(() => undefined);
       this.system = null;
       return {
         microphone: true,
         system: false,
-        warning:
-          'Microphone is live. Meeting/system audio is unavailable; enable Screen Recording permission to capture other speakers.',
+        warning: describeSystemCaptureFailure({
+          platform: this.platform,
+          error,
+        }),
       };
     }
     return { microphone: true, system: true };

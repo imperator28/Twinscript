@@ -37,6 +37,12 @@ test('registration scripts use one verified ProgramData target and idempotent co
   assert.match(uninstall, /Remove-Item -LiteralPath \$installRoot -Recurse -Force/);
 });
 
+test('native camera installation accepts Windows account and Microsoft account SIDs', () => {
+  const install = read('scripts/install-native-camera.ps1');
+  assert.match(install, /SecurityIdentifier/);
+  assert.doesNotMatch(install, /\^S-1-5-/);
+});
+
 test('machine binaries stay administrator-owned while only runtime data is user-writable', () => {
   const install = read('scripts/install-native-camera.ps1');
   assert.match(install, /\$runtimeRoot = Join-Path \$installRoot 'runtime'/);

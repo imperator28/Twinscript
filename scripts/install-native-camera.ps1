@@ -31,15 +31,15 @@ if (-not $Elevated) {
 if (-not (Test-Administrator)) {
   throw 'Native camera registration requires administrator approval.'
 }
-# Accept any well-formed SID, not just the NT-authority (S-1-5-*) form. An
-# Entra ID / Azure AD account has identifier authority 12 (S-1-12-1-...), which
-# is the normal case on a corporate-joined machine, and an S-1-5-only pattern
-# rejected every such user with "SID is invalid".
+# Accept any well-formed SID, not just the NT-authority (S-1-5-*) form. Entra ID
+# and Microsoft-account identities use authority 12 (S-1-12-1-...), which is the
+# normal case on a corporate-joined machine; an S-1-5-only pattern rejected every
+# such user with a bare "SID is invalid" and blocked the install entirely.
 #
 # The value is interpolated into an icacls command line, so it still has to be
 # constrained. Two independent checks: a strict digits-and-hyphens shape, and a
-# parse by the platform's own SID type, which cannot succeed for a string
-# carrying an injection payload.
+# parse by Windows' own SID type, which cannot succeed for a string carrying an
+# injection payload.
 if ($UserSid -notmatch '^S-1-\d{1,10}(-\d{1,10}){1,15}$') {
   throw "The requesting Windows user SID is invalid: $UserSid"
 }

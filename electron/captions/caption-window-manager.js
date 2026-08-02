@@ -618,7 +618,18 @@ class CaptionWindowManager {
     if (bounded === null) return null;
     this.clearFallbackTimer();
     this.manualHeight = bounded;
+    this.automaticHeight = null;
+    this.contentMeasurements.clear();
+    this.autoSizeGeneration += 1;
     this.applyLayout(this.layout);
+    const currentSettings = this.settingsStore?.get?.() || {};
+    this.broadcast(
+      'captions:settings',
+      this.settingsPayload({
+        ...currentSettings,
+        captionOverlayHeight: this.manualHeight,
+      }),
+    );
     if (this.persistTimer) clearTimeout(this.persistTimer);
     this.persistTimer = setTimeout(() => {
       this.persistTimer = null;

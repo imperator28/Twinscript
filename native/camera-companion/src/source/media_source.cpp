@@ -243,6 +243,7 @@ HRESULT MediaSource::Start(IMFPresentationDescriptor* descriptor, const GUID* ti
   HRESULT hr = CheckShutdown();
   if (FAILED(hr)) return hr;
   if (!descriptor) return E_INVALIDARG;
+  LogLine("MediaSource::Start entered");
   // Only the default (100ns) time format is meaningful for a live source.
   if (timeFormat && *timeFormat != GUID_NULL) return MF_E_UNSUPPORTED_TIME_FORMAT;
 
@@ -290,12 +291,14 @@ HRESULT MediaSource::Start(IMFPresentationDescriptor* descriptor, const GUID* ti
     ::PropVariantClear(&start_time);
     return hr;
   }
+  LogLine("MediaSource::Start stream started");
 
   hr = event_queue_->QueueEventParamVar(MESourceStarted, GUID_NULL, S_OK, &start_time);
   ::PropVariantClear(&start_time);
   if (FAILED(hr)) return hr;
 
   started_ = true;
+  LogLine("MediaSource::Start source started");
   return S_OK;
 }
 

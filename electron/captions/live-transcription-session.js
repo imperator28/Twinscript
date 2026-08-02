@@ -51,11 +51,12 @@ class LiveTranscriptionSession {
     this.finishTimer = null;
     this.finishing = false;
     this.rejectConnect = null;
+    this.audioGateEnabled = Boolean(settings.vadEnabled);
     this.vad = new VadGate({
       // gpt-live-transcribe currently requires explicit turn commits. Keep a
-      // conservative detector active for segmentation even when the advanced
-      // user-adjustable gate is disabled; in that mode it must never inherit a
-      // threshold that can discard ordinary, quieter speech.
+      // conservative detector active for segmentation. When the advanced gate
+      // is disabled it detects turn boundaries only; appendAudio still sends
+      // every captured sample exactly once.
       enabled: true,
       threshold: settings.vadEnabled
         ? settings.vadThreshold
@@ -176,7 +177,8 @@ class LiveTranscriptionSession {
         : new Int16Array(samples.buffer || samples);
     const durationMs = (int16.length / 24000) * 1000;
     const gated = this.vad.push(int16, durationMs);
-    for (const chunk of gated.chunks) {
+    const chunks = this.audioGateEnabled ? gated.chunks : [int16];
+    for (const chunk of chunks) {
       if (this.connected && this.socket?.readyState === WebSocket.OPEN) {
         if ((this.socket.bufferedAmount || 0) <= this.maxSocketBufferedBytes) {
           this.sendPcm(chunk);

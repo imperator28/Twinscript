@@ -5,6 +5,7 @@
 
 #include "media_source.h"
 #include "module_lifetime.h"
+#include "vcam_log.h"
 
 namespace twinscript::vcam {
 
@@ -143,9 +144,15 @@ HRESULT MediaStream::GetStreamDescriptor(IMFStreamDescriptor** descriptor) {
 HRESULT MediaStream::RequestSample(IUnknown* token) {
   Lock guard(&lock_);
   HRESULT hr = CheckShutdown();
-  if (FAILED(hr)) return hr;
+  if (FAILED(hr)) {
+    LogLine("MediaStream::RequestSample shutdown hr=0x%08lX", hr);
+    return hr;
+  }
+  LogLine("MediaStream::RequestSample state=%u", static_cast<unsigned>(state_));
   if (state_ != MF_STREAM_STATE_RUNNING) return MF_E_INVALIDREQUEST;
-  return DeliverSample(token);
+  hr = DeliverSample(token);
+  LogLine("MediaStream::DeliverSample hr=0x%08lX", hr);
+  return hr;
 }
 
 HRESULT MediaStream::DeliverSample(IUnknown* token) {
@@ -250,6 +257,7 @@ HRESULT MediaStream::Start() {
   HRESULT hr = CheckShutdown();
   if (FAILED(hr)) return hr;
   state_ = MF_STREAM_STATE_RUNNING;
+  LogLine("MediaStream::Start state=running");
   return event_queue_->QueueEventParamVar(MEStreamStarted, GUID_NULL, S_OK, nullptr);
 }
 

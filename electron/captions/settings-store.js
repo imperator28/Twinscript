@@ -45,8 +45,12 @@ function normalizeOutputMode(value) {
   return value === 'virtual-camera' ? 'virtual-camera' : 'overlays';
 }
 
+function normalizeLayout(value) {
+  return value === 'side-by-side' ? 'side-by-side' : 'stacked';
+}
+
 const DEFAULT_SETTINGS = Object.freeze({
-  settingsVersion: 9,
+  settingsVersion: 10,
   layout: 'stacked',
   outputMode: 'overlays',
   primaryProfile: 'economy',
@@ -181,6 +185,14 @@ class SettingsStore {
         if (outputMode !== next.outputMode) migrated = true;
         next.outputMode = outputMode;
       }
+      if (!parsed.settingsVersion || parsed.settingsVersion < 10) {
+        next.layout = normalizeLayout(next.layout);
+        migrated = true;
+      } else {
+        const layout = normalizeLayout(next.layout);
+        if (layout !== next.layout) migrated = true;
+        next.layout = layout;
+      }
       // W2 replaces delayed presentation with immediate, complete-entry
       // history. A legacy pace value is discarded rather than reinterpreted.
       delete next.captionPaceMs;
@@ -224,6 +236,9 @@ class SettingsStore {
     if (Object.hasOwn(cleanPatch, 'outputMode')) {
       next.outputMode = normalizeOutputMode(next.outputMode);
     }
+    if (Object.hasOwn(cleanPatch, 'layout')) {
+      next.layout = normalizeLayout(next.layout);
+    }
     this.write(next);
     return next;
   }
@@ -248,4 +263,5 @@ module.exports = {
   normalizeCaptionTheme,
   normalizeCaptionOverlayHeight,
   normalizeOutputMode,
+  normalizeLayout,
 };

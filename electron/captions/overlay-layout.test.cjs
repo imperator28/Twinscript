@@ -471,16 +471,16 @@ test('the window manager waits for both audiences and uses the larger natural he
   assert.equal(manager.reportContentHeight('zh', Number.NaN, 0), null);
 });
 
-test('history reset rejects stale measurements and returns to automatic sizing', () => {
+test('history reset rejects stale measurements while preserving its manual height floor', () => {
   const { manager, savedSettings } = fakeManager({
     settings: { captionOverlayHeight: 200 },
   });
   manager.createAll();
   assert.equal(manager.captionWindows.get('en').bounds.height, 200);
 
-  const next = manager.resetAutoSize();
-  assert.equal(next.captionOverlayHeight, null);
-  assert.equal(savedSettings.captionOverlayHeight, null);
+  const next = manager.resetContentMeasurements();
+  assert.equal(next.captionOverlayHeight, 200);
+  assert.equal(savedSettings.captionOverlayHeight, 200);
   assert.equal(manager.autoSizeGeneration, 1);
   assert.equal(manager.reportContentHeight('en', 190, 0), null);
   manager.reportContentHeight('en', 190, 1);
@@ -534,6 +534,81 @@ test('a visible-history change re-measures without discarding the manual floor',
   manager.reportContentHeight('en', 230, 1);
   manager.reportContentHeight('zh', 220, 1);
   assert.equal(manager.captionWindows.get('en').bounds.height, 230);
+});
+
+test('content grows above a manual height and returns only to the manual floor', () => {
+  const { manager } = fakeManager({
+    workArea: { ...FULL_HD, height: 1600 },
+    settings: { captionOverlayHeight: 210 },
+  });
+  manager.createAll();
+
+  manager.reportContentHeight('en', 320, manager.autoSizeGeneration);
+  manager.reportContentHeight('zh', 300, manager.autoSizeGeneration);
+  assert.equal(manager.captionWindows.get('en').bounds.height, 320);
+  assert.equal(manager.captionWindows.get('zh').bounds.height, 320);
+
+  manager.reportContentHeight('en', 160, manager.autoSizeGeneration);
+  manager.reportContentHeight('zh', 170, manager.autoSizeGeneration);
+  assert.equal(manager.captionWindows.get('en').bounds.height, 210);
+  assert.equal(manager.captionWindows.get('zh').bounds.height, 210);
+});
+
+test('manual resizing invalidates pre-drag measurements, broadcasts the new generation, and preserves its floor across history changes', () => {
+  const { manager, broadcasts } = fakeManager({
+    workArea: { ...FULL_HD, height: 1600 },
+  });
+  manager.createAll();
+
+  const preDragGeneration = manager.autoSizeGeneration;
+  manager.reportContentHeight('en', 320, preDragGeneration);
+  manager.reportContentHeight('zh', 300, preDragGeneration);
+  assert.equal(manager.captionWindows.get('en').bounds.height, 320);
+
+  manager.acceptManualHeight(210);
+  assert.equal(manager.captionWindows.get('en').bounds.height, 210);
+  assert.equal(manager.captionWindows.get('zh').bounds.height, 210);
+  assert.equal(manager.autoSizeGeneration, preDragGeneration + 1);
+  assert.deepEqual(broadcasts.at(-1), {
+    channel: 'captions:settings',
+    payload: {
+      layout: 'stacked',
+      captionTheme: 'blueprint',
+      captionOverlayHeight: 210,
+      captionAutoSizeGeneration: preDragGeneration + 1,
+    },
+  });
+
+  assert.equal(
+    manager.reportContentHeight('en', 320, preDragGeneration),
+    null,
+    'a measurement reported before the drag cannot restore its old height',
+  );
+
+  manager.resetContentMeasurements();
+  assert.equal(manager.manualHeight, 210, 'visible-history reset keeps the drag height');
+  assert.equal(manager.captionWindows.get('en').bounds.height, 210);
+
+  const currentGeneration = manager.autoSizeGeneration;
+  manager.reportContentHeight('en', 260, currentGeneration);
+  manager.reportContentHeight('zh', 280, currentGeneration);
+  assert.equal(manager.captionWindows.get('en').bounds.height, 280);
+  assert.equal(manager.captionWindows.get('zh').bounds.height, 280);
+
+});
+
+test('resetting content measurements preserves the manual height floor', () => {
+  const { manager, savedSettings } = fakeManager({
+    settings: { captionOverlayHeight: 240 },
+  });
+
+  const next = manager.resetContentMeasurements();
+
+  assert.equal(manager.manualHeight, 240);
+  assert.equal(next.captionOverlayHeight, 240);
+  assert.equal(savedSettings.captionOverlayHeight, 240);
+  assert.equal(manager.automaticHeight, null);
+  assert.equal(manager.autoSizeGeneration, 1);
 });
 
 test('user resizing either panel synchronizes and persists the shared height', async () => {

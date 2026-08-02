@@ -368,6 +368,42 @@ test('live transport commits a quiet speech turn after trailing silence', () => 
   );
 });
 
+test('live transport keeps every captured chunk exactly once when the advanced gate is off', () => {
+  const sent = [];
+  const session = new LiveTranscriptionSession({
+    channel: 'microphone',
+    apiKey: 'test',
+    settings: {
+      vadEnabled: false,
+      vadThreshold: 0.012,
+      delayProfile: 'low',
+    },
+  });
+  session.connected = true;
+  session.socket = {
+    readyState: 1,
+    bufferedAmount: 0,
+    send: (value) => sent.push(JSON.parse(value)),
+  };
+
+  for (const sample of [8, 9, 10]) {
+    session.appendAudio(new Int16Array(2400).fill(sample));
+  }
+
+  const appends = sent.filter(
+    (event) => event.type === 'input_audio_buffer.append',
+  );
+  assert.equal(appends.length, 3);
+  assert.deepEqual(
+    appends.map((event) => Buffer.from(event.audio, 'base64').readInt16LE(0)),
+    [8, 9, 10],
+  );
+  assert.equal(
+    sent.some((event) => event.type === 'input_audio_buffer.commit'),
+    false,
+  );
+});
+
 test('live transport force-commits a bounded turn when speech never pauses', () => {
   const sent = [];
   const events = [];
@@ -540,7 +576,7 @@ test('legacy caption settings migrate to product-safe runtime defaults', () => {
     }),
   );
   const settings = new SettingsStore({ getPath: () => userData }).get();
-  assert.equal(settings.settingsVersion, 9);
+  assert.equal(settings.settingsVersion, 10);
   assert.equal(settings.vadEnabled, false);
   assert.equal(Object.hasOwn(settings, 'captionPaceMs'), false);
   assert.equal(settings.shadowEnabled, false);
@@ -557,7 +593,7 @@ test('legacy caption settings migrate to product-safe runtime defaults', () => {
   const persisted = JSON.parse(
     fs.readFileSync(path.join(userData, 'caption-settings.json'), 'utf8'),
   );
-  assert.equal(persisted.settingsVersion, 9);
+  assert.equal(persisted.settingsVersion, 10);
   assert.equal(persisted.shadowEnabled, false);
   assert.equal(persisted.recordEvaluation, false);
   assert.equal(persisted.autoSaveTranscript, true);
@@ -811,6 +847,30 @@ test('output mode defaults safely, persists supported values, and rejects unknow
   fs.rmSync(userData, { recursive: true, force: true });
 });
 
+test('projection layout defaults safely, persists supported values, and rejects unknown values', () => {
+  const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'caption-settings-'));
+  const store = new SettingsStore({ getPath: () => userData });
+  assert.equal(store.get().layout, 'stacked');
+  assert.equal(store.set({ layout: 'side-by-side' }).layout, 'side-by-side');
+  assert.equal(store.set({ layout: 'invalid-layout' }).layout, 'stacked');
+  fs.rmSync(userData, { recursive: true, force: true });
+});
+
+test('a persisted invalid projection layout migrates to stacked', () => {
+  const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'caption-settings-'));
+  fs.writeFileSync(
+    path.join(userData, 'caption-settings.json'),
+    JSON.stringify({ settingsVersion: 10, layout: 'not-a-layout' }),
+  );
+  const settings = new SettingsStore({ getPath: () => userData }).get();
+  assert.equal(settings.layout, 'stacked');
+  const persisted = JSON.parse(
+    fs.readFileSync(path.join(userData, 'caption-settings.json'), 'utf8'),
+  );
+  assert.equal(persisted.layout, 'stacked');
+  fs.rmSync(userData, { recursive: true, force: true });
+});
+
 test('caption themes accept the curated IDs and reject unknown IDs', () => {
   const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'caption-settings-'));
   const store = new SettingsStore({ getPath: () => userData });
@@ -845,7 +905,7 @@ test('v7 glossary and theme settings migrate without losing custom terms', () =>
     }),
   );
   const settings = new SettingsStore({ getPath: () => userData }).get();
-  assert.equal(settings.settingsVersion, 9);
+  assert.equal(settings.settingsVersion, 10);
   assert.equal(settings.glossaryConfigurationId, 'universal-engineering');
   assert.equal(settings.customGlossaryConfiguration.terms[0].en, 'project falcon');
   assert.equal(settings.glossary[0].en, 'project falcon');

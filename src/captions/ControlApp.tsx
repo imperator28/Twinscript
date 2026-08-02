@@ -31,7 +31,7 @@ type CredentialState = {
 };
 
 const DEFAULT_SETTINGS: CaptionSettings = {
-  settingsVersion: 9,
+  settingsVersion: 10,
   layout: 'stacked',
   outputMode: 'overlays',
   primaryProfile: 'economy',
@@ -279,6 +279,20 @@ export function ControlApp() {
     outputMode: CaptionSettings['outputMode'],
   ) => {
     await saveSettings({ outputMode });
+  };
+
+  const switchLayout = async (layout: CaptionSettings['layout']) => {
+    const previous = settings;
+    setSettingsState({ ...settings, layout });
+    const result = await window.captions.setLayout(layout);
+    if (!result.ok) {
+      setSettingsState(previous);
+      setNotice(result.error.message);
+      return;
+    }
+    const appliedLayout =
+      result.data.layout === 'side-by-side' ? 'side-by-side' : 'stacked';
+    setSettingsState((current) => ({ ...current, ...result.data, layout: appliedLayout }));
   };
 
   const selectedPreviewVisible =
@@ -919,7 +933,23 @@ export function ControlApp() {
                   Virtual camera
                 </button>
               </div>
-              {settings.outputMode === 'virtual-camera' ? (
+              <div className="segmented" aria-label="Caption layout">
+                <button
+                  aria-pressed={settings.layout === 'stacked'}
+                  className={settings.layout === 'stacked' ? 'is-selected' : ''}
+                  onClick={() => void switchLayout('stacked')}
+                >
+                  Stacked
+                </button>
+                <button
+                  aria-pressed={settings.layout === 'side-by-side'}
+                  className={settings.layout === 'side-by-side' ? 'is-selected' : ''}
+                  onClick={() => void switchLayout('side-by-side')}
+                >
+                  Side by side
+                </button>
+              </div>
+              {settings.outputMode === 'virtual-camera' && (
                 <div
                   className={`output-mode__note native-camera-note is-${nativeCameraHealth?.state || 'checking'}`}
                   role={nativeCameraHealth?.state === 'failed' ? 'alert' : 'status'}
@@ -939,11 +969,6 @@ export function ControlApp() {
                       Or capture the Bilingual Camera Stage window in OBS, then start OBS Virtual Camera.
                     </small>
                   )}
-                </div>
-              ) : (
-                <div className="segmented">
-                  <button className={settings.layout === 'stacked' ? 'is-selected' : ''} onClick={() => void saveSettings({ layout: 'stacked' })}>Stacked</button>
-                  <button className={settings.layout === 'side-by-side' ? 'is-selected' : ''} onClick={() => void saveSettings({ layout: 'side-by-side' })}>Side by side</button>
                 </div>
               )}
               <fieldset className="theme-picker">

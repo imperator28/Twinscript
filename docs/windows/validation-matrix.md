@@ -269,7 +269,7 @@ remain unpassed until directly observed.
 | Split | English is upper half; Chinese is lower half; both show the same meeting sequence. |
 | Privacy | Feed excludes controls, credentials, cost, notifications, and private app chrome. |
 | OBS capture | Window Capture fills the canvas without clipping or unintended transparency. |
-| Meeting enumeration | Teams, Zoom, and a Chromium meeting client list OBS Virtual Camera. |
+| Meeting enumeration | Teams, Zoom, and a Chromium meeting client list OBS Virtual Camera. **Confirmed 2026-08-02 in Microsoft Teams and Chromium (Chrome/Edge/Meet); Zoom still outstanding.** |
 | Readability | Remote attendee can read both halves in normal meeting layouts. |
 | History | Changing 3–10 entries updates both halves without reconnecting. |
 | Mode switch | Overlay ↔ virtual camera switch does not stop the caption session. |

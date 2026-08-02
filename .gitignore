@@ -86,6 +86,9 @@ BlackHole/build/
 .claude/settings.local.json
 .claude/worktrees/
 
+# Isolated local Git worktrees
+/.worktrees/
+
 # Local development scripts
 scripts/cf-*.mjs
 

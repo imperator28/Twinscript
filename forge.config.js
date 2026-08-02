@@ -19,9 +19,9 @@ const WINDOWS_NATIVE_CAMERA_RESOURCES = [
       'camera-companion',
       'build',
       'Release',
-      'bilingual-vcam-source.dll',
+      'twinscript-vcam-source.dll',
     ),
-    name: 'bilingual-vcam-source.dll',
+    name: 'twinscript-vcam-source.dll',
   },
   {
     from: path.join('scripts', 'install-native-camera.ps1'),
@@ -79,7 +79,7 @@ module.exports = {
     asar: true,
     extraResource: ['assets', 'resources'],
     icon: process.platform === 'win32' ? 'assets/icon.ico' : 'assets/icon',
-    appBundleId: 'com.jiyu.bilingualcaptions',
+    appBundleId: 'com.jiyu.twinscript',
     // Prefer the stable self-signed local identity created by
     // `npm run macos:signing:setup`. It keeps the Keychain caller identity
     // consistent across local rebuilds without Apple Developer membership.
@@ -97,15 +97,15 @@ module.exports = {
       }),
     },
     extendInfo: {
-      CFBundleDisplayName: 'Bilingual Meeting Captions',
+      CFBundleDisplayName: 'Twinscript',
       LSApplicationCategoryType: 'public.app-category.utilities',
       NSMicrophoneUsageDescription:
-        'Bilingual Meeting Captions uses your microphone to transcribe your side of the meeting.',
+        'Twinscript uses your microphone to transcribe your side of the meeting.',
       NSScreenCaptureUsageDescription:
-        'Bilingual Meeting Captions captures meeting audio so both audiences can follow the conversation.',
+        'Twinscript captures meeting audio so both audiences can follow the conversation.',
     },
-    executableName: 'bilingual-meeting-captions',
-    name: 'Bilingual Meeting Captions',
+    executableName: 'twinscript',
+    name: 'Twinscript',
     // Whitelist-based ignore: only include package.json, dist-electron/,
     // build/ (minus wasm/), and node_modules/ (pruned by Forge).
     // Everything else (src/, public/, model-packs/, extension/, etc.) is excluded.
@@ -168,9 +168,9 @@ module.exports = {
     {
       name: '@electron-forge/maker-squirrel',
       config: {
-        name: 'BilingualMeetingCaptions',
+        name: 'Twinscript',
         authors: 'Jiyu Qian',
-        exe: 'bilingual-meeting-captions.exe',
+        exe: 'twinscript.exe',
         description: 'Private realtime English and Chinese meeting captions',
         setupIcon: 'assets/icon.ico',
         // Add/Remove Programs fetches this over HTTP. It must resolve in this
@@ -183,7 +183,7 @@ module.exports = {
     {
       name: '@electron-forge/maker-dmg',
       config: {
-        name: 'Bilingual Meeting Captions',
+        name: 'Twinscript',
         overwrite: true
       }
     }

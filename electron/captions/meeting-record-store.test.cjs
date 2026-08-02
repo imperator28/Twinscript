@@ -39,7 +39,7 @@ test('resolves the documented default records directory', () => {
   const app = { getPath: (name) => (name === 'documents' ? '/Users/jqian/Documents' : '') };
   assert.equal(
     resolveDefaultRecordsDirectory(app),
-    path.join('/Users/jqian/Documents', 'Bilingual Meeting Captions'),
+    path.join('/Users/jqian/Documents', 'Twinscript'),
   );
 });
 

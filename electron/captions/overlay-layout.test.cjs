@@ -488,6 +488,54 @@ test('history reset rejects stale measurements and returns to automatic sizing',
   assert.equal(manager.captionWindows.get('en').bounds.height, 210);
 });
 
+test('content grows above the manual height and settles back only to that floor', () => {
+  // A dragged height is a floor, not a cap. Before this, any manual resize
+  // froze the overlay: raising visible history from 3 to 10 entries clipped the
+  // extra lines instead of growing the window.
+  const { manager } = fakeManager({ settings: { captionOverlayHeight: 180 } });
+  manager.createAll();
+  assert.equal(manager.captionWindows.get('en').bounds.height, 180);
+
+  // Taller content grows both overlays past the dragged floor.
+  manager.reportContentHeight('en', 230, manager.autoSizeGeneration);
+  manager.reportContentHeight('zh', 215, manager.autoSizeGeneration);
+  assert.equal(manager.captionWindows.get('en').bounds.height, 230);
+  assert.equal(manager.captionWindows.get('zh').bounds.height, 230);
+
+  // Shorter content settles back to the floor, not to the measurement.
+  manager.reportContentHeight('en', 120, manager.autoSizeGeneration);
+  manager.reportContentHeight('zh', 130, manager.autoSizeGeneration);
+  assert.equal(manager.captionWindows.get('en').bounds.height, 180);
+  assert.equal(manager.captionWindows.get('zh').bounds.height, 180);
+
+  // Growth still respects the work-area cap: stacked overlays may not exceed
+  // 45% of the display between them.
+  const cap = Math.floor((FULL_HD.height * 0.45 - DEFAULT_GEOMETRY.gap) / 2);
+  manager.reportContentHeight('en', cap + 400, manager.autoSizeGeneration);
+  manager.reportContentHeight('zh', cap + 400, manager.autoSizeGeneration);
+  assert.equal(manager.captionWindows.get('en').bounds.height, cap);
+});
+
+test('a visible-history change re-measures without discarding the manual floor', () => {
+  const { manager } = fakeManager({
+    settings: { captionOverlayHeight: 200 },
+  });
+  manager.createAll();
+
+  const next = manager.resetContentMeasurements();
+  assert.equal(manager.manualHeight, 200, 'the dragged floor survives');
+  assert.equal(next.captionOverlayHeight, 200);
+  assert.equal(manager.automaticHeight, null, 'measurements are invalidated');
+  assert.equal(manager.autoSizeGeneration, 1);
+  assert.equal(manager.captionWindows.get('en').bounds.height, 200);
+
+  // Stale-generation reports are still rejected.
+  assert.equal(manager.reportContentHeight('en', 230, 0), null);
+  manager.reportContentHeight('en', 230, 1);
+  manager.reportContentHeight('zh', 220, 1);
+  assert.equal(manager.captionWindows.get('en').bounds.height, 230);
+});
+
 test('user resizing either panel synchronizes and persists the shared height', async () => {
   const { manager, savedSettings } = fakeManager();
   manager.createAll();
@@ -516,20 +564,29 @@ test('theme settings update each native caption-window background', () => {
   assert.equal(created[1].backgroundColor, '#8B2635');
 });
 
-test('camera stage is a secure fixed-ratio 1920 by 1080 capture window', () => {
+test('camera stage is a secure fixed-ratio preview fitted to the display', () => {
   const { manager, created } = fakeManager();
   manager.createAll();
 
   const stage = manager.showCameraStage();
 
   assert.equal(created.length, 3);
-  assert.equal(stage.options.width, 1920);
-  assert.equal(stage.options.height, 1080);
+  // The preview opens inside the work area rather than at a full 1920x1080,
+  // which covered three quarters of a 2560-wide desktop and read as the app
+  // taking over the screen. The aspect ratio is still locked 16:9 and the
+  // offscreen output window remains exactly 1920x1080 (asserted separately).
+  assert.ok(stage.options.width <= Math.floor(FULL_HD.width * 0.6));
+  assert.ok(stage.options.height <= Math.floor(FULL_HD.height * 0.6));
+  assert.equal(
+    Math.round((stage.options.width * 9) / 16),
+    stage.options.height,
+  );
+  assert.equal(stage.aspectRatio, 16 / 9);
   assert.equal(stage.options.frame, false);
   assert.equal(stage.options.transparent, false);
   assert.equal(stage.options.skipTaskbar, false);
   assert.equal(stage.options.backgroundColor, '#05070A');
-  assert.equal(stage.options.title, 'Bilingual Camera Stage');
+  assert.equal(stage.options.title, 'Twinscript Camera Stage');
   assert.equal(stage.aspectRatio, 16 / 9);
   assert.equal(stage.shown, true);
   assert.equal(stage.focused, true);
@@ -542,7 +599,33 @@ test('camera stage is a secure fixed-ratio 1920 by 1080 capture window', () => {
     },
   });
   assert.equal(titleUpdatePrevented, true);
-  assert.equal(stage.title, 'Bilingual Camera Stage');
+  assert.equal(stage.title, 'Twinscript Camera Stage');
+});
+
+test('only the preview surface can render operator chrome', () => {
+  // Both camera windows load the same renderer. The offscreen one's pixels
+  // become the camera feed, so it must declare a role that suppresses the hover
+  // bar; virtual-camera.md forbids controls in the feed.
+  const { manager } = fakeManager();
+  manager.createAll();
+  manager.createCameraStageWindow();
+  manager.createCameraOutputWindow();
+
+  const camera = (manager.loadedSurfaces || []).filter((query) =>
+    query.startsWith('camera-stage'),
+  );
+  assert.equal(camera.length, 2, 'a preview and an offscreen output surface');
+  assert.equal(
+    camera.filter((query) => query === 'camera-stage&role=preview').length,
+    1,
+  );
+  assert.equal(
+    camera.filter((query) => query === 'camera-stage&role=output').length,
+    1,
+  );
+  // No camera surface may load without a role: the renderer only shows chrome
+  // for an explicit preview, so an unlabelled surface would silently lose it.
+  assert.equal(camera.every((query) => query.includes('role=')), true);
 });
 
 test('camera stage is lazy, reused, and closing it hides instead of destroying it', () => {

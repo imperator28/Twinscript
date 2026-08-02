@@ -61,7 +61,7 @@ approved and `status-machine` succeeds.
 Packaged artifact produced locally:
 
 ```text
-out/make/squirrel.windows/x64/Bilingual Meeting Captions-0.1.0 Setup.exe
+out/make/squirrel.windows/x64/Twinscript-0.1.0 Setup.exe
 ```
 
 Final artifact size: 140,391,424 bytes. Native source DLL SHA-256:
@@ -79,12 +79,12 @@ Virtual camera mode. The verifier reports that boundary explicitly unless
 1. In Settings, choose **Install native camera** and approve the single UAC
    prompt. Confirm the UI reports installed without restarting the app.
 2. Run
-   `C:\ProgramData\Bilingual Meeting Captions\bin\vcam-host.exe status-machine`.
+   `C:\ProgramData\Twinscript\bin\vcam-host.exe status-machine`.
    It must report that HKLM points to the adjacent installed DLL.
 3. Start a caption session, select **Virtual camera**, hide the optional preview,
    and run `scripts\verify-native-camera.ps1 -SkipBuild -InstalledConsumer` in
    another PowerShell. It must receive 30 samples.
-4. Select **Bilingual Meeting Captions (Windows Virtual Camera)** in current
+4. Select **Twinscript (Windows Virtual Camera)** in current
    Teams, Zoom, and one Chromium meeting surface. Confirm both halves render at
    the correct orientation and no control-window content is exposed.
 5. While transcription is active, switch Virtual camera ↔ On-screen captions.

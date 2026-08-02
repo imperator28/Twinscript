@@ -28,8 +28,8 @@ if (-not (Test-Administrator)) {
   throw 'Native camera removal requires administrator approval.'
 }
 
-$installRoot = [IO.Path]::GetFullPath((Join-Path $env:ProgramData 'Bilingual Meeting Captions'))
-$expectedRoot = [IO.Path]::GetFullPath("$env:ProgramData\Bilingual Meeting Captions")
+$installRoot = [IO.Path]::GetFullPath((Join-Path $env:ProgramData 'Twinscript'))
+$expectedRoot = [IO.Path]::GetFullPath("$env:ProgramData\Twinscript")
 if (-not $installRoot.Equals($expectedRoot, [StringComparison]::OrdinalIgnoreCase)) {
   throw 'Refusing an unexpected native-camera removal target.'
 }

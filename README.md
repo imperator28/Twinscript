@@ -1,4 +1,4 @@
-# Bilingual Meeting Captions
+# Twinscript
 
 Private, realtime English–Chinese subtitles for bilingual engineering meetings.
 

@@ -5,7 +5,7 @@
 
 ## Goal
 
-Make Bilingual Meeting Captions feel like a focused meeting utility instead of
+Make Twinscript feel like a focused meeting utility instead of
 an evaluation harness. A user should understand the app in this order:
 
 1. confirm the microphone and meeting audio;

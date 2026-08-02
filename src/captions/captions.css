@@ -280,6 +280,51 @@ input[type="range"] { width: 100%; }
 .caption-line__speaker { color: var(--caption-secondary); font-size: 9px; font-weight: 800; letter-spacing: .09em; }
 .caption-line.is-provisional.is-focused { color: var(--caption-primary); }
 
+/* Operator chrome for the frameless preview.
+   Invisible until the pointer enters the stage, so an unattended window capture
+   in OBS records the picture only. Never mounted in the offscreen output
+   window, whose pixels are the camera feed. */
+.camera-stage__chrome {
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  background: linear-gradient(180deg, rgba(5, 7, 10, .92), rgba(5, 7, 10, 0));
+  color: #f4f6f8;
+  font-size: 13px;
+  opacity: 0;
+  transition: opacity 140ms ease;
+}
+.camera-stage:hover .camera-stage__chrome,
+.camera-stage__chrome:focus-within { opacity: 1; }
+.camera-stage__chrome-drag {
+  flex: 1;
+  -webkit-app-region: drag;
+  cursor: move;
+  letter-spacing: .04em;
+  opacity: .85;
+}
+.camera-stage__chrome button {
+  -webkit-app-region: no-drag;
+  min-height: 32px;
+  padding: 0 14px;
+  border: 1px solid rgba(244, 246, 248, .45);
+  border-radius: 999px;
+  background: rgba(5, 7, 10, .72);
+  color: inherit;
+  font-size: 13px;
+  font-weight: 650;
+  cursor: pointer;
+}
+.camera-stage__chrome button:hover { background: rgba(244, 246, 248, .18); }
+.camera-stage__chrome button:focus-visible { outline: 2px solid #7fb0ff; outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) {
+  .camera-stage__chrome { transition: none; }
+}
+
 .camera-stage {
   position: fixed;
   inset: 0;

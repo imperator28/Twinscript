@@ -14,7 +14,7 @@ function defaultCameraRegionPath(programData = process.env.ProgramData) {
   const root = programData || 'C:\\ProgramData';
   return path.win32.join(
     root,
-    'Bilingual Meeting Captions',
+    'Twinscript',
     'runtime',
     'camera-frame-v1.bin',
   );
@@ -146,6 +146,32 @@ class CameraRegionPublisher {
     const encoded = Buffer.allocUnsafe(4);
     encoded.writeUInt32LE(state);
     await writeAllAt(this.handle, encoded, OFFSET.writerState);
+  }
+
+  /**
+   * Re-stamp the published frame as current without rewriting its pixels.
+   *
+   * Offscreen `paint` events are change-driven: a caption stage with nothing
+   * moving stops painting entirely, so publication stops and the native reader
+   * expires the region after its two-second repeat limit and shows a slate. That
+   * blanks the feed while idle and, worse, during any mid-meeting pause between
+   * utterances.
+   *
+   * A real camera pointed at a static scene keeps delivering frames, so the
+   * region has to keep saying "still current". Only the timestamp is written —
+   * eight bytes rather than re-pushing an 8.3 MB payload — and the sequence is
+   * left alone so the reader takes its "unchanged sequence repeats" path and
+   * redelivers the frame it already has.
+   */
+  async touch(capturedAtMonotonicNs = process.hrtime.bigint()) {
+    if (!this.handle || this.closing) return false;
+    if (this.sequence === 0n) return false; // nothing published yet
+    if (this.drainPromise) await this.drainPromise;
+    if (!this.handle || this.closing) return false;
+    const timestamp = Buffer.allocUnsafe(8);
+    timestamp.writeBigUInt64LE(BigInt(capturedAtMonotonicNs));
+    await writeAllAt(this.handle, timestamp, OFFSET.capturedAtMonotonicNs);
+    return true;
   }
 
   async setIdle() {

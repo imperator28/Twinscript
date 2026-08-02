@@ -157,3 +157,51 @@ test('an initialization failure closes and clears the poisoned handle before ret
   assert.equal(attempts, 2);
   await publisher.stop();
 });
+
+test('touch refreshes the timestamp without rewriting pixels or the sequence', async (t) => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'caption-camera-region-'));
+  t.after(() => fs.rm(directory, { recursive: true, force: true }));
+  const regionPath = path.join(directory, 'frame.bin');
+  const publisher = new CameraRegionPublisher({ regionPath, ...SMALL });
+  await publisher.start();
+
+  const geometry = computeGeometry(SMALL);
+  await publisher.publish(Buffer.alloc(geometry.payloadBytes, 0x77), 1_000n);
+  assert.equal(await publisher.touch(9_000n), true);
+
+  const region = await fs.readFile(regionPath);
+  const header = readHeader(region);
+  // The frame is re-stamped as current, but it is the same frame: the sequence
+  // is untouched so the reader takes its "unchanged sequence repeats" path
+  // rather than treating this as new content.
+  assert.equal(header.capturedAtMonotonicNs, 9_000n);
+  assert.equal(header.frameSequence, 1n);
+  assert.equal(header.writerState, WRITER_STATE.live);
+  const frame = new FrameReader(region).read();
+  assert.equal(frame.ok, true);
+  assert.equal(frame.payload.every((byte) => byte === 0x77), true);
+
+  await publisher.stop();
+});
+
+test('touch is inert before the first frame and after stop', async (t) => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'caption-camera-region-'));
+  t.after(() => fs.rm(directory, { recursive: true, force: true }));
+  const regionPath = path.join(directory, 'frame.bin');
+  const publisher = new CameraRegionPublisher({ regionPath, ...SMALL });
+
+  // Never started.
+  assert.equal(await publisher.touch(1n), false);
+
+  await publisher.start();
+  // Started but nothing published: the reader should still see the privacy
+  // slate rather than a frame claiming to be current.
+  assert.equal(await publisher.touch(2n), false);
+
+  await publisher.publish(Buffer.alloc(computeGeometry(SMALL).payloadBytes, 1), 3n);
+  await publisher.stop();
+  assert.equal(await publisher.touch(4n), false);
+
+  const header = readHeader(await fs.readFile(regionPath));
+  assert.equal(header.writerState, WRITER_STATE.stopped);
+});

@@ -7,7 +7,7 @@
 #include "vcam_log.h"
 #include "module_lifetime.h"
 
-namespace bilingual::vcam {
+namespace twinscript::vcam {
 namespace {
 
 constexpr DWORD kStreamId = 0;
@@ -372,4 +372,4 @@ HRESULT MediaSource::KsProperty(PKSPROPERTY, ULONG, void*, ULONG, ULONG*) {
 HRESULT MediaSource::KsMethod(PKSMETHOD, ULONG, void*, ULONG, ULONG*) { return E_NOTIMPL; }
 HRESULT MediaSource::KsEvent(PKSEVENT, ULONG, void*, ULONG, ULONG*) { return E_NOTIMPL; }
 
-}  // namespace bilingual::vcam
+}  // namespace twinscript::vcam

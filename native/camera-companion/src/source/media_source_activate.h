@@ -22,7 +22,7 @@
 #include "media_source.h"
 #include "module_lifetime.h"
 
-namespace bilingual::vcam {
+namespace twinscript::vcam {
 
 class MediaSourceActivate : public IMFActivate {
  public:
@@ -151,4 +151,4 @@ class MediaSourceActivate : public IMFActivate {
   ComPtr<MediaSource> source_;
 };
 
-}  // namespace bilingual::vcam
+}  // namespace twinscript::vcam

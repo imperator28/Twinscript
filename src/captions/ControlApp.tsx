@@ -333,10 +333,10 @@ export function ControlApp() {
       return nativeCameraHealth.message || 'The installed camera must be repaired for this app version.';
     }
     if (nativeCameraHealth.state === 'streaming') {
-      return 'Bilingual Meeting Captions camera is running and ready to select in your meeting app.';
+      return 'Twinscript camera is running and ready to select in your meeting app.';
     }
     if (nativeCameraHealth.state === 'starting') {
-      return 'Starting the Bilingual Meeting Captions cameraâ€¦';
+      return 'Starting the Twinscript cameraâ€¦';
     }
     if (nativeCameraHealth.state === 'restarting') {
       return nativeCameraHealth.message || 'Camera stopped unexpectedly; restarting once.';
@@ -492,7 +492,7 @@ export function ControlApp() {
       if (!permission.ok || !permission.data.granted) {
         throw new Error(
           permission.ok
-            ? 'Microphone access is disabled. Enable Bilingual Meeting Captions in System Settings → Privacy & Security → Microphone.'
+            ? 'Microphone access is disabled. Enable Twinscript in System Settings → Privacy & Security → Microphone.'
             : permission.error.message,
         );
       }
@@ -742,7 +742,10 @@ export function ControlApp() {
     <main className="control-shell">
       <header className="app-header">
         <div>
-          <p className="eyebrow">BILINGUAL MEETING CAPTIONS</p>
+          {/* The Chinese name sits in the operator UI rather than the audience
+              overlays: the camera stage and lower thirds must stay free of
+              branding (see docs/windows/virtual-camera.md). */}
+          <p className="eyebrow">TWINSCRIPT<span lang="zh-Hans"> 会意</span></p>
           <h1>Live Caption Studio</h1>
         </div>
         <button
@@ -1171,7 +1174,7 @@ export function ControlApp() {
                 <span>Save location</span>
                 <strong>
                   {settings.meetingRecordsDirectory ||
-                    'Documents\\Bilingual Meeting Captions'}
+                    'Documents\\Twinscript'}
                 </strong>
               </div>
               <button

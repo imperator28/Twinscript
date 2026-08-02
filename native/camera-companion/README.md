@@ -77,7 +77,7 @@ locally-built COM source is accepted. Full results in
 Working: registration, `IMFActivate` → `ActivateObject`, in-process frame pull
 (1920×1080 RGB32, 8,294,400 bytes/frame, sequential ordinals),
 `MFCreateVirtualCamera`, `IMFVirtualCamera::Start`, and Windows enumerating the
-camera as `Bilingual Meeting Captions (Windows Virtual Camera)`.
+camera as `Twinscript (Windows Virtual Camera)`.
 
 The `MF_E_VIDEO_RECORDING_DEVICE_INVALIDATED` path is corrected: the source now
 uses stream zero, copies activation attributes, follows the `IMFActivate`
@@ -108,7 +108,7 @@ Three corrections to the original design assumptions, all found empirically:
 - Administrator/SYSTEM-owned ProgramData binaries, a dedicated user-writable
   `runtime` region, packaged-version drift detection, Squirrel uninstall
   cleanup, and packaged host/DLL/scripts; and
-- diagnostics under `C:\ProgramData\Bilingual Meeting Captions\logs` without
+- diagnostics under `C:\ProgramData\Twinscript\logs` without
   transcript text.
 
 ## Still requires user validation

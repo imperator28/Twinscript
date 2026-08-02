@@ -68,7 +68,7 @@ Goal: remove setup ambiguity and prove the package can be produced natively.
 | 1 | Replace the Bash-only `scripts/copy-ort-wasm.sh` post-install dependency with a cross-platform Node script. | Done — `scripts/copy-ort-wasm.cjs`, called with `node` from `postinstall`. |
 | 2 | Add an early Squirrel startup handler if the application does not already consume install, update, and uninstall events. | Done — `electron/captions/squirrel-startup.js`, called before `initMain()`. |
 | 3 | Verify the platform-specific credential unlock message and scoped **Repair secure storage** action on a clean Windows user profile. | Open — needs a real installed profile. |
-| 4 | Set a Windows App User Model ID that matches the Squirrel package. | Done — `com.squirrel.BilingualMeetingCaptions.bilingual-meeting-captions`, asserted against `forge.config.js`. |
+| 4 | Set a Windows App User Model ID that matches the Squirrel package. | Done — `com.squirrel.Twinscript.twinscript`, asserted against `forge.config.js`. |
 | 5 | Confirm the packaged app includes `build/`, required WASM runtimes, `dist-electron/`, `assets/`, and `resources/`. | Done — see "Packaged contents" below. |
 | 6 | Make the Windows CI artifact available for validation builds, not only version tags. | Done — `.github/workflows/windows-ci.yml`. |
 | 7 | Remove or quarantine inherited extension/Linux release behavior from the Windows validation path. | Done — the Windows gate is its own workflow and depends on no extension, Linux, or macOS job. |

@@ -164,7 +164,7 @@ int main() {
       MFVirtualCameraType_SoftwareCameraSource,
       MFVirtualCameraLifetime_Session,
       MFVirtualCameraAccess_CurrentUser,
-      L"Bilingual Meeting Captions Probe",
+      L"Twinscript Probe",
       kUnregisteredSourceId,
       nullptr,
       0,

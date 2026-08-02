@@ -113,10 +113,10 @@ jobs:
       - name: Verify packaged native camera resources
         shell: pwsh
         run: |
-          $resources = 'out/Bilingual Meeting Captions-win32-x64/resources/native-camera'
+          $resources = 'out/Twinscript-win32-x64/resources/native-camera'
           $required = @(
             'vcam-host.exe',
-            'bilingual-vcam-source.dll',
+            'twinscript-vcam-source.dll',
             'install-native-camera.ps1',
             'uninstall-native-camera.ps1'
           )

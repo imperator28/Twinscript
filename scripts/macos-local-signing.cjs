@@ -1,7 +1,7 @@
 const { execFileSync } = require('child_process');
 
 const LOCAL_MAC_SIGNING_IDENTITY =
-  'Bilingual Meeting Captions Local Signing';
+  'Twinscript Local Signing';
 
 function hasCodeSigningIdentity(
   identity = LOCAL_MAC_SIGNING_IDENTITY,

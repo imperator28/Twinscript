@@ -1084,7 +1084,7 @@ class CaptionSessionManager {
         })
         .join('\n\n');
       return (
-        `# Bilingual caption session\n\nSession: ${this.sessionId}\n\n` +
+        `# Twinscript caption session\n\nSession: ${this.sessionId}\n\n` +
         `Estimated cost: $${(this.cost?.snapshot().totalUsd || 0).toFixed(4)}\n\n` +
         `A/B ratings: ${JSON.stringify(counts)}\n\n${body}\n\n` +
         `## Blinded review evidence\n\n${review || 'No review evidence.'}\n`

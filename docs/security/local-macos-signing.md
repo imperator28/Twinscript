@@ -25,7 +25,7 @@ the app's code identity remains stable across local rebuilds.
 The generated identity is named:
 
 ```text
-Bilingual Meeting Captions Local Signing
+Twinscript Local Signing
 ```
 
 `forge.config.js` selects this identity automatically when it is available.
@@ -44,7 +44,7 @@ that the saved key is locked:
 Repair removes only:
 
 - `credentials/openai.enc` beneath this app's Electron `userData` directory;
-- the `Bilingual Meeting Captions Safe Storage` generic-password entry owned by
+- the `Twinscript Safe Storage` generic-password entry owned by
   this app in macOS Keychain.
 
 Meeting records, glossaries, preferences, and transcript exports are not
@@ -56,7 +56,7 @@ setup script.
 ```sh
 npm run package
 codesign -dv --verbose=4 \
-  "out/Bilingual Meeting Captions-darwin-arm64/Bilingual Meeting Captions.app"
+  "out/Twinscript-darwin-arm64/Twinscript.app"
 ```
 
 The output should identify the self-signed local certificate rather than

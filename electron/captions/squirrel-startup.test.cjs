@@ -32,7 +32,7 @@ function harness({ argv, platform = 'win32', spawnImpl } = {}) {
   const consumed = handleSquirrelStartup({
     argv,
     platform,
-    execPath: 'C:\\Users\\dev\\AppData\\Local\\BilingualMeetingCaptions\\app-0.1.0\\bilingual-meeting-captions.exe',
+    execPath: 'C:\\Users\\dev\\AppData\\Local\\Twinscript\\app-0.1.0\\twinscript.exe',
     spawn:
       spawnImpl ||
       ((command, args, options) => {
@@ -62,7 +62,7 @@ function harness({ argv, platform = 'win32', spawnImpl } = {}) {
 }
 
 test('an ordinary launch is not treated as a Squirrel event', () => {
-  const run = harness({ argv: ['C:\\app\\bilingual-meeting-captions.exe'] });
+  const run = harness({ argv: ['C:\\app\\twinscript.exe'] });
   assert.equal(run.consumed, false);
   assert.equal(run.spawned.length, 0);
   assert.equal(run.quits(), 0);
@@ -70,7 +70,7 @@ test('an ordinary launch is not treated as a Squirrel event', () => {
 
 test('the first launch after installation keeps running', () => {
   const run = harness({
-    argv: ['C:\\app\\bilingual-meeting-captions.exe', '--squirrel-firstrun'],
+    argv: ['C:\\app\\twinscript.exe', '--squirrel-firstrun'],
   });
   assert.equal(run.consumed, false);
   assert.equal(run.quits(), 0);
@@ -78,17 +78,17 @@ test('the first launch after installation keeps running', () => {
 
 test('installation creates a shortcut for the installed executable and exits', () => {
   const run = harness({
-    argv: ['C:\\app\\bilingual-meeting-captions.exe', '--squirrel-install'],
+    argv: ['C:\\app\\twinscript.exe', '--squirrel-install'],
   });
   assert.equal(run.consumed, true);
   assert.equal(run.spawned.length, 1);
   assert.equal(
     run.spawned[0].command,
-    'C:\\Users\\dev\\AppData\\Local\\BilingualMeetingCaptions\\Update.exe',
+    'C:\\Users\\dev\\AppData\\Local\\Twinscript\\Update.exe',
   );
   assert.deepEqual(run.spawned[0].args, [
     '--createShortcut',
-    'bilingual-meeting-captions.exe',
+    'twinscript.exe',
   ]);
   // The process must not exit before Update.exe has written the shortcut.
   assert.equal(run.quits(), 0);
@@ -98,23 +98,23 @@ test('installation creates a shortcut for the installed executable and exits', (
 
 test('an update refreshes the shortcut rather than removing it', () => {
   const run = harness({
-    argv: ['C:\\app\\bilingual-meeting-captions.exe', '--squirrel-updated'],
+    argv: ['C:\\app\\twinscript.exe', '--squirrel-updated'],
   });
   assert.equal(run.consumed, true);
   assert.deepEqual(run.spawned[0].args, [
     '--createShortcut',
-    'bilingual-meeting-captions.exe',
+    'twinscript.exe',
   ]);
 });
 
 test('uninstallation removes the shortcut and exits', () => {
   const run = harness({
-    argv: ['C:\\app\\bilingual-meeting-captions.exe', '--squirrel-uninstall'],
+    argv: ['C:\\app\\twinscript.exe', '--squirrel-uninstall'],
   });
   assert.equal(run.consumed, true);
   assert.deepEqual(run.spawned[0].args, [
     '--removeShortcut',
-    'bilingual-meeting-captions.exe',
+    'twinscript.exe',
   ]);
   assert.equal(run.nativeCameraCleanups(), 1);
 });
@@ -137,7 +137,7 @@ test('uninstall records a failed native-camera cleanup instead of silently ignor
 
 test('install, update, and ordinary launches never request native-camera removal', () => {
   for (const event of [undefined, '--squirrel-install', '--squirrel-updated']) {
-    const argv = ['C:\\app\\bilingual-meeting-captions.exe'];
+    const argv = ['C:\\app\\twinscript.exe'];
     if (event) argv.push(event);
     const run = harness({ argv });
     assert.equal(run.nativeCameraCleanups(), 0, String(event));
@@ -146,7 +146,7 @@ test('install, update, and ordinary launches never request native-camera removal
 
 test('an obsolete version exits without touching shortcuts', () => {
   const run = harness({
-    argv: ['C:\\app\\bilingual-meeting-captions.exe', '--squirrel-obsolete'],
+    argv: ['C:\\app\\twinscript.exe', '--squirrel-obsolete'],
   });
   assert.equal(run.consumed, true);
   assert.equal(run.spawned.length, 0);
@@ -155,7 +155,7 @@ test('an obsolete version exits without touching shortcuts', () => {
 
 test('a stalled Update.exe still exits on the bounded fallback', () => {
   const run = harness({
-    argv: ['C:\\app\\bilingual-meeting-captions.exe', '--squirrel-install'],
+    argv: ['C:\\app\\twinscript.exe', '--squirrel-install'],
   });
   assert.equal(run.timers.length, 1);
   assert.equal(run.timers[0].delay, UPDATE_TIMEOUT_MS);
@@ -168,7 +168,7 @@ test('a stalled Update.exe still exits on the bounded fallback', () => {
 
 test('a missing Update.exe does not leave the installer process running', () => {
   const run = harness({
-    argv: ['C:\\app\\bilingual-meeting-captions.exe', '--squirrel-install'],
+    argv: ['C:\\app\\twinscript.exe', '--squirrel-install'],
     spawnImpl: () => {
       throw new Error('ENOENT');
     },
@@ -179,7 +179,7 @@ test('a missing Update.exe does not leave the installer process running', () => 
 
 test('a failed Update.exe launch exits once', () => {
   const run = harness({
-    argv: ['C:\\app\\bilingual-meeting-captions.exe', '--squirrel-install'],
+    argv: ['C:\\app\\twinscript.exe', '--squirrel-install'],
   });
   run.child.handlers.error(new Error('EACCES'));
   assert.equal(run.quits(), 1);

@@ -48,7 +48,7 @@ The source must follow Microsoft's Frame Server custom-media-source contract:
 
 ## Installation lifecycle
 
-The unsigned internal installer stages `vcam-host.exe` and `bilingual-vcam-source.dll` in an app-owned machine-readable directory. A dedicated **Install native camera** control invokes one elevated registration action that performs HKLM COM registration and creates the protected ProgramData runtime directory; ordinary camera starts thereafter require no elevation. A matching remove/repair action is available from Advanced settings, and uninstall invokes machine unregistration before removing the binaries. Registration and unregistration remain idempotent and return exact HRESULT/Win32 diagnostics.
+The unsigned internal installer stages `vcam-host.exe` and `twinscript-vcam-source.dll` in an app-owned machine-readable directory. A dedicated **Install native camera** control invokes one elevated registration action that performs HKLM COM registration and creates the protected ProgramData runtime directory; ordinary camera starts thereafter require no elevation. A matching remove/repair action is available from Advanced settings, and uninstall invokes machine unregistration before removing the binaries. Registration and unregistration remain idempotent and return exact HRESULT/Win32 diagnostics.
 
 ## Automated evidence
 

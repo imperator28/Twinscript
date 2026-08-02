@@ -43,9 +43,9 @@ Node-20 result is unproven on this machine.
 | Caption tests | PASS | `npm run test:captions` exit 0 — 68 tests, 0 failures. |
 | Component/unit tests | PASS | `npx vitest run` exit 0 — 148 files, 1641 tests. Was 7 failed files / 16 failed tests before the discovery fix. |
 | Production build | PASS | `npm run build` exit 0. |
-| Development launch | PASS | `npm run dev` started Vite on 5173 and an Electron control window titled `Bilingual Meeting Captions`. |
-| Forge make | PASS | `out/make/squirrel.windows/x64/` holds `Bilingual Meeting Captions-0.1.0 Setup.exe` (140,327,424 bytes), `BilingualMeetingCaptions-0.1.0-full.nupkg`, and `RELEASES`. |
-| Fresh install | PASS | `Setup.exe` run as the standard user with no UAC prompt. Installed to `%LOCALAPPDATA%\BilingualMeetingCaptions` (`app-0.1.0`, `packages`, stub exe, `Update.exe`). Desktop and Start Menu (`Programs\Jiyu Qian\`) shortcuts created, both targeting the stub exe with `app-0.1.0` as working directory. `HKCU` uninstall entry registered as "Bilingual Meeting Captions" 0.1.0, publisher "Jiyu Qian". |
+| Development launch | PASS | `npm run dev` started Vite on 5173 and an Electron control window titled `Twinscript`. |
+| Forge make | PASS | `out/make/squirrel.windows/x64/` holds `Twinscript-0.1.0 Setup.exe` (140,327,424 bytes), `Twinscript-0.1.0-full.nupkg`, and `RELEASES`. |
+| Fresh install | PASS | `Setup.exe` run as the standard user with no UAC prompt. Installed to `%LOCALAPPDATA%\Twinscript` (`app-0.1.0`, `packages`, stub exe, `Update.exe`). Desktop and Start Menu (`Programs\Jiyu Qian\`) shortcuts created, both targeting the stub exe with `app-0.1.0` as working directory. `HKCU` uninstall entry registered as "Twinscript" 0.1.0, publisher "Jiyu Qian". |
 | Squirrel events | PASS | Sampled every 500 ms across the whole install: at most **one** top-level app window at any moment. The `--squirrel-install` launch (3 → 1 processes) created zero windows; the following `--squirrel-firstrun` launch created one. Uninstall created zero windows. `Squirrel-Shortcut.log` confirms one `--createShortcut` run. |
 | Taskbar lifecycle | PARTIAL | With captions shown, three visible top-level windows exist: two `WS_EX_TOPMOST` caption windows and the non-topmost control window. Electron implements `skipTaskbar` on Windows via `ITaskbarList::DeleteTab` rather than `WS_EX_TOOLWINDOW`, so taskbar absence cannot be asserted programmatically — needs one visual confirmation. |
 | Exit | PASS after fix | Before the fix, closing the control window left 7 processes alive. After it, 0 remain — verified both on the unpacked build and on the installed build with both caption windows visible. |
@@ -70,7 +70,7 @@ Node-20 result is unproven on this machine.
   behavior — it cannot delete its own running `Update.exe` — not an app defect.
 - **`DisplayIcon` is empty** in the uninstall registry entry, so Add/Remove
   Programs shows the app without an icon. Cosmetic; worth setting during W5.
-- User data under `%APPDATA%\Bilingual Meeting Captions` correctly survives
+- User data under `%APPDATA%\Twinscript` correctly survives
   uninstall.
 
 ## W1 geometry cross-check
@@ -88,7 +88,7 @@ both layouts after the refactor is still worth doing.
 
 ## Packaged contents verified
 
-`out/Bilingual Meeting Captions-win32-x64/resources/`:
+`out/Twinscript-win32-x64/resources/`:
 
 - `app.asar` — 65,316,912 bytes, 343 entries: `package.json`, `dist-electron/`
   (all 17 caption modules plus `captions-main.js` and `captions-preload.js`),

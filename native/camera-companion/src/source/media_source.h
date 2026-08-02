@@ -10,7 +10,7 @@
 #include "com_support.h"
 #include "media_stream.h"
 
-namespace bilingual::vcam {
+namespace twinscript::vcam {
 
 // The virtual camera's media source: one progressive RGB32 video stream.
 //
@@ -82,4 +82,4 @@ class MediaSource : public IMFMediaSourceEx, public IMFGetService, public IKsCon
   ComPtr<MediaStream> stream_;
 };
 
-}  // namespace bilingual::vcam
+}  // namespace twinscript::vcam

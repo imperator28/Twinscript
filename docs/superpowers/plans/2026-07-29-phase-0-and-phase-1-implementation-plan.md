@@ -1,10 +1,10 @@
 # Phase 0 and Phase 1 implementation plan
 
-**Product:** Bilingual Meeting Captions
+**Product:** Twinscript
 
 **Date:** 2026-07-29
 
-**Source PRD:** [Bilingual Meeting Captions PRD](../specs/2026-07-29-bilingual-meeting-captions-prd.md)
+**Source PRD:** [Twinscript PRD](../specs/2026-07-29-twinscript-prd.md)
 
 **Foundation:** Sokuji v0.34.5 at
 [`0808d3b7`](https://github.com/kizuna-ai-lab/sokuji/tree/0808d3b7aba613a5e58b97a6804e8730e706bd93)

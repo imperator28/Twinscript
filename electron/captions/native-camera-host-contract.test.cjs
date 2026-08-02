@@ -20,7 +20,7 @@ test('companion serve mode owns camera lifetime and health-only named-pipe contr
   assert.match(source, /find\("\\\"command\\\":\\\"stop\\\""\)/);
   assert.match(source, /command == "serve"/);
   assert.match(source, /--region/);
-  assert.match(source, /BILINGUAL_VCAM_REGION_PATH/);
+  assert.match(source, /TWINSCRIPT_VCAM_REGION_PATH/);
 });
 
 test('machine registration has a side-effect-free status probe', () => {

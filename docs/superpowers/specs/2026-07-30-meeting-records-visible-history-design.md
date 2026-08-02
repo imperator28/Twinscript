@@ -138,7 +138,7 @@ recoverable.
 The user-selected records directory contains one directory per session:
 
 ```text
-Bilingual Meeting Captions/
+Twinscript/
 └── 2026-07-30 09-30-12/
     ├── transcript.jsonl
     ├── transcript.json
@@ -463,7 +463,7 @@ The next settings schema adds:
 `meetingRecordsDirectory: null` resolves in the main process to:
 
 ```text
-<Documents>/Bilingual Meeting Captions
+<Documents>/Twinscript
 ```
 
 Migration removes the behavioral effect of `captionPaceMs`. The old value may

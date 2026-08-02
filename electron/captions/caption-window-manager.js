@@ -147,6 +147,28 @@ class CaptionWindowManager {
     return window;
   }
 
+  /**
+   * Opening size for the *visible* preview.
+   *
+   * The offscreen output window stays exactly 1920x1080 because that is the
+   * frame contract, but the preview is only something the operator looks at.
+   * Opening it at 1920x1080 covered three quarters of a 2560-wide desktop and
+   * felt like the app had taken over the screen. Fit it inside the work area
+   * instead; the aspect ratio stays locked and OBS users can drag it larger.
+   */
+  previewStageSize() {
+    const area = this.targetWorkArea();
+    const maxWidth = Math.floor(area.width * 0.6);
+    const maxHeight = Math.floor(area.height * 0.6);
+    let width = Math.min(1920, Math.max(640, maxWidth));
+    let height = Math.round((width * 9) / 16);
+    if (height > maxHeight) {
+      height = Math.max(360, maxHeight);
+      width = Math.round((height * 16) / 9);
+    }
+    return { width, height };
+  }
+
   createCameraStageWindow() {
     if (
       this.cameraStageWindow &&
@@ -154,9 +176,10 @@ class CaptionWindowManager {
     ) {
       return this.cameraStageWindow;
     }
+    const preview = this.previewStageSize();
     const window = new this.BrowserWindow({
-      width: 1920,
-      height: 1080,
+      width: preview.width,
+      height: preview.height,
       show: false,
       frame: false,
       transparent: false,
@@ -169,7 +192,7 @@ class CaptionWindowManager {
       hasShadow: false,
       alwaysOnTop: false,
       backgroundColor: '#05070A',
-      title: 'Bilingual Camera Stage',
+      title: 'Twinscript Camera Stage',
       webPreferences: {
         preload: this.preloadPath,
         contextIsolation: true,
@@ -184,9 +207,11 @@ class CaptionWindowManager {
     this.hardenWindow(window);
     window.webContents.on('page-title-updated', (event) => {
       event.preventDefault();
-      window.setTitle('Bilingual Camera Stage');
+      window.setTitle('Twinscript Camera Stage');
     });
-    this.loadSurface(window, 'camera-stage');
+    // `role=preview` is what lets the renderer show operator chrome. The
+    // offscreen output window loads `role=output` and must never render it.
+    this.loadSurface(window, 'camera-stage&role=preview');
     window.on('close', (event) => {
       if (!this.app.isQuitting) {
         event.preventDefault();
@@ -220,7 +245,7 @@ class CaptionWindowManager {
       skipTaskbar: true,
       hasShadow: false,
       backgroundColor: '#05070A',
-      title: 'Bilingual Camera Output',
+      title: 'Twinscript Camera Output',
       webPreferences: {
         preload: this.preloadPath,
         contextIsolation: true,
@@ -240,7 +265,7 @@ class CaptionWindowManager {
         window.webContents.send('captions:audience-event', caption);
       }
     });
-    this.loadSurface(window, 'camera-stage');
+    this.loadSurface(window, 'camera-stage&role=output');
     this.cameraOutputWindow = window;
     return window;
   }
@@ -360,6 +385,9 @@ class CaptionWindowManager {
   }
 
   loadSurface(window, query) {
+    // Recorded so tests can assert that every camera window declares its role;
+    // the offscreen output must never load the chrome-bearing preview surface.
+    (this.loadedSurfaces ||= []).push(query);
     if (this.isDev) {
       void window.loadURL(`http://localhost:5173/?surface=${query}`);
     } else {
@@ -416,8 +444,25 @@ class CaptionWindowManager {
     return this.publishPreviewVisibility();
   }
 
+  /**
+   * A manually dragged height is a **floor**, not an override.
+   *
+   * Returning `manualHeight` alone meant that once the operator resized an
+   * overlay even once, content could never grow it again — raising visible
+   * history from 3 to 10 entries silently clipped the extra lines instead of
+   * expanding the window. Taking the maximum lets content grow past the floor
+   * while a shrinking measurement still settles back to the height the operator
+   * chose rather than collapsing to fit.
+   */
+  effectiveHeight() {
+    const candidates = [this.manualHeight, this.automaticHeight].filter(
+      (height) => height !== null && height !== undefined,
+    );
+    return candidates.length ? Math.max(...candidates) : null;
+  }
+
   requestedHeight() {
-    return this.manualHeight ?? this.automaticHeight ?? undefined;
+    return this.effectiveHeight() ?? undefined;
   }
 
   setWindowBounds(audience, window, bounds) {
@@ -525,7 +570,10 @@ class CaptionWindowManager {
   }
 
   applyCurrentMeasurements() {
-    if (this.manualHeight !== null || this.contentMeasurements.size === 0) return;
+    // Measurements are applied even when a manual height exists, because that
+    // height is only a floor. Both overlays share one height so the stacked and
+    // side-by-side pairs stay symmetric.
+    if (this.contentMeasurements.size === 0) return;
     this.automaticHeight = Math.max(...this.contentMeasurements.values());
     this.applyLayout(this.layout);
   }
@@ -541,7 +589,6 @@ class CaptionWindowManager {
       return null;
     }
     this.contentMeasurements.set(audience, bounded);
-    if (this.manualHeight !== null) return bounded;
 
     const availableAudiences = AUDIENCES.filter((name) => {
       const window = this.captionWindows.get(name);
@@ -589,18 +636,33 @@ class CaptionWindowManager {
     return bounded;
   }
 
-  resetAutoSize() {
+  /**
+   * Invalidate the current content measurements and ask for fresh ones.
+   *
+   * Called when visible history changes, where the natural content height is
+   * now different. It deliberately keeps `manualHeight`: clearing it discarded
+   * the size the operator had dragged to, so adjusting history silently threw
+   * away their layout. Only the measured component resets.
+   */
+  resetContentMeasurements() {
     this.clearFallbackTimer();
-    this.manualHeight = null;
     this.automaticHeight = null;
     this.contentMeasurements.clear();
     this.autoSizeGeneration += 1;
-    const settings =
-      this.settingsStore?.set?.({ captionOverlayHeight: null }) || {
-        captionOverlayHeight: null,
-      };
     this.applyLayout(this.layout);
-    return settings;
+    return (
+      this.settingsStore?.get?.() || {
+        captionOverlayHeight: this.manualHeight,
+      }
+    );
+  }
+
+  /** Also drop the manual floor, returning the overlays to pure auto-sizing. */
+  resetAutoSize() {
+    this.manualHeight = null;
+    const settings = this.resetContentMeasurements();
+    const persisted = this.settingsStore?.set?.({ captionOverlayHeight: null });
+    return persisted || { ...settings, captionOverlayHeight: null };
   }
 
   applySettings(settings = {}) {

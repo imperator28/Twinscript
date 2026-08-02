@@ -10,7 +10,7 @@
 #include "com_support.h"
 #include "frame_source.h"
 
-namespace bilingual::vcam {
+namespace twinscript::vcam {
 
 class MediaSource;
 
@@ -85,4 +85,4 @@ class MediaStream : public IMFMediaStream2, public IKsControl {
   FrameSource frames_;
 };
 
-}  // namespace bilingual::vcam
+}  // namespace twinscript::vcam

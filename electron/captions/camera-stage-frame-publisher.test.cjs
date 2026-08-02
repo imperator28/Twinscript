@@ -89,3 +89,62 @@ test('ignores empty compositor images without failing the camera', async () => {
   assert.equal(calls, 0);
 });
 
+
+test('keeps the region current between paints so a static stage is not blank', async () => {
+  // Chromium emits `paint` only when the page changes. Without a heartbeat a
+  // stage showing unchanged captions stops publishing, the native reader
+  // expires the region after two seconds, and the meeting app shows a blank
+  // camera — while idle and during any pause between utterances.
+  const webContents = new FakeWebContents();
+  const touches = [];
+  const regionPublisher = {
+    start: async () => {},
+    publish: async () => {},
+    stop: async () => {},
+    touch: async (at) => { touches.push(at); return true; },
+  };
+  let tick = null;
+  const adapter = new CameraStageFramePublisher({
+    regionPublisher,
+    heartbeatMs: 500,
+    now: () => 42n,
+    setIntervalImpl: (fn) => { tick = fn; return { unref() {} }; },
+    clearIntervalImpl: () => { tick = null; },
+  });
+
+  await adapter.start({ webContents });
+  assert.equal(typeof tick, 'function', 'a heartbeat is armed on start');
+
+  tick();
+  tick();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(touches, [42n, 42n]);
+
+  await adapter.stop();
+  assert.equal(tick, null, 'the heartbeat is cleared on stop');
+});
+
+test('a heartbeat failure is reported without tearing down the camera', async () => {
+  const webContents = new FakeWebContents();
+  const errors = [];
+  const regionPublisher = {
+    start: async () => {},
+    publish: async () => {},
+    stop: async () => {},
+    touch: async () => { throw new Error('region vanished'); },
+  };
+  let tick = null;
+  const adapter = new CameraStageFramePublisher({
+    regionPublisher,
+    setIntervalImpl: (fn) => { tick = fn; return { unref() {} }; },
+    clearIntervalImpl: () => { tick = null; },
+    onError: (error) => errors.push(error.message),
+  });
+
+  await adapter.start({ webContents });
+  tick();
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.deepEqual(errors, ['region vanished']);
+  await adapter.stop();
+});

@@ -8,12 +8,12 @@
 #include "frame_source.h"
 #include "mapped_frame_reader.h"
 
-using bilingual::frame_transport::FrameHeader;
-using bilingual::frame_transport::SlotOffset;
-using bilingual::frame_transport::WriterState;
-using bilingual::vcam::FrameReadStatus;
-using bilingual::vcam::MappedFrameReader;
-using bilingual::vcam::MonotonicNowNs;
+using twinscript::frame_transport::FrameHeader;
+using twinscript::frame_transport::SlotOffset;
+using twinscript::frame_transport::WriterState;
+using twinscript::vcam::FrameReadStatus;
+using twinscript::vcam::MappedFrameReader;
+using twinscript::vcam::MonotonicNowNs;
 
 namespace {
 
@@ -66,7 +66,7 @@ int wmain(int argc, wchar_t** argv) {
   constexpr uint32_t stride = width * 4;
   constexpr uint32_t payload = stride * height;
   constexpr uint32_t slots = 2;
-  constexpr size_t total = bilingual::frame_transport::kHeaderBytes + payload * slots;
+  constexpr size_t total = twinscript::frame_transport::kHeaderBytes + payload * slots;
 
   wchar_t directory[MAX_PATH] = {};
   wchar_t path[MAX_PATH] = {};
@@ -99,11 +99,11 @@ int wmain(int argc, wchar_t** argv) {
 
   std::memset(bytes, 0, total);
   auto* header = reinterpret_cast<FrameHeader*>(bytes);
-  header->magic = bilingual::frame_transport::kMagic;
-  header->protocolVersion = bilingual::frame_transport::kProtocolVersion;
+  header->magic = twinscript::frame_transport::kMagic;
+  header->protocolVersion = twinscript::frame_transport::kProtocolVersion;
   header->width = width;
   header->height = height;
-  header->pixelFormat = bilingual::frame_transport::kPixelFormatBgra8;
+  header->pixelFormat = twinscript::frame_transport::kPixelFormatBgra8;
   header->stride = stride;
   header->payloadBytes = payload;
   header->slotCount = slots;
@@ -128,7 +128,7 @@ int wmain(int argc, wchar_t** argv) {
               FrameReadStatus::kRepeat, "unchanged sequence repeats")) return 1;
 
   header->capturedAtMonotonicNs =
-      now - bilingual::frame_transport::kLastFrameRepeatLimitNs - 1;
+      now - twinscript::frame_transport::kLastFrameRepeatLimitNs - 1;
   if (!Expect(reader.Read(output.data(), output.size(), now).status,
               FrameReadStatus::kExpired, "old frame expires")) return 1;
 
@@ -143,18 +143,18 @@ int wmain(int argc, wchar_t** argv) {
   header->capturedAtMonotonicNs = MonotonicNowNs();
   header->frameSequence = 2;
   std::memset(bytes + SlotOffset(payload, 0), 0x4b, payload);
-  bilingual::vcam::FrameSource frames;
+  twinscript::vcam::FrameSource frames;
   frames.Configure(width, height, 15, path, false);
   std::vector<uint8_t> stage(payload);
-  frames.WriteFrame(stage.data(), bilingual::vcam::OutputFormat::kRgb32);
+  frames.WriteFrame(stage.data(), twinscript::vcam::OutputFormat::kRgb32);
   if (stage.front() != 0x4b || stage.back() != 0x4b) {
     return Fail("FrameSource did not prefer the mapped stage");
   }
   std::printf("ok    FrameSource prefers mapped stage pixels\n");
 
   header->capturedAtMonotonicNs =
-      MonotonicNowNs() - bilingual::frame_transport::kLastFrameRepeatLimitNs - 1;
-  frames.WriteFrame(stage.data(), bilingual::vcam::OutputFormat::kRgb32);
+      MonotonicNowNs() - twinscript::frame_transport::kLastFrameRepeatLimitNs - 1;
+  frames.WriteFrame(stage.data(), twinscript::vcam::OutputFormat::kRgb32);
   if (stage.front() == 0x4b && stage.back() == 0x4b) {
     return Fail("expired mapped stage remained frozen");
   }

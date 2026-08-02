@@ -34,10 +34,10 @@
 #pragma comment(lib, "mfsensorgroup.lib")
 #pragma comment(lib, "ole32.lib")
 
-using bilingual::vcam::ComPtr;
-using bilingual::vcam::kCameraFriendlyName;
-using bilingual::vcam::kMediaSourceClsid;
-using bilingual::vcam::kMediaSourceClsidString;
+using twinscript::vcam::ComPtr;
+using twinscript::vcam::kCameraFriendlyName;
+using twinscript::vcam::kMediaSourceClsid;
+using twinscript::vcam::kMediaSourceClsidString;
 
 namespace {
 
@@ -85,7 +85,7 @@ std::wstring SourceDllPath() {
   ::GetModuleFileNameW(nullptr, path, MAX_PATH);
   ::PathRemoveFileSpecW(path);
   std::wstring dll(path);
-  dll += L"\\bilingual-vcam-source.dll";
+  dll += L"\\twinscript-vcam-source.dll";
   return dll;
 }
 
@@ -161,7 +161,7 @@ int DriveMediaSource(int frames) {
   // The in-process harness verifies Media Foundation delivery with a moving,
   // decodable pattern. Production Frame Server activation never inherits this
   // process-scoped override and therefore reads only the shared stage region.
-  ::SetEnvironmentVariableW(L"BILINGUAL_VCAM_SYNTHETIC", L"1");
+  ::SetEnvironmentVariableW(L"TWINSCRIPT_VCAM_SYNTHETIC", L"1");
   // Mirror what MFCreateVirtualCamera does: the registered CLSID is an
   // activation object, and the media source comes from ActivateObject(). Going
   // straight for IMFMediaSource would test a path Windows never takes.
@@ -412,7 +412,7 @@ ControlResult ReadControl(HANDLE pipe, std::string* pending) {
 }
 
 // Production lifetime owner. Pixels never enter this pipe: the Frame Server
-// media source maps the region named by BILINGUAL_VCAM_REGION_PATH directly.
+// media source maps the region named by TWINSCRIPT_VCAM_REGION_PATH directly.
 // The pipe carries only health and the stop command so a companion failure is
 // isolated from the live transcription session.
 int ServeVirtualCamera(const std::wstring& pipe_name, const char* region_path) {
@@ -420,8 +420,8 @@ int ServeVirtualCamera(const std::wstring& pipe_name, const char* region_path) {
     std::printf("FAIL  serve requires --region and --pipe\n");
     return 2;
   }
-  if (!::SetEnvironmentVariableA("BILINGUAL_VCAM_REGION_PATH", region_path)) {
-    return Fail("SetEnvironmentVariable(BILINGUAL_VCAM_REGION_PATH)",
+  if (!::SetEnvironmentVariableA("TWINSCRIPT_VCAM_REGION_PATH", region_path)) {
+    return Fail("SetEnvironmentVariable(TWINSCRIPT_VCAM_REGION_PATH)",
                 HRESULT_FROM_WIN32(::GetLastError()));
   }
 

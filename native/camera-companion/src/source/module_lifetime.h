@@ -1,6 +1,6 @@
 #pragma once
 
-namespace bilingual::vcam {
+namespace twinscript::vcam {
 
 // Every COM object implemented by the in-process server participates in this
 // count. COM may ask DllCanUnloadNow while activation/source/stream objects are
@@ -8,4 +8,4 @@ namespace bilingual::vcam {
 void ModuleObjectCreated();
 void ModuleObjectDestroyed();
 
-}  // namespace bilingual::vcam
+}  // namespace twinscript::vcam

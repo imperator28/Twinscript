@@ -26,6 +26,27 @@ function entrySpeaker(
   return audience === 'en' ? 'MEETING' : '会议';
 }
 
+/**
+ * Operator chrome for the preview window.
+ *
+ * The stage is frameless so nothing decorates the picture, which also left no
+ * visible way to move or dismiss it. This bar stays fully transparent until the
+ * pointer is over the stage (or something in it takes keyboard focus), so an OBS
+ * window capture of an unattended stage records nothing extra. It is rendered
+ * only for `role=preview`; the offscreen window that actually feeds the camera
+ * never mounts it.
+ */
+function StageChrome({ onHide }: { onHide: () => void }) {
+  return (
+    <div className="camera-stage__chrome">
+      <span className="camera-stage__chrome-drag">Camera stage · preview</span>
+      <button type="button" onClick={onHide}>
+        Hide preview
+      </button>
+    </div>
+  );
+}
+
 export function CameraStage() {
   const [entries, setEntries] = useState<CameraStageEntry[]>([]);
   const [status, setStatus] = useState<SessionStatus>({ state: 'ready' });
@@ -134,6 +155,12 @@ export function CameraStage() {
   );
   const theme = captionThemeById(themeId);
   const live = status.state === 'running';
+  // Opt-in, not opt-out: only an explicit `role=preview` gets operator chrome.
+  // The offscreen window's pixels become the camera feed, and virtual-camera.md
+  // forbids controls in it — so any surface that forgets to declare a role
+  // renders the clean picture rather than accidentally leaking a button.
+  const isPreview =
+    new URLSearchParams(window.location.search).get('role') === 'preview';
 
   return (
     <main
@@ -151,6 +178,9 @@ export function CameraStage() {
       aria-live="polite"
       aria-atomic="false"
     >
+      {isPreview && (
+        <StageChrome onHide={() => void window.captions.hideCameraStage?.()} />
+      )}
       {!live ? (
         <section className="camera-stage__slate">
           <div className="camera-stage__mark" aria-hidden="true">EN / 中</div>

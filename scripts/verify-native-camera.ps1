@@ -50,7 +50,7 @@ try {
   }
 
   if ($InstalledConsumer) {
-    $installedHost = Join-Path $env:ProgramData 'Bilingual Meeting Captions\bin\vcam-host.exe'
+    $installedHost = Join-Path $env:ProgramData 'Twinscript\bin\vcam-host.exe'
     if (-not (Test-Path -LiteralPath $installedHost -PathType Leaf)) {
       throw 'Install the native camera from Settings before the installed-consumer check.'
     }

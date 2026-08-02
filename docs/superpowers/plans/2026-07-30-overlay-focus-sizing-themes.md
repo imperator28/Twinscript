@@ -145,5 +145,5 @@ with existing minimum/work-area safety retained.
 - [ ] Run `git diff --check`.
 - [ ] Update Windows progress/evidence and the actual-testing checklist with focus under translation lag, two-row settled focus, multiple in-flight rows, resize synchronization/persistence, Visible history auto-sizing, fresh sessions, layouts/scales/monitors, and all four themes.
 - [ ] Mark the design spec implemented and awaiting operator validation.
-- [ ] Run `npm.cmd run make` and confirm a fresh Squirrel installer is produced at `out/make/squirrel.windows/x64/Bilingual Meeting Captions-0.1.0 Setup.exe`.
+- [ ] Run `npm.cmd run make` and confirm a fresh Squirrel installer is produced at `out/make/squirrel.windows/x64/Twinscript-0.1.0 Setup.exe`.
 - [ ] Launch the freshly packaged client, verify its process remains alive, and hand the operator a concise checklist of the behaviors that require actual desktop testing.

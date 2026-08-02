@@ -182,7 +182,7 @@ Before using API credit:
 9. Close either caption window with its visible close button.
 10. Use **Show captions** to restore both caption windows.
 11. Close the control window and confirm the app exits: no
-    `bilingual-meeting-captions` process should remain.
+    `twinscript` process should remain.
 
 Do not advance to a live API test if any lifecycle control disappears or the
 window alternates between ready and live.
@@ -233,7 +233,7 @@ Squirrel arguments are handled by `electron/captions/squirrel-startup.js`, which
 created. It creates shortcuts on `--squirrel-install`/`--squirrel-updated`,
 removes them on `--squirrel-uninstall`, exits on `--squirrel-obsolete`, and
 treats `--squirrel-firstrun` as an ordinary launch. It also sets the
-AppUserModelID `com.squirrel.BilingualMeetingCaptions.bilingual-meeting-captions`
+AppUserModelID `com.squirrel.Twinscript.twinscript`
 so Windows groups the taskbar entry with the shortcut Squirrel installed. A test
 asserts that value still matches the Forge maker configuration.
 

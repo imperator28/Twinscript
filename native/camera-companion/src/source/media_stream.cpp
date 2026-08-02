@@ -6,7 +6,7 @@
 #include "media_source.h"
 #include "module_lifetime.h"
 
-namespace bilingual::vcam {
+namespace twinscript::vcam {
 
 MediaStream::MediaStream() {
   ModuleObjectCreated();
@@ -274,4 +274,4 @@ HRESULT MediaStream::Shutdown() {
   return S_OK;
 }
 
-}  // namespace bilingual::vcam
+}  // namespace twinscript::vcam

@@ -23,7 +23,7 @@ function atomicWrite(filePath, contents, options) {
 }
 
 function resolveDefaultRecordsDirectory(app) {
-  return path.join(app.getPath('documents'), 'Bilingual Meeting Captions');
+  return path.join(app.getPath('documents'), 'Twinscript');
 }
 
 /** `YYYY-MM-DD HH-mm-ss`, filesystem-safe on Windows, macOS, and Linux. */
@@ -99,7 +99,7 @@ function escapeMarkdownCell(value) {
 
 function renderMarkdown({ records, session }) {
   const lines = [
-    `# Bilingual meeting captions — ${session.startedAtIso}`,
+    `# Twinscript meeting captions — ${session.startedAtIso}`,
     '',
     `Session ID: \`${session.sessionId}\``,
     '',

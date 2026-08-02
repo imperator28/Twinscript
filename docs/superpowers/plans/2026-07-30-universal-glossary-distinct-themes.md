@@ -219,7 +219,7 @@ Expected: all tests and build pass, with no whitespace errors.
 Stop only running processes whose executable path is inside:
 
 ```text
-C:\Users\jqian\Documents\Bilingual Meeting\out\Bilingual Meeting Captions-win32-x64
+C:\Users\jqian\Documents\Bilingual Meeting\out\Twinscript-win32-x64
 ```
 
 Then run:
@@ -235,7 +235,7 @@ Expected: Electron Forge produces the unpacked client and Windows installer arti
 Launch:
 
 ```text
-C:\Users\jqian\Documents\Bilingual Meeting\out\Bilingual Meeting Captions-win32-x64\bilingual-meeting-captions.exe
+C:\Users\jqian\Documents\Bilingual Meeting\out\Twinscript-win32-x64\twinscript.exe
 ```
 
 Verify the exact-path process is running and responsive. Hand the user a concise actual-testing checklist covering the universal glossary, the three distinct themes, migration/custom-term preservation, synced overlay sizing, focus behavior, and fresh-session transcript clearing.

@@ -50,18 +50,18 @@ const consumedBySquirrel = handleSquirrelStartup({
 });
 
 process.on('uncaughtException', (error) => {
-  console.error('[Bilingual Meeting Captions] Fatal main-process error:', error);
+  console.error('[Twinscript] Fatal main-process error:', error);
   app.exit(1);
 });
 process.on('unhandledRejection', (error) => {
-  console.error('[Bilingual Meeting Captions] Unhandled main-process rejection:', error);
+  console.error('[Twinscript] Unhandled main-process rejection:', error);
 });
 
 if (!consumedBySquirrel) initMain();
 
-app.setName('Bilingual Meeting Captions');
+app.setName('Twinscript');
 applyAppUserModelId({ app });
-app.commandLine.appendSwitch('application-name', 'bilingual-meeting-captions');
+app.commandLine.appendSwitch('application-name', 'twinscript');
 app.commandLine.appendSwitch('disable-renderer-backgrounding');
 app.commandLine.appendSwitch('disable-background-timer-throttling');
 app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');
@@ -113,7 +113,7 @@ function createControlWindow() {
     height: 780,
     minWidth: 940,
     minHeight: 640,
-    title: 'Bilingual Meeting Captions',
+    title: 'Twinscript',
     backgroundColor: '#F3F4F6',
     show: false,
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
@@ -341,7 +341,7 @@ app.whenReady().then(async () => {
     ),
     expectedSourcePath: path.win32.join(
       nativeCameraInstaller.sourceDirectory,
-      'bilingual-vcam-source.dll',
+      'twinscript-vcam-source.dll',
     ),
     onHealth: (health) =>
       captionWindows?.broadcastControl(
@@ -457,7 +457,7 @@ app.on('before-quit', (event) => {
     meetingRecordController?.destroy();
   })()
     .catch((error) => {
-      console.error('[Bilingual Meeting Captions] Shutdown failed:', error);
+      console.error('[Twinscript] Shutdown failed:', error);
     })
     .finally(() => {
       shutdownComplete = true;

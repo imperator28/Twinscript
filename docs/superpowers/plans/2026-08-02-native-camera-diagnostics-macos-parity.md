@@ -299,7 +299,7 @@ remain available. Only the native driver card and install action are absent.
 - [ ] **Step 4: Keep Windows resources out of macOS packages**
 
 Ensure PowerShell scripts, `vcam-host.exe`, and
-`bilingual-vcam-source.dll` are staged only from the `win32` branch. The macOS
+`twinscript-vcam-source.dll` are staged only from the `win32` branch. The macOS
 package includes the local Translation helper agent from the translation plan,
 not camera components.
 
@@ -328,7 +328,7 @@ paths into evidence.
 - [ ] **Step 2: Verify registry migration and camera consumption**
 
 Confirm the product CLSID points to the protected ProgramData DLL, the legacy
-`C:\Users\Public\bilingual-vcam3` registration is gone, status-machine passes,
+`C:\Users\Public\twinscript-vcam3` registration is gone, status-machine passes,
 and a separate consumer receives the camera feed.
 
 - [ ] **Step 3: Verify idempotent lifecycle**

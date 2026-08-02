@@ -50,7 +50,7 @@ add_library(vcam_source SHARED
   src/source/mapped_frame_reader.cpp
   src/source/vcam_source.def
 )
-set_target_properties(vcam_source PROPERTIES OUTPUT_NAME "bilingual-vcam-source")
+set_target_properties(vcam_source PROPERTIES OUTPUT_NAME "twinscript-vcam-source")
 target_include_directories(vcam_source PRIVATE include src/source)
 target_link_libraries(vcam_source PRIVATE mfplat mf mfuuid mfsensorgroup ole32 advapi32)
 

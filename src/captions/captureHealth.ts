@@ -67,7 +67,7 @@ export function describeSystemCaptureFailure({
   if (platform === 'darwin') {
     return (
       'Microphone captions are live. Meeting audio is not being captured: ' +
-      'grant Screen Recording to Bilingual Meeting Captions in System Settings → ' +
+      'grant Screen Recording to Twinscript in System Settings → ' +
       'Privacy & Security, then end and restart the session' +
       suffix +
       '.'

@@ -11,7 +11,7 @@ test('Windows packages stage the host, source DLL, and lifecycle scripts togethe
   assert.match(forge, /WINDOWS_NATIVE_CAMERA_RESOURCES/);
   assert.match(forge, /'native', 'camera-companion', 'build', 'Release'/);
   assert.match(forge, /vcam-host\.exe/);
-  assert.match(forge, /bilingual-vcam-source\.dll/);
+  assert.match(forge, /twinscript-vcam-source\.dll/);
   assert.match(forge, /install-native-camera\.ps1/);
   assert.match(forge, /uninstall-native-camera\.ps1/);
   assert.match(forge, /path\.resolve\(buildPath, '\.\.', 'native-camera'\)/);
@@ -23,7 +23,7 @@ test('registration scripts use one verified ProgramData target and idempotent co
   const uninstall = read('scripts/uninstall-native-camera.ps1');
   for (const script of [install, uninstall]) {
     assert.match(script, /ProgramData/);
-    assert.match(script, /Bilingual Meeting Captions/);
+    assert.match(script, /Twinscript/);
     assert.match(script, /GetFullPath/);
     assert.match(script, /OrdinalIgnoreCase/);
     assert.match(script, /-Verb RunAs/);
@@ -51,6 +51,38 @@ test('machine binaries stay administrator-owned while only runtime data is user-
     install,
     /icacls\.exe \$runtimeRoot[^\r\n]*\*\$\{UserSid\}:\(OI\)\(CI\)M/,
   );
+});
+
+test('the installer accepts an Entra ID account SID, not only NT authority', () => {
+  const install = read('scripts/install-native-camera.ps1');
+  const match = install.match(/if \(\$UserSid -notmatch '([^']+)'\)/);
+  assert.ok(match, 'the installer must validate the requesting user SID');
+  const pattern = new RegExp(match[1]);
+
+  // An Entra ID (Azure AD) account has identifier authority 12. Corporate
+  // Windows machines are routinely Entra-joined, so an S-1-5-only pattern
+  // rejects the ordinary case and the install fails with a bare "exit 1".
+  assert.ok(
+    pattern.test('S-1-12-1-3119609239-1254419871-2813377684-3969048478'),
+    'an Entra ID user SID must be accepted',
+  );
+  // Local and domain accounts must keep working.
+  assert.ok(pattern.test('S-1-5-21-1004336348-1177238915-682003330-512'));
+  assert.ok(pattern.test('S-1-5-18'));
+
+  // The SID reaches an icacls command line, so it must still be constrained.
+  for (const hostile of [
+    'S-1-5-21-1 /grant:r Everyone:(OI)(CI)F',
+    'S-1-5-21-1"; rm -rf /',
+    'S-1-5-21-1 & calc.exe',
+    'Everyone',
+    '',
+  ]) {
+    assert.equal(pattern.test(hostile), false, `must reject: ${hostile}`);
+  }
+
+  // A shape check alone is weak; the script also parses it as a real SID.
+  assert.match(install, /\[Security\.Principal\.SecurityIdentifier\]::new\(\$UserSid\)/);
 });
 
 test('COM unloadability accounts for every live camera object', () => {

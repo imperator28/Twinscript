@@ -12,7 +12,7 @@
 
 #include <utility>
 
-namespace bilingual::vcam {
+namespace twinscript::vcam {
 
 // Owning smart pointer for COM interfaces.
 template <typename T>
@@ -119,4 +119,4 @@ bool TryInterface(Self* self, REFIID iid, void** out) {
   return false;
 }
 
-}  // namespace bilingual::vcam
+}  // namespace twinscript::vcam

@@ -2,7 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const { execFile } = require('child_process');
 
-const DEFAULT_PRODUCT_NAME = 'Bilingual Meeting Captions';
+const DEFAULT_PRODUCT_NAME = 'Twinscript';
 
 function secureStorageLabel(platform) {
   if (platform === 'darwin') return 'macOS Keychain';

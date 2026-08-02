@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-identity_name="Bilingual Meeting Captions Local Signing"
+identity_name="Twinscript Local Signing"
 login_keychain="${HOME}/Library/Keychains/login.keychain-db"
 
 if [[ "$(uname -s)" != "Darwin" ]]; then

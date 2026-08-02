@@ -8,7 +8,7 @@
 
 #include <guiddef.h>
 
-namespace bilingual::vcam {
+namespace twinscript::vcam {
 
 // {6B8F2C4A-9D3E-4A17-8C25-1E7B4F6D9A03}
 // clang-format off
@@ -21,8 +21,8 @@ constexpr wchar_t kMediaSourceClsidString[] = L"{6B8F2C4A-9D3E-4A17-8C25-1E7B4F6
 // What the user picks in Teams, Zoom, or Chrome. Windows decorates it on
 // enumeration as "<name> (Windows Virtual Camera)", so consumers must match on
 // this as a prefix rather than comparing the whole string.
-constexpr wchar_t kCameraFriendlyName[] = L"Bilingual Meeting Captions";
+constexpr wchar_t kCameraFriendlyName[] = L"Twinscript";
 
-constexpr wchar_t kComRegistryDescription[] = L"Bilingual Meeting Captions Camera Source";
+constexpr wchar_t kComRegistryDescription[] = L"Twinscript Camera Source";
 
-}  // namespace bilingual::vcam
+}  // namespace twinscript::vcam

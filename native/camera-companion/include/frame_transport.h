@@ -12,9 +12,9 @@
 #include <cstddef>
 #include <cstdint>
 
-namespace bilingual::frame_transport {
+namespace twinscript::frame_transport {
 
-// 'BMCF' little-endian: Bilingual Meeting Captions Frames.
+// 'BMCF' little-endian: Twinscript Frames.
 constexpr uint32_t kMagic = 0x464d4342;
 constexpr uint32_t kProtocolVersion = 1;
 
@@ -87,4 +87,4 @@ constexpr uint32_t SlotOffset(uint32_t payloadBytes, uint32_t slot) {
   return kHeaderBytes + payloadBytes * slot;
 }
 
-}  // namespace bilingual::frame_transport
+}  // namespace twinscript::frame_transport

@@ -11,7 +11,7 @@ switch behavior, and the 60-minute soak still require direct observation.
   English overlay, Chinese overlay, and `?surface=camera-stage`.
 - The camera stage reports a 1920 x 1080 renderer viewport.
 - The native capture title is pinned to `Bilingual Camera Stage`, so OBS can
-  distinguish it from `Bilingual Meeting Captions`.
+  distinguish it from `Twinscript`.
 - The privacy slate contains only `EN / 中`, `Bilingual captions ready`, and
   its neutral meeting-start explanation.
 - `node --test electron/captions/meeting-record-ipc.test.cjs
@@ -46,7 +46,7 @@ switch behavior, and the 60-minute soak still require direct observation.
 - Frame rate: 30/1 fps.
 - Source: Windows `window_capture`, named `Bilingual Camera Stage`.
 - Target:
-  `Bilingual Camera Stage:Chrome_WidgetWin_1:bilingual-meeting-captions.exe`.
+  `Bilingual Camera Stage:Chrome_WidgetWin_1:twinscript.exe`.
 - Capture method: Windows 10 (1903 and up); client area on; cursor off.
 - The 2880 x 1620 DPI-scaled source is fitted into 1920 x 1080 with
   `OBS_BOUNDS_SCALE_INNER`.

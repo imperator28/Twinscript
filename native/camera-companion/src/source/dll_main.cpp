@@ -19,7 +19,7 @@
 #include "vcam_guids.h"
 #include "vcam_log.h"
 
-namespace bilingual::vcam {
+namespace twinscript::vcam {
 namespace {
 
 LONG g_lock_count = 0;
@@ -47,7 +47,7 @@ void LogLine(const char* format, ...) {
   if (::GetEnvironmentVariableW(L"ProgramData", program_data, MAX_PATH) == 0) return;
   wchar_t path[MAX_PATH] = {};
   if (::_snwprintf_s(path, MAX_PATH, _TRUNCATE,
-                     L"%s\\Bilingual Meeting Captions\\logs\\vcam-source.log",
+                     L"%s\\Twinscript\\logs\\vcam-source.log",
                      program_data) <= 0) {
     return;
   }
@@ -164,9 +164,9 @@ HRESULT SetRegistryString(HKEY root, const wchar_t* subkey, const wchar_t* name,
 }
 
 }  // namespace
-}  // namespace bilingual::vcam
+}  // namespace twinscript::vcam
 
-using namespace bilingual::vcam;
+using namespace twinscript::vcam;
 
 BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID) {
   if (reason == DLL_PROCESS_ATTACH) {
@@ -194,7 +194,7 @@ extern "C" HRESULT __stdcall DllCanUnloadNow() {
   return g_object_count == 0 && g_lock_count == 0 ? S_OK : S_FALSE;
 }
 
-namespace bilingual::vcam {
+namespace twinscript::vcam {
 namespace {
 
 HRESULT RegisterUnder(HKEY root, const char* root_name) {
@@ -235,7 +235,7 @@ HRESULT UnregisterUnder(HKEY root, const char* root_name) {
 }
 
 }  // namespace
-}  // namespace bilingual::vcam
+}  // namespace twinscript::vcam
 
 // Conventional COM self-registration writes machine-wide, and that is what the
 // frame server needs. Requires administrator.

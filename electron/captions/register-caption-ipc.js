@@ -172,9 +172,12 @@ function registerCaptionIpc({
     if (
       Object.hasOwn(patch || {}, 'captionHistoryEntries') &&
       settings.captionHistoryEntries !== previous.captionHistoryEntries &&
-      typeof windows.resetAutoSize === 'function'
+      typeof windows.resetContentMeasurements === 'function'
     ) {
-      settings = windows.resetAutoSize();
+      // Changing visible history changes the natural content height, so the
+      // measurements are stale — but the operator's dragged height is not, and
+      // must survive as the floor.
+      settings = windows.resetContentMeasurements();
     } else if (typeof windows.applySettings === 'function') {
       windows.applySettings(settings);
     } else if (patch.layout) {
@@ -374,10 +377,10 @@ function registerCaptionIpc({
   handle('captions:export', async ({ format = 'json' }) => {
     const extension = format === 'markdown' ? 'md' : 'json';
     const result = await dialog.showSaveDialog(windows.controlWindow, {
-      title: 'Export bilingual caption session',
+      title: 'Export Twinscript caption session',
       defaultPath: path.join(
         app.getPath('documents'),
-        `bilingual-captions-${new Date().toISOString().replace(/[:.]/g, '-')}.${extension}`,
+        `twinscript-captions-${new Date().toISOString().replace(/[:.]/g, '-')}.${extension}`,
       ),
       filters: [
         {

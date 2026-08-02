@@ -76,7 +76,7 @@ class NativeCameraInstaller {
         ),
       );
     }
-    for (const sourceName of ['vcam-host.exe', 'bilingual-vcam-source.dll']) {
+    for (const sourceName of ['vcam-host.exe', 'twinscript-vcam-source.dll']) {
       if (
         extraArgs.length > 0 &&
         !this.existsSync(path.win32.join(this.sourceDirectory, sourceName))

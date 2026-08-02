@@ -20,7 +20,7 @@
 #include "frame_transport.h"
 #include "mapped_frame_reader.h"
 
-namespace bilingual::vcam {
+namespace twinscript::vcam {
 
 // Pixel layouts this source can hand to a consumer.
 //
@@ -255,4 +255,4 @@ class FrameSource {
   std::vector<uint32_t> pixels_;
 };
 
-}  // namespace bilingual::vcam
+}  // namespace twinscript::vcam

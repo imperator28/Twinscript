@@ -4,12 +4,12 @@
 
 #include <string>
 
-namespace bilingual::vcam {
+namespace twinscript::vcam {
 
 inline std::wstring CameraFrameRegionPath() {
   wchar_t override_path[32768] = {};
   const DWORD override_length = ::GetEnvironmentVariableW(
-      L"BILINGUAL_VCAM_REGION_PATH", override_path, ARRAYSIZE(override_path));
+      L"TWINSCRIPT_VCAM_REGION_PATH", override_path, ARRAYSIZE(override_path));
   if (override_length > 0 && override_length < ARRAYSIZE(override_path)) {
     return override_path;
   }
@@ -19,15 +19,15 @@ inline std::wstring CameraFrameRegionPath() {
       ::GetEnvironmentVariableW(L"ProgramData", program_data, ARRAYSIZE(program_data));
   std::wstring path =
       length > 0 && length < ARRAYSIZE(program_data) ? program_data : L"C:\\ProgramData";
-  path += L"\\Bilingual Meeting Captions\\runtime\\camera-frame-v1.bin";
+  path += L"\\Twinscript\\runtime\\camera-frame-v1.bin";
   return path;
 }
 
 inline bool SyntheticFramesRequested() {
   wchar_t value[8] = {};
   const DWORD length = ::GetEnvironmentVariableW(
-      L"BILINGUAL_VCAM_SYNTHETIC", value, ARRAYSIZE(value));
+      L"TWINSCRIPT_VCAM_SYNTHETIC", value, ARRAYSIZE(value));
   return length > 0 && length < ARRAYSIZE(value) && value[0] == L'1';
 }
 
-}  // namespace bilingual::vcam
+}  // namespace twinscript::vcam

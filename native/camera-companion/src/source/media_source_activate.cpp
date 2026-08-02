@@ -4,7 +4,7 @@
 
 #include "vcam_log.h"
 
-namespace bilingual::vcam {
+namespace twinscript::vcam {
 
 HRESULT MediaSourceActivate::CreateInstance(MediaSourceActivate** out) {
   if (!out) return E_POINTER;
@@ -73,4 +73,4 @@ HRESULT MediaSourceActivate::DetachObject() {
   return E_NOTIMPL;
 }
 
-}  // namespace bilingual::vcam
+}  // namespace twinscript::vcam

@@ -305,7 +305,7 @@ Electron captures that result instead of launching PowerShell with ignored
 standard output.
 
 Repair is idempotent. It validates staged hashes before registry mutation,
-handles the known legacy `C:\Users\Public\bilingual-vcam3` registration, and
+handles the known legacy `C:\Users\Public\twinscript-vcam3` registration, and
 does not remove a working registration until replacement binaries are ready.
 The UI exposes **Retry installation**, **Open diagnostics**, and the OBS
 fallback. Camera failure never stops transcription or recording.

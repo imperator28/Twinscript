@@ -5,7 +5,7 @@ const path = require('node:path');
 const { randomUUID } = require('node:crypto');
 const { spawn: spawnChild, spawnSync } = require('node:child_process');
 
-const PRODUCT_DIRECTORY = 'Bilingual Meeting Captions';
+const PRODUCT_DIRECTORY = 'Twinscript';
 
 function windowsBuild(release) {
   const parts = String(release || '').split('.');
@@ -43,7 +43,7 @@ function defaultNativeCameraPaths(programData = process.env.ProgramData) {
     installDirectory,
     binaryDirectory,
     hostPath: path.win32.join(binaryDirectory, 'vcam-host.exe'),
-    sourcePath: path.win32.join(binaryDirectory, 'bilingual-vcam-source.dll'),
+    sourcePath: path.win32.join(binaryDirectory, 'twinscript-vcam-source.dll'),
     regionPath: path.win32.join(installDirectory, 'runtime', 'camera-frame-v1.bin'),
   };
 }
@@ -183,7 +183,7 @@ class NativeCameraSupervisor {
 
   #launch() {
     this.#closeTransport();
-    const pipeName = `\\\\.\\pipe\\bilingual-meeting-camera-${this.randomId()}`;
+    const pipeName = `\\\\.\\pipe\\twinscript-camera-${this.randomId()}`;
     const server = this.createPipeServer((socket) => this.#acceptSocket(socket));
     this.server = server;
     server.on?.('error', (error) => {

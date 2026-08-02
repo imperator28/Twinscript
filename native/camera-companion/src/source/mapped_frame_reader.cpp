@@ -4,7 +4,7 @@
 #include <cstring>
 #include <limits>
 
-namespace bilingual::vcam {
+namespace twinscript::vcam {
 namespace {
 
 uint64_t AtomicLoad(const uint64_t* value) {
@@ -132,5 +132,5 @@ FrameReadResult MappedFrameReader::Read(uint8_t* destination, size_t destination
           sequence_before, captured};
 }
 
-}  // namespace bilingual::vcam
+}  // namespace twinscript::vcam
 

@@ -7,7 +7,7 @@
 
 #include "frame_transport.h"
 
-namespace bilingual::vcam {
+namespace twinscript::vcam {
 
 enum class FrameReadStatus : uint32_t {
   kFresh = 0,
@@ -54,4 +54,4 @@ class MappedFrameReader {
   uint64_t last_sequence_ = 0;
 };
 
-}  // namespace bilingual::vcam
+}  // namespace twinscript::vcam

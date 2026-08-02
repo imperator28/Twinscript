@@ -6,7 +6,7 @@
 
 namespace {
 
-using namespace bilingual::frame_transport;
+using namespace twinscript::frame_transport;
 
 // The geometry the companion is built for, checked at compile time so a bad
 // default cannot ship.

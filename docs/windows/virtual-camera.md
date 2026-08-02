@@ -194,7 +194,7 @@ that must change together, guarded both ways:
   fails on any divergence in a constant, offset, or writer-state value.
 
 Electron preallocates
-`C:\ProgramData\Bilingual Meeting Captions\runtime\camera-frame-v1.bin` and publishes payload,
+`C:\ProgramData\Twinscript\runtime\camera-frame-v1.bin` and publishes payload,
 monotonic timestamp, writer state, then sequence with positioned writes. The
 Frame Server source maps that same file read-only. The file-backed mapping keeps
 pixels off Electron IPC while avoiding an in-process native addon; the named

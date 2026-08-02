@@ -268,7 +268,7 @@ Expected: all tests and build pass with no whitespace errors.
 
 - [ ] **Step 3: Rebuild and relaunch**
 
-Stop only executables running under the project’s exact `out\Bilingual Meeting Captions-win32-x64` path, run `npm.cmd run make`, and relaunch `bilingual-meeting-captions.exe`. Verify every exact-path Electron process is responsive.
+Stop only executables running under the project’s exact `out\Twinscript-win32-x64` path, run `npm.cmd run make`, and relaunch `twinscript.exe`. Verify every exact-path Electron process is responsive.
 
 ### Task 6: Install official OBS Studio and validate Virtual Camera
 

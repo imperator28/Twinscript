@@ -1,4 +1,10 @@
-# Windows client handoff
+# Twinscript 会意 — Windows client handoff
+
+> **Renamed 2026-08-02.** The product was "Bilingual Meeting Captions"; it is now
+> **Twinscript** (Chinese name **会意**, huìyì — "to grasp the meaning", and also
+> 会意字, one of the classical categories of Chinese character formation).
+> Consequences of the rename are recorded in
+> [`rename-2026-08-02.md`](rename-2026-08-02.md).
 
 **Last verified:** 2026-08-01 (W4 production implementation automated checks
 verified on Windows 11 build 26200 x64; manual validation remains — see

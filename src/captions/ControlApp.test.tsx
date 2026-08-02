@@ -322,7 +322,7 @@ describe('meeting caption controls', () => {
         message: null,
       });
     });
-    expect(screen.getByText(/Bilingual Meeting Captions camera is running/i)).toBeInTheDocument();
+    expect(screen.getByText(/Twinscript camera is running/i)).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
     expect(

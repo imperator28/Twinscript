@@ -494,7 +494,7 @@ test('credential repair clears only this app credential and macOS Safe Storage e
     app: {
       isPackaged: true,
       getPath: () => userData,
-      getName: () => 'Bilingual Meeting Captions',
+      getName: () => 'Twinscript',
     },
     platform: 'darwin',
     safeStorage: {
@@ -521,9 +521,9 @@ test('credential repair clears only this app credential and macOS Safe Storage e
   assert.deepEqual(commands[0].args, [
     'delete-generic-password',
     '-s',
-    'Bilingual Meeting Captions Safe Storage',
+    'Twinscript Safe Storage',
     '-a',
-    'Bilingual Meeting Captions Key',
+    'Twinscript Key',
   ]);
   fs.rmSync(userData, { recursive: true, force: true });
 });

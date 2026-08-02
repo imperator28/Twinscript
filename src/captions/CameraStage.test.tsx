@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CameraStage } from './CameraStage';
 import type { Audience, AudienceCaption, SessionStatus } from './types';
 
@@ -182,5 +182,45 @@ describe('CameraStage', () => {
     );
     expect(container.querySelector('button, input, select, textarea, a')).toBeNull();
     expect(screen.queryByText(/credential|OpenAI|notification|settings/i)).not.toBeInTheDocument();
+  });
+});
+
+describe('CameraStage operator chrome', () => {
+  // Relative, so jsdom does not reject it as a cross-origin history update.
+  const setRole = (role: string | null) => {
+    const query = role
+      ? `?surface=camera-stage&role=${role}`
+      : '?surface=camera-stage';
+    window.history.replaceState({}, '', query);
+  };
+
+  afterEach(() => setRole(null));
+
+  it('offers a hide control on the preview surface', async () => {
+    setRole('preview');
+    render(<CameraStage />);
+    await act(async () => {});
+
+    const hide = screen.getByRole('button', { name: 'Hide preview' });
+    expect(hide).toBeTruthy();
+    fireEvent.click(hide);
+    expect(window.captions.hideCameraStage).toHaveBeenCalled();
+  });
+
+  it('never renders chrome on the surface that becomes the camera feed', async () => {
+    setRole('output');
+    const { container } = render(<CameraStage />);
+    await act(async () => {});
+
+    expect(container.querySelector('.camera-stage__chrome')).toBeNull();
+    expect(container.querySelectorAll('button')).toHaveLength(0);
+  });
+
+  it('fails safe: a surface with no declared role shows no chrome', async () => {
+    setRole(null);
+    const { container } = render(<CameraStage />);
+    await act(async () => {});
+
+    expect(container.querySelector('.camera-stage__chrome')).toBeNull();
   });
 });

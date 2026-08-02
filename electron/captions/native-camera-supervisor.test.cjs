@@ -39,9 +39,9 @@ function harness({ installed = true } = {}) {
     platform: 'win32',
     release: '10.0.26200',
     arch: 'x64',
-    hostPath: 'C:\\ProgramData\\Bilingual Meeting Captions\\bin\\vcam-host.exe',
-    sourcePath: 'C:\\ProgramData\\Bilingual Meeting Captions\\bin\\bilingual-vcam-source.dll',
-    regionPath: 'C:\\ProgramData\\Bilingual Meeting Captions\\runtime\\camera-frame-v1.bin',
+    hostPath: 'C:\\ProgramData\\Twinscript\\bin\\vcam-host.exe',
+    sourcePath: 'C:\\ProgramData\\Twinscript\\bin\\twinscript-vcam-source.dll',
+    regionPath: 'C:\\ProgramData\\Twinscript\\runtime\\camera-frame-v1.bin',
     isInstalled: () => installed,
     randomId: () => 'fixed-test',
     restartDelayMs: 0,
@@ -89,14 +89,14 @@ test('starts the installed companion with a health-only named pipe and region pa
 
   assert.equal(starting.state, 'starting');
   assert.equal(servers.length, 1);
-  assert.equal(servers[0].pipeName, '\\\\.\\pipe\\bilingual-meeting-camera-fixed-test');
+  assert.equal(servers[0].pipeName, '\\\\.\\pipe\\twinscript-camera-fixed-test');
   assert.equal(spawns.length, 1);
   assert.deepEqual(spawns[0].args, [
     'serve',
     '--region',
-    'C:\\ProgramData\\Bilingual Meeting Captions\\runtime\\camera-frame-v1.bin',
+    'C:\\ProgramData\\Twinscript\\runtime\\camera-frame-v1.bin',
     '--pipe',
-    '\\\\.\\pipe\\bilingual-meeting-camera-fixed-test',
+    '\\\\.\\pipe\\twinscript-camera-fixed-test',
   ]);
   assert.equal(spawns[0].options.windowsHide, true);
   assert.equal(spawns[0].options.stdio, 'ignore');

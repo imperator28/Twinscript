@@ -1,6 +1,6 @@
 {
-  "name": "bilingual-meeting-captions",
-  "productName": "Bilingual Meeting Captions",
+  "name": "twinscript",
+  "productName": "Twinscript",
   "version": "0.1.0",
   "sidecarVersion": "0.1.8",
   "private": true,
@@ -11,8 +11,8 @@
     "name": "Jiyu Qian"
   },
   "build": {
-    "appId": "com.jiyu.bilingualcaptions",
-    "productName": "Bilingual Meeting Captions",
+    "appId": "com.jiyu.twinscript",
+    "productName": "Twinscript",
     "asar": true,
     "electronLanguages": [
       "en",
@@ -61,7 +61,7 @@
       ],
       "category": "AudioVideo",
       "icon": "assets/icon.png",
-      "executableName": "bilingual-meeting-captions"
+      "executableName": "twinscript"
     },
     "mac": {
       "target": [

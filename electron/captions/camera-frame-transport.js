@@ -18,7 +18,7 @@
 // sequence; a change means the writer lapped it mid-copy and the read is
 // discarded. No locks, and a stalled reader can never block the frame clock.
 
-const MAGIC = 0x464d4342; // 'BMCF' little-endian: Bilingual Meeting Captions Frames
+const MAGIC = 0x464d4342; // 'BMCF' little-endian: Twinscript Frames
 const PROTOCOL_VERSION = 1;
 
 const PIXEL_FORMAT = Object.freeze({ BGRA8: 1 });

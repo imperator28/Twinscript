@@ -8,7 +8,7 @@
 
 #include <windows.h>
 
-namespace bilingual::vcam {
+namespace twinscript::vcam {
 
 void LogLine(const char* format, ...);
 
@@ -20,4 +20,4 @@ inline void LogUnsupportedInterface(const char* who, REFIID iid) {
           iid.Data4[3], iid.Data4[4], iid.Data4[5], iid.Data4[6], iid.Data4[7]);
 }
 
-}  // namespace bilingual::vcam
+}  // namespace twinscript::vcam

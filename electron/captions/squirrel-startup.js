@@ -15,8 +15,8 @@
 const path = require('path');
 const { spawn: defaultSpawn } = require('child_process');
 
-const SQUIRREL_PACKAGE_NAME = 'BilingualMeetingCaptions';
-const SQUIRREL_EXECUTABLE_NAME = 'bilingual-meeting-captions';
+const SQUIRREL_PACKAGE_NAME = 'Twinscript';
+const SQUIRREL_EXECUTABLE_NAME = 'twinscript';
 const APP_USER_MODEL_ID = `com.squirrel.${SQUIRREL_PACKAGE_NAME}.${SQUIRREL_EXECUTABLE_NAME}`;
 
 // `--squirrel-firstrun` is deliberately absent: it marks the first ordinary
@@ -72,7 +72,7 @@ function handleSquirrelStartup({
       const cleaned = cleanupNativeCamera?.();
       if (cleanupNativeCamera && cleaned !== true) {
         logger.error(
-          '[Bilingual Meeting Captions] Native camera cleanup failed; use Repair/Remove after reinstall to clear an orphaned registration.',
+          '[Twinscript] Native camera cleanup failed; use Repair/Remove after reinstall to clear an orphaned registration.',
         );
       }
     } catch (error) {
@@ -80,7 +80,7 @@ function handleSquirrelStartup({
       // installed or Windows approval is declined. The registration cleanup
       // remains available from the explicit Remove camera action.
       logger.error(
-        '[Bilingual Meeting Captions] Native camera cleanup failed:',
+        '[Twinscript] Native camera cleanup failed:',
         error,
       );
     }
@@ -100,7 +100,7 @@ function handleSquirrelStartup({
   };
 
   if (!shortcutArgument) {
-    logger.info(`[Bilingual Meeting Captions] Squirrel ${event}: exiting.`);
+    logger.info(`[Twinscript] Squirrel ${event}: exiting.`);
     quitOnce();
     return true;
   }
@@ -109,7 +109,7 @@ function handleSquirrelStartup({
   const updateExe = path.resolve(appFolder, '..', 'Update.exe');
   const exeName = path.basename(execPath);
   logger.info(
-    `[Bilingual Meeting Captions] Squirrel ${event}: ${shortcutArgument} ${exeName}`,
+    `[Twinscript] Squirrel ${event}: ${shortcutArgument} ${exeName}`,
   );
 
   try {
@@ -122,7 +122,7 @@ function handleSquirrelStartup({
     child?.once?.('close', quitOnce);
     child?.once?.('error', (error) => {
       logger.error(
-        '[Bilingual Meeting Captions] Squirrel Update.exe failed:',
+        '[Twinscript] Squirrel Update.exe failed:',
         error,
       );
       quitOnce();
@@ -132,7 +132,7 @@ function handleSquirrelStartup({
     timer?.unref?.();
   } catch (error) {
     logger.error(
-      '[Bilingual Meeting Captions] Squirrel Update.exe could not be started:',
+      '[Twinscript] Squirrel Update.exe could not be started:',
       error,
     );
     quitOnce();

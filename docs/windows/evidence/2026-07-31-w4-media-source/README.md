@@ -24,7 +24,7 @@ Follows on from [`../2026-07-31-w4-probe/README.md`](../2026-07-31-w4-probe/READ
 | `MFCreateVirtualCamera` | PASS |
 | `IMFVirtualCamera::Start` with HKCU-only registration | FAIL — `0x80070003 ERROR_PATH_NOT_FOUND` |
 | `IMFVirtualCamera::Start` after machine-wide (HKLM) registration | PASS |
-| Windows enumerates the camera by name | PASS — `Bilingual Meeting Captions (Windows Virtual Camera)` |
+| Windows enumerates the camera by name | PASS — `Twinscript (Windows Virtual Camera)` |
 | A separate consumer activates the camera | PASS |
 | A separate consumer receives frames | **FAIL — `0xC00D3EA2 MF_E_VIDEO_RECORDING_DEVICE_INVALIDATED`** |
 
@@ -64,7 +64,7 @@ independent observations agree:
   entry.
 - The DLL's own log records exactly one loading process across every run —
   `vcam-host.exe`, our own host. The frame server never loaded it.
-- Moving the DLL out of the user profile to `C:\Users\Public\bilingual-vcam\`
+- Moving the DLL out of the user profile to `C:\Users\Public\twinscript-vcam\`
   (world-readable, no spaces in a parent directory) changed nothing, ruling out
   file-path ACLs and space handling.
 
@@ -95,7 +95,7 @@ that uninstall must remove a machine-wide registration.
 Registering the CLSID machine-wide (elevated, one UAC prompt) made
 `IMFVirtualCamera::Start` succeed immediately, with no other change. Windows then
 enumerated the camera in the ordinary device list as
-`Bilingual Meeting Captions (Windows Virtual Camera)` — note that Windows
+`Twinscript (Windows Virtual Camera)` — note that Windows
 **decorates the registered friendly name**, so consumers must match on a prefix,
 not the exact string.
 
@@ -189,17 +189,17 @@ native\camera-companion\build\Release\vcam-host.exe drive 20        # PASS
 
 # The frame server needs the DLL machine-wide AND readable by LocalService, so
 # stage it outside the user profile and register elevated (one UAC prompt).
-Copy-Item native\camera-companion\build\Release\* C:\Users\Public\bilingual-vcam -Force
-Start-Process C:\Users\Public\bilingual-vcam\vcam-host.exe register-machine -Verb RunAs -Wait
+Copy-Item native\camera-companion\build\Release\* C:\Users\Public\twinscript-vcam -Force
+Start-Process C:\Users\Public\twinscript-vcam\vcam-host.exe register-machine -Verb RunAs -Wait
 
-C:\Users\Public\bilingual-vcam\vcam-host.exe camera 45              # PASS, holds the camera
+C:\Users\Public\twinscript-vcam\vcam-host.exe camera 45              # PASS, holds the camera
 native\camera-companion\build\Release\vcam-host.exe consume 15      # FAILS at ReadSample
 ```
 
 `register`/`unregister` write `HKCU`; `register-machine`/`unregister-machine`
 write `HKLM` and require elevation.
 
-The DLL appends diagnostics to `%TEMP%\bilingual-vcam-source.log`, including
+The DLL appends diagnostics to `%TEMP%\twinscript-vcam-source.log`, including
 which process loaded it and every refused `QueryInterface`. That log is the only
 visibility into frame-server-hosted activation, which has no console.
 
@@ -215,8 +215,8 @@ while a process holds one open, and `MFVirtualCameraLifetime_Session` plus
 | --- | --- |
 | Machine-wide COM registration (needs elevation to remove) | `HKLM\SOFTWARE\Classes\CLSID\{6B8F2C4A-9D3E-4A17-8C25-1E7B4F6D9A03}` |
 | Per-user COM registration | `HKCU\Software\Classes\CLSID\{6B8F2C4A-9D3E-4A17-8C25-1E7B4F6D9A03}` |
-| Staged binaries (registration points at `bilingual-vcam3`) | `C:\Users\Public\bilingual-vcam\`, `bilingual-vcam2\`, `bilingual-vcam3\` |
-| Diagnostics | `C:\Users\Public\bilingual-vcam3\vcam-source.log` |
+| Staged binaries (registration points at `twinscript-vcam3`) | `C:\Users\Public\twinscript-vcam\`, `twinscript-vcam2\`, `twinscript-vcam3\` |
+| Diagnostics | `C:\Users\Public\twinscript-vcam3\vcam-source.log` |
 
 Three staging directories exist because the Frame Server keeps a loaded source
 DLL locked, so each rebuild had to go to a fresh path rather than overwrite.
@@ -226,7 +226,7 @@ needs elevation.
 To remove everything:
 
 ```powershell
-Start-Process C:\Users\Public\bilingual-vcam3\vcam-host.exe unregister-machine -Verb RunAs -Wait
+Start-Process C:\Users\Public\twinscript-vcam3\vcam-host.exe unregister-machine -Verb RunAs -Wait
 native\camera-companion\build\Release\vcam-host.exe unregister
-Remove-Item -Recurse -Force C:\Users\Public\bilingual-vcam,C:\Users\Public\bilingual-vcam2,C:\Users\Public\bilingual-vcam3
+Remove-Item -Recurse -Force C:\Users\Public\twinscript-vcam,C:\Users\Public\twinscript-vcam2,C:\Users\Public\twinscript-vcam3
 ```

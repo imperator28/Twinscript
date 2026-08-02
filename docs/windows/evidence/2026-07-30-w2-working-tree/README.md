@@ -23,8 +23,8 @@ Results captured after W2 implementation:
 - Vite production build: exits 0 and emits the W2 record, glossary-context,
   overlay-layout, controller, IPC, and preload modules under `dist-electron/`;
 - Electron Forge make: exits 0 and creates:
-  - `Bilingual Meeting Captions-0.1.0 Setup.exe` (140,339,200 bytes);
-  - `BilingualMeetingCaptions-0.1.0-full.nupkg` (139,399,916 bytes);
+  - `Twinscript-0.1.0 Setup.exe` (140,339,200 bytes);
+  - `Twinscript-0.1.0-full.nupkg` (139,399,916 bytes);
   - `RELEASES` (95 bytes).
 
 The first make attempt was blocked by sandbox network policy while Forge tried

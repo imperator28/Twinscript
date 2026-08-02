@@ -1,4 +1,4 @@
-# Product Requirements Document: Bilingual Meeting Captions
+# Product Requirements Document: Twinscript
 
 **Status:** Approved for implementation
 
@@ -6,7 +6,7 @@
 
 **Revision:** 2026-07-29 (r2 — implementation review applied)
 
-**Working title:** Bilingual Meeting Captions
+**Working title:** Twinscript
 
 **Distribution:** Private/internal
 

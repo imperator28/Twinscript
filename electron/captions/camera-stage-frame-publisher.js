@@ -13,6 +13,11 @@ class CameraStageFramePublisher {
     frameRate = DEFAULT_FRAME_RATE,
     now = () => process.hrtime.bigint(),
     onError = () => {},
+    // Comfortably inside the native reader's two-second repeat limit, so a
+    // single missed beat cannot expire the region.
+    heartbeatMs = 500,
+    setIntervalImpl = setInterval,
+    clearIntervalImpl = clearInterval,
   }) {
     if (!regionPublisher) throw new Error('regionPublisher is required');
     this.regionPublisher = regionPublisher;
@@ -21,9 +26,13 @@ class CameraStageFramePublisher {
     this.frameRate = frameRate;
     this.now = now;
     this.onError = onError;
+    this.heartbeatMs = heartbeatMs;
+    this.setIntervalImpl = setIntervalImpl;
+    this.clearIntervalImpl = clearIntervalImpl;
     this.geometry = computeGeometry({ width, height });
     this.window = null;
     this.paintHandler = null;
+    this.heartbeatTimer = null;
   }
 
   async start(window) {
@@ -61,9 +70,35 @@ class CameraStageFramePublisher {
     contents.setFrameRate?.(this.frameRate);
     contents.on('paint', this.paintHandler);
     contents.startPainting?.();
+    this.#startHeartbeat();
+  }
+
+  /**
+   * Keep the region marked current between paints.
+   *
+   * Chromium only emits `paint` when something in the page actually changes, so
+   * a stage sitting on the same captions produces no frames at all. Without this
+   * the native reader expires the region and the meeting app shows a blank
+   * camera — both while idle and during any pause between utterances.
+   */
+  #startHeartbeat() {
+    if (this.heartbeatTimer || !this.heartbeatMs) return;
+    this.heartbeatTimer = this.setIntervalImpl(() => {
+      Promise.resolve(this.regionPublisher.touch?.(this.now())).catch(
+        this.onError,
+      );
+    }, this.heartbeatMs);
+    this.heartbeatTimer?.unref?.();
+  }
+
+  #stopHeartbeat() {
+    if (!this.heartbeatTimer) return;
+    this.clearIntervalImpl(this.heartbeatTimer);
+    this.heartbeatTimer = null;
   }
 
   async stop() {
+    this.#stopHeartbeat();
     const window = this.window;
     this.window = null;
     if (window?.webContents && this.paintHandler) {

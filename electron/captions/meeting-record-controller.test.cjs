@@ -88,7 +88,7 @@ test('starting a session creates the visible directory and a pending manifest', 
   const { controller, documents, result } = await startedSession();
   assert.equal(result.recording, true);
   assert.equal(fs.existsSync(result.sessionDir), true);
-  assert.ok(result.sessionDir.startsWith(path.join(documents, 'Bilingual Meeting Captions')));
+  assert.ok(result.sessionDir.startsWith(path.join(documents, 'Twinscript')));
   const pendingManifest = controller.readPendingManifest('session-1');
   assert.equal(pendingManifest.sessionDir, result.sessionDir);
 });

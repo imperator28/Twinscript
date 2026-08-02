@@ -31,21 +31,35 @@ if (-not $Elevated) {
 if (-not (Test-Administrator)) {
   throw 'Native camera registration requires administrator approval.'
 }
-if ($UserSid -notmatch '^S-1-5-[0-9-]+$') {
-  throw 'The requesting Windows user SID is invalid.'
+# Accept any well-formed SID, not just the NT-authority (S-1-5-*) form. An
+# Entra ID / Azure AD account has identifier authority 12 (S-1-12-1-...), which
+# is the normal case on a corporate-joined machine, and an S-1-5-only pattern
+# rejected every such user with "SID is invalid".
+#
+# The value is interpolated into an icacls command line, so it still has to be
+# constrained. Two independent checks: a strict digits-and-hyphens shape, and a
+# parse by the platform's own SID type, which cannot succeed for a string
+# carrying an injection payload.
+if ($UserSid -notmatch '^S-1-\d{1,10}(-\d{1,10}){1,15}$') {
+  throw "The requesting Windows user SID is invalid: $UserSid"
+}
+try {
+  [void][Security.Principal.SecurityIdentifier]::new($UserSid)
+} catch {
+  throw "The requesting Windows user SID could not be parsed: $UserSid"
 }
 
 $sourceRoot = [IO.Path]::GetFullPath($SourceDirectory)
 $sourceHost = Join-Path $sourceRoot 'vcam-host.exe'
-$sourceDll = Join-Path $sourceRoot 'bilingual-vcam-source.dll'
+$sourceDll = Join-Path $sourceRoot 'twinscript-vcam-source.dll'
 foreach ($source in @($sourceHost, $sourceDll)) {
   if (-not (Test-Path -LiteralPath $source -PathType Leaf)) {
     throw "Native camera resource is missing: $source"
   }
 }
 
-$installRoot = [IO.Path]::GetFullPath((Join-Path $env:ProgramData 'Bilingual Meeting Captions'))
-$expectedRoot = [IO.Path]::GetFullPath("$env:ProgramData\Bilingual Meeting Captions")
+$installRoot = [IO.Path]::GetFullPath((Join-Path $env:ProgramData 'Twinscript'))
+$expectedRoot = [IO.Path]::GetFullPath("$env:ProgramData\Twinscript")
 if (-not $installRoot.Equals($expectedRoot, [StringComparison]::OrdinalIgnoreCase)) {
   throw 'Refusing an unexpected native-camera install target.'
 }
@@ -79,7 +93,7 @@ if (Test-Path -LiteralPath $registrationRoot) {
 }
 $installedHost = Join-Path $binaryRoot 'vcam-host.exe'
 Copy-Item -LiteralPath $sourceHost -Destination $installedHost -Force
-Copy-Item -LiteralPath $sourceDll -Destination (Join-Path $binaryRoot 'bilingual-vcam-source.dll') -Force
+Copy-Item -LiteralPath $sourceDll -Destination (Join-Path $binaryRoot 'twinscript-vcam-source.dll') -Force
 
 & $installedHost register-machine
 if ($LASTEXITCODE -ne 0) {

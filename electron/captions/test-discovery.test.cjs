@@ -42,7 +42,19 @@ test('the node:test job collects every caption .cjs suite', () => {
 
 test('no .cjs suite lives outside the directory the node:test glob covers', () => {
   const stray = [];
-  const skip = new Set(['node_modules', '.git', '.claude', 'build', 'out', 'dist-electron']);
+  // `.claude/` and `.worktrees/` hold gitignored worktree checkouts of other
+  // branches. Their stale test copies are not part of this tree's discovery and
+  // would otherwise be reported as suites no runner owns.
+  const skip = new Set([
+    'node_modules',
+    '.git',
+    '.claude',
+    '.worktrees',
+    '.superpowers',
+    'build',
+    'out',
+    'dist-electron',
+  ]);
   const walk = (dir) => {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
       if (entry.isDirectory()) {

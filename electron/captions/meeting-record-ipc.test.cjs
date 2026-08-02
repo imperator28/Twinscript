@@ -21,6 +21,8 @@ function createHarness() {
     meetingRecordsDirectory: null,
     autoSaveTranscript: true,
     keepAudioAutomatically: false,
+    captionHistoryEntries: 3,
+    captionOverlayHeight: 240,
   };
   const pending = {
     sessionId: 'session-123',
@@ -77,6 +79,10 @@ function createHarness() {
     resetAutoSize: () => {
       calls.push(['reset-auto-size']);
       settings = { ...settings, captionOverlayHeight: null };
+      return settings;
+    },
+    resetContentMeasurements: () => {
+      calls.push(['reset-content-measurements']);
       return settings;
     },
   };
@@ -237,6 +243,57 @@ test('preview visibility IPC returns the authoritative native snapshot', async (
     overlaysVisible: false,
     cameraStageVisible: false,
   });
+});
+
+test('changing visible history preserves the manual overlay height floor', async (t) => {
+  const harness = createHarness();
+  t.after(() => fs.rmSync(harness.root, { recursive: true, force: true }));
+
+  const result = await harness.handlers.get('captions:settings-set')(
+    harness.trustedEvent,
+    { captionHistoryEntries: 10 },
+  );
+
+  assert.equal(result.ok, true);
+  assert.equal(result.data.captionHistoryEntries, 10);
+  assert.equal(result.data.captionOverlayHeight, 240);
+  assert.equal(
+    harness.calls.some(([name]) => name === 'reset-content-measurements'),
+    true,
+  );
+  assert.equal(
+    harness.calls.some(([name]) => name === 'reset-auto-size'),
+    false,
+  );
+});
+
+test('layout IPC persists the sanitized layout and broadcasts its settings payload', async (t) => {
+  const harness = createHarness();
+  t.after(() => fs.rmSync(harness.root, { recursive: true, force: true }));
+
+  const result = await harness.handlers.get('captions:layout-set')(
+    harness.trustedEvent,
+    { layout: 'side-by-side' },
+  );
+
+  assert.equal(result.ok, true);
+  assert.equal(result.data.layout, 'side-by-side');
+  assert.equal(
+    harness.calls.some(
+      ([name, channel, payload]) =>
+        name === 'broadcast' &&
+        channel === 'captions:settings' &&
+        payload.layout === 'side-by-side',
+    ),
+    true,
+  );
+  assert.equal(
+    harness.calls.some(
+      ([name, settings]) =>
+        name === 'apply-settings' && settings.layout === 'side-by-side',
+    ),
+    true,
+  );
 });
 
 test('meeting-record IPC exposes only validated owner actions', async (t) => {

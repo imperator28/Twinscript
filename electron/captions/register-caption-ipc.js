@@ -172,9 +172,9 @@ function registerCaptionIpc({
     if (
       Object.hasOwn(patch || {}, 'captionHistoryEntries') &&
       settings.captionHistoryEntries !== previous.captionHistoryEntries &&
-      typeof windows.resetAutoSize === 'function'
+      typeof windows.resetContentMeasurements === 'function'
     ) {
-      settings = windows.resetAutoSize();
+      settings = windows.resetContentMeasurements();
     } else if (typeof windows.applySettings === 'function') {
       windows.applySettings(settings);
     } else if (patch.layout) {
@@ -344,7 +344,19 @@ function registerCaptionIpc({
     }
     return health;
   });
-  handle('captions:layout-set', ({ layout }) => windows.applyLayout(layout));
+  handle('captions:layout-set', ({ layout }) => {
+    const settings = settingsStore.set({ layout });
+    if (typeof windows.applySettings === 'function') {
+      windows.applySettings(settings);
+    } else {
+      windows.applyLayout(settings.layout);
+    }
+    const payload = windows.settingsPayload
+      ? windows.settingsPayload(settings)
+      : settings;
+    windows.broadcast('captions:settings', payload);
+    return payload;
+  });
   handle('captions:overlay-content-height', ({ audience, height, generation }, event) => {
     if (
       !['en', 'zh'].includes(audience) ||

@@ -5,7 +5,22 @@ import { captionThemeById } from './captionThemes';
 const clampHistoryEntries = (value: number) =>
   Math.max(3, Math.min(10, Math.round(Number(value) || 6)));
 
-function retainVisibleCaptions(
+const MAX_RETAINED_SETTLED = 10;
+
+export function retainCaptionBuffer(captions: AudienceCaption[]) {
+  const ordered = [...captions].sort(
+    (left, right) => left.sequence - right.sequence,
+  );
+  const completed = ordered
+    .filter((caption) => caption.settled)
+    .slice(-MAX_RETAINED_SETTLED);
+  const inFlight = ordered.filter((caption) => !caption.settled);
+  return [...completed, ...inFlight].sort(
+    (left, right) => left.sequence - right.sequence,
+  );
+}
+
+export function visibleCaptions(
   captions: AudienceCaption[],
   completedLimit: number,
 ) {
@@ -41,7 +56,6 @@ export function CaptionSurface({ audience }: { audience: Audience }) {
     'blueprint',
   );
   const [autoSizeGeneration, setAutoSizeGeneration] = useState(0);
-  const historyEntriesRef = useRef(6);
   const activeSessionIdRef = useRef<string | null>(null);
   const contentRef = useRef<HTMLDivElement>(null);
 
@@ -61,7 +75,7 @@ export function CaptionSurface({ audience }: { audience: Audience }) {
         const index = next.findIndex((item) => item.id === event.id);
         if (index >= 0) next[index] = event;
         else next.push(event);
-        return retainVisibleCaptions(next, historyEntriesRef.current);
+        return retainCaptionBuffer(next);
       });
     });
     const offStatus = window.captions.onStatus((nextStatus) => {
@@ -79,9 +93,7 @@ export function CaptionSurface({ audience }: { audience: Audience }) {
       setThemeId(settings.captionTheme || 'blueprint');
       setAutoSizeGeneration(settings.captionAutoSizeGeneration || 0);
       const nextHistory = clampHistoryEntries(settings.captionHistoryEntries);
-      historyEntriesRef.current = nextHistory;
       setHistoryEntries(nextHistory);
-      setCaptions((current) => retainVisibleCaptions(current, nextHistory));
     });
     void window.captions.getSettings().then((result) => {
       if (result.ok) {
@@ -90,7 +102,6 @@ export function CaptionSurface({ audience }: { audience: Audience }) {
         setThemeId(settings.captionTheme || 'blueprint');
         setAutoSizeGeneration(settings.captionAutoSizeGeneration || 0);
         const nextHistory = clampHistoryEntries(settings.captionHistoryEntries);
-        historyEntriesRef.current = nextHistory;
         setHistoryEntries(nextHistory);
       }
     });
@@ -123,7 +134,7 @@ export function CaptionSurface({ audience }: { audience: Audience }) {
   }, [audience, autoSizeGeneration]);
 
   const visible = useMemo(
-    () => retainVisibleCaptions(captions, historyEntries),
+    () => visibleCaptions(captions, historyEntries),
     [captions, historyEntries],
   );
   const focusedIds = useMemo(() => {

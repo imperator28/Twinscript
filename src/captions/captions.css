@@ -283,15 +283,20 @@ input[type="range"] { width: 100%; }
 .camera-stage {
   position: fixed;
   inset: 0;
+  display: grid;
   width: 100vw;
   height: 100vh;
   overflow: hidden;
   background: #05070a;
   color: #fff;
 }
+.camera-stage--stacked { grid-template: repeat(2, minmax(0, 1fr)) / 1fr; }
+.camera-stage--side-by-side { grid-template: 1fr / repeat(2, minmax(0, 1fr)); }
 .camera-stage__slate {
   display: grid;
   height: 100%;
+  grid-column: 1 / -1;
+  grid-row: 1 / -1;
   padding: 5vh 5vw;
   place-content: center;
   background: #101820;
@@ -302,7 +307,9 @@ input[type="range"] { width: 100%; }
 .camera-stage__mark { color: #7fb3e8; font-size: clamp(20px, 2.2vw, 38px); font-weight: 800; letter-spacing: .12em; }
 .camera-stage__audience {
   box-sizing: border-box;
-  height: 50%;
+  min-width: 0;
+  min-height: 0;
+  height: auto;
   padding: 5vh 5vw;
   overflow: hidden;
 }
@@ -320,15 +327,16 @@ input[type="range"] { width: 100%; }
 }
 .camera-stage__live { display: flex; align-items: center; gap: .65em; }
 .camera-stage__live i { width: .55em; height: .55em; border-radius: 50%; background: #38e19a; box-shadow: 0 0 1em rgba(56,225,154,.55); }
-.camera-stage__history { display: flex; flex-direction: column; justify-content: flex-end; height: 35vh; overflow: hidden; }
+.camera-stage__history { display: flex; flex-direction: column; justify-content: flex-end; height: calc(100% - 5vh); overflow: hidden; }
 .camera-stage__listening { margin: 0; color: inherit; font-size: clamp(32px, 4vw, 72px); font-weight: 650; opacity: .78; }
 .camera-stage__entry {
   display: grid;
   grid-template-columns: minmax(7.5rem, 9vw) 1fr;
   gap: 1.6vw;
   align-items: baseline;
-  margin: .35vh 0;
-  font-size: clamp(24px, 2.7vw, 50px);
+  margin-block: calc(.35vh - var(--stage-density) * .22vh);
+  margin-inline: 0;
+  font-size: clamp(22px, calc(3vw - var(--stage-density) * 1.15vw), 50px);
   line-height: 1.16;
   transition: opacity 180ms cubic-bezier(.2,.8,.2,1), transform 180ms cubic-bezier(.2,.8,.2,1);
 }
@@ -341,7 +349,14 @@ input[type="range"] { width: 100%; }
 .camera-stage__entry[data-age="6"],
 .camera-stage__entry[data-age="7"],
 .camera-stage__entry[data-age="8"],
-.camera-stage__entry[data-age="9"] { opacity: .52; font-size: clamp(20px, 2.1vw, 40px); }
+.camera-stage__entry[data-age="9"] {
+  opacity: .52;
+  font-size: clamp(18px, calc(2.25vw - var(--stage-density) * .7vw), 40px);
+}
+.camera-stage--side-by-side .camera-stage__entry {
+  grid-template-columns: minmax(5rem, 6vw) 1fr;
+  font-size: clamp(20px, calc(2.35vw - var(--stage-density) * .8vw), 42px);
+}
 
 @media (max-width: 760px) {
   .control-shell { padding: 22px 18px; }

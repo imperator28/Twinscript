@@ -154,6 +154,37 @@ describe('CaptionSurface', () => {
     expect(Number(oldest?.style.opacity)).toBeGreaterThanOrEqual(0.42);
   });
 
+  it('reveals retained captions when visible history increases', async () => {
+    render(<CaptionSurface audience="en" />);
+    await act(async () => {});
+    const caption = (sequence: number): AudienceCaption => ({
+      id: `line-${sequence}`,
+      sessionId: 'session',
+      sequence,
+      sourceChannel: 'microphone',
+      sourceText: `Source ${sequence}`,
+      sourceLanguage: 'en',
+      audience: 'en',
+      text: `Line ${sequence}`,
+      status: 'final',
+      settled: true,
+      revision: 1,
+      passthrough: true,
+      sourceStartedAt: sequence,
+    });
+
+    act(() => settingsListener?.({ captionHistoryEntries: 3 }));
+    act(() => {
+      for (let sequence = 1; sequence <= 10; sequence += 1) {
+        audienceListener?.(caption(sequence));
+      }
+    });
+    expect(screen.queryByText('Line 1')).not.toBeInTheDocument();
+
+    act(() => settingsListener?.({ captionHistoryEntries: 10 }));
+    expect(await screen.findByText('Line 1')).toBeInTheDocument();
+  });
+
   it('focuses every in-flight caption and the two newest settled captions', () => {
     const { container } = render(<CaptionSurface audience="en" />);
     const caption = (

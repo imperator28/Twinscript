@@ -417,7 +417,14 @@ class CaptionWindowManager {
   }
 
   requestedHeight() {
-    return this.manualHeight ?? this.automaticHeight ?? undefined;
+    return this.effectiveHeight() ?? undefined;
+  }
+
+  effectiveHeight() {
+    const candidates = [this.manualHeight, this.automaticHeight].filter(
+      (height) => height !== null,
+    );
+    return candidates.length ? Math.max(...candidates) : null;
   }
 
   setWindowBounds(audience, window, bounds) {
@@ -525,7 +532,7 @@ class CaptionWindowManager {
   }
 
   applyCurrentMeasurements() {
-    if (this.manualHeight !== null || this.contentMeasurements.size === 0) return;
+    if (this.contentMeasurements.size === 0) return;
     this.automaticHeight = Math.max(...this.contentMeasurements.values());
     this.applyLayout(this.layout);
   }
@@ -541,7 +548,6 @@ class CaptionWindowManager {
       return null;
     }
     this.contentMeasurements.set(audience, bounded);
-    if (this.manualHeight !== null) return bounded;
 
     const availableAudiences = AUDIENCES.filter((name) => {
       const window = this.captionWindows.get(name);
@@ -571,7 +577,18 @@ class CaptionWindowManager {
     if (bounded === null) return null;
     this.clearFallbackTimer();
     this.manualHeight = bounded;
+    this.automaticHeight = null;
+    this.contentMeasurements.clear();
+    this.autoSizeGeneration += 1;
     this.applyLayout(this.layout);
+    const currentSettings = this.settingsStore?.get?.() || {};
+    this.broadcast(
+      'captions:settings',
+      this.settingsPayload({
+        ...currentSettings,
+        captionOverlayHeight: this.manualHeight,
+      }),
+    );
     if (this.persistTimer) clearTimeout(this.persistTimer);
     this.persistTimer = setTimeout(() => {
       this.persistTimer = null;
@@ -589,18 +606,15 @@ class CaptionWindowManager {
     return bounded;
   }
 
-  resetAutoSize() {
+  resetContentMeasurements() {
     this.clearFallbackTimer();
-    this.manualHeight = null;
     this.automaticHeight = null;
     this.contentMeasurements.clear();
     this.autoSizeGeneration += 1;
-    const settings =
-      this.settingsStore?.set?.({ captionOverlayHeight: null }) || {
-        captionOverlayHeight: null,
-      };
     this.applyLayout(this.layout);
-    return settings;
+    return this.settingsStore?.get?.() || {
+      captionOverlayHeight: this.manualHeight,
+    };
   }
 
   applySettings(settings = {}) {

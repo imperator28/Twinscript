@@ -106,7 +106,7 @@ performance.
 | Drag | The visible top handle moves each window reliably. |
 | Synchronized resize | Drag the height of either English or Chinese. The peer follows live, both remain equal, and neither snaps back as captions arrive. |
 | Resize persistence | A manually chosen height survives Stop/Start and full app restart. |
-| History resets size | Changing Visible history clears the manual height and recomputes one equal automatic height from natural content. |
+| History preserves manual floor | Changing Visible history keeps a manually dragged height as the minimum; the equal pair grows above that floor when required and never automatically shrinks below it. |
 | Stacked | Windows remain separate, ordered, and inside the work area. |
 | Side by side | Both windows are visibly side by side on a wide display. |
 | Balanced caps | The stacked pair blocks no more than about 45% of the work area; side-by-side panels block no more than about 33%. Overflow scrolls. |
@@ -165,6 +165,32 @@ conditions below; complete those checks before marking W2 passed.
 | Readability | Older retained entries remain readable with age-based opacity. |
 | No pace delay | Setting history to 10 does not delay transcription or translation. |
 | Layout modes | Stacked and side-by-side remain in the display work area at maximum history. |
+
+### Projection behavior â€” Windows and macOS manual sequence
+
+Run the following on Windows, then repeat on actual macOS hardware. On macOS,
+use the Bilingual Camera Stage preview or OBS capture path; the native Windows
+camera installation action is intentionally unavailable.
+
+1. Start an on-screen-caption session and drag either audience overlay to a
+   clearly taller manual height. Confirm the peer follows and both panels stay
+   equal.
+2. Set Visible history to 3, then 10, then 3. At 10, confirm the pair can grow
+   upward from its bottom edge to fit the additional entries. After returning to
+   3, confirm it does not automatically shrink below the manually selected
+   height; explicitly drag smaller to confirm that manual resize is respected.
+3. In the audience preview, choose Stacked, then Side by side. Hide the preview,
+   press Escape to close its stage window, and reopen it. Confirm each layout
+   fills the video frame with the selected arrangement and remains readable.
+4. Select Virtual camera. Confirm the Stacked and Side by side controls remain
+   visible and usable, the selected state follows the saved setting, and
+   on-screen overlays remain hidden while the Camera Stage is previewed. Switch
+   back to On-screen captions and confirm the active session continues.
+
+Record the drag height, history values, layout, output mode, and whether the
+bottom edge stayed anchored. PASS requires equal panels, automatic growth above
+the manual floor, no automatic shrink below it, and full-frame Camera Stage
+layouts on both platforms.
 
 ### Session boundary and caption themes
 

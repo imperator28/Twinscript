@@ -30,6 +30,7 @@ export function CameraStage() {
   const [entries, setEntries] = useState<CameraStageEntry[]>([]);
   const [status, setStatus] = useState<SessionStatus>({ state: 'ready' });
   const [historyEntries, setHistoryEntries] = useState(6);
+  const [layout, setLayout] = useState<CaptionSettings['layout']>('stacked');
   const [themeId, setThemeId] = useState<CaptionSettings['captionTheme']>(
     'blueprint',
   );
@@ -100,6 +101,7 @@ export function CameraStage() {
     const applySettings = (value: Record<string, unknown>) => {
       const settings = value as unknown as CaptionSettings;
       setHistoryEntries(clampHistoryEntries(settings.captionHistoryEntries));
+      setLayout(settings.layout === 'side-by-side' ? 'side-by-side' : 'stacked');
       setThemeId(settings.captionTheme || 'blueprint');
     };
     const offSettings = window.captions.onSettings(applySettings);
@@ -137,9 +139,11 @@ export function CameraStage() {
 
   return (
     <main
-      className="camera-stage"
+      className={`camera-stage camera-stage--${layout}`}
       style={
         {
+          '--stage-history-count': String(historyEntries),
+          '--stage-density': String((historyEntries - 3) / 7),
           '--stage-en-background': theme.surfaces.en.background,
           '--stage-en-primary': theme.surfaces.en.primary,
           '--stage-en-secondary': theme.surfaces.en.secondary,

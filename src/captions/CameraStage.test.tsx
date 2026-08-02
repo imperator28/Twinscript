@@ -183,4 +183,34 @@ describe('CameraStage', () => {
     expect(container.querySelector('button, input, select, textarea, a')).toBeNull();
     expect(screen.queryByText(/credential|OpenAI|notification|settings/i)).not.toBeInTheDocument();
   });
+
+  it('uses shared side-by-side layout and history density', async () => {
+    render(<CameraStage />);
+    await act(async () => {});
+
+    act(() =>
+      settingsListener?.({
+        layout: 'side-by-side',
+        captionHistoryEntries: 10,
+        captionTheme: 'blueprint',
+      }),
+    );
+
+    const stage = await screen.findByRole('main');
+    expect(stage).toHaveClass('camera-stage--side-by-side');
+    expect(stage).toHaveStyle({ '--stage-history-count': '10' });
+    expect(stage).toHaveStyle({ '--stage-density': '1' });
+
+    act(() =>
+      settingsListener?.({
+        layout: 'unexpected-layout',
+        captionHistoryEntries: 3,
+        captionTheme: 'blueprint',
+      }),
+    );
+
+    expect(stage).toHaveClass('camera-stage--stacked');
+    expect(stage).toHaveStyle({ '--stage-history-count': '3' });
+    expect(stage).toHaveStyle({ '--stage-density': '0' });
+  });
 });

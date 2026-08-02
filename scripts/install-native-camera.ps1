@@ -31,7 +31,12 @@ if (-not $Elevated) {
 if (-not (Test-Administrator)) {
   throw 'Native camera registration requires administrator approval.'
 }
-if ($UserSid -notmatch '^S-1-5-[0-9-]+$') {
+try {
+  # Microsoft-account identities use the S-1-12 authority instead of the
+  # traditional S-1-5 authority. Let Windows validate the SID structure so
+  # both account types are accepted without weakening the ACL target.
+  [void][Security.Principal.SecurityIdentifier]::new($UserSid)
+} catch {
   throw 'The requesting Windows user SID is invalid.'
 }
 

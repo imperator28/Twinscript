@@ -47,7 +47,7 @@ let nativeCameraHealthListener:
   | undefined;
 
 const settings = {
-  settingsVersion: 9,
+  settingsVersion: 10,
   layout: 'stacked',
   outputMode: 'overlays',
   primaryProfile: 'economy',
@@ -240,7 +240,9 @@ describe('meeting caption controls', () => {
       hideCameraStage: vi.fn(() =>
         ok({ overlaysVisible: false, cameraStageVisible: false }),
       ),
-      setLayout: () => ok({ layout: 'stacked' }),
+      setLayout: vi.fn((layout: 'stacked' | 'side-by-side') =>
+        ok({ ...settings, layout }),
+      ),
       exportSession: () => ok({ canceled: true }),
       validateCredential: () => ok({ valid: true }),
       requestMicrophoneAccess: vi.fn(() =>
@@ -654,6 +656,32 @@ describe('meeting caption controls', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Side by side' }));
     await waitFor(() =>
       expect(preview).toHaveClass('overlay-preview--side-by-side'),
+    );
+  });
+
+  it('keeps projection layout controls usable in virtual-camera mode', async () => {
+    render(<ControlApp />);
+    await screen.findByRole('button', { name: /Start session/i });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Virtual camera' }));
+    await screen.findByRole('button', { name: 'Stacked' });
+
+    expect(screen.getByRole('button', { name: 'Stacked' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    expect(screen.getByRole('button', { name: 'Side by side' })).toHaveAttribute(
+      'aria-pressed',
+      'false',
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Side by side' }));
+    await waitFor(() =>
+      expect(window.captions.setLayout).toHaveBeenCalledWith('side-by-side'),
+    );
+    expect(screen.getByRole('button', { name: 'Side by side' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
     );
   });
 

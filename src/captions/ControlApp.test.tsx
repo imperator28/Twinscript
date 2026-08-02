@@ -703,7 +703,7 @@ describe('meeting caption controls', () => {
     );
     expect(window.captions.showCameraStage).not.toHaveBeenCalled();
     expect(window.captions.hideWindows).not.toHaveBeenCalled();
-    expect(screen.getByText(/capture the Bilingual Camera Stage/i)).toBeVisible();
+    expect(screen.getByText(/capture the Twinscript Camera Stage/i)).toBeVisible();
 
     fireEvent.click(
       screen.getByRole('button', { name: 'On-screen captions' }),

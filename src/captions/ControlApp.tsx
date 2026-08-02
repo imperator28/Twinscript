@@ -966,7 +966,7 @@ export function ControlApp() {
                   )}
                   {(!nativeCameraHealth?.supported || !nativeCameraHealth?.installed) && (
                     <small>
-                      Or capture the Bilingual Camera Stage window in OBS, then start OBS Virtual Camera.
+                      Or capture the Twinscript Camera Stage window in OBS, then start OBS Virtual Camera.
                     </small>
                   )}
                 </div>

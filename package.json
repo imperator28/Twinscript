@@ -182,6 +182,8 @@
     "test": "vitest",
     "test:captions": "node --test electron/captions/*.test.cjs",
     "test:ui": "vitest --ui",
+    "w1:corpus": "node scripts/run-w1-corpus.mjs",
+    "w1:corpus:check": "node scripts/run-w1-corpus.mjs --dry-run",
     "electron:dev": "vite",
     "electron:build": "npm run build && npm run make",
     "electron:start": "electron .",

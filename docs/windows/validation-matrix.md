@@ -98,6 +98,42 @@ Suggested release threshold for the scripted bilingual corpus:
 These thresholds are product gates, not claims about current measured
 performance.
 
+#### Automated coverage
+
+Four of those seven thresholds are measured by a repeatable run:
+
+```bash
+npm run w1:corpus -- --out docs/windows/evidence/w1-corpus.json
+```
+
+It drives all 256 scripted corpus prompts through the real normalizer and the
+real glossary compiler for both audiences, then writes a JSON and a Markdown
+report and exits non-zero if any gate fails. It covers wrong-audience-language
+rate, protected-token preservation, critical value error rate, and normalizer
+latency. It needs `OPENAI_API_KEY` in the environment or `.env.local`.
+
+It does **not** cover ASR accuracy, dropped audio, duplicate visible-entry
+rate, or true spoken-word-to-overlay latency — its latency figure is normalizer
+round-trip only. Those four still require the manual soak below, so a green run
+is a necessary but not sufficient condition for W1.
+
+Two offline modes need no key and no tokens:
+
+```bash
+npm run w1:corpus:check
+```
+
+validates corpus shape and glossary budgets, and scores each prompt's own
+reference answer with the same detectors — catching cases where a perfect
+translation would still be marked a defect. `--mock` additionally replays the
+whole pipeline offline; a `--mock` run that fails a gate indicates a bug in the
+runner rather than in the product.
+
+One known corpus/detector disagreement is reported by `w1:corpus:check`:
+`tool-revision-1-en` renders "Tool 3" as 三号模具, which the protected-token
+check scores as losing the literal `3`. Until that is settled in the corpus or
+the detector, protected-token preservation tops out at 99.61%.
+
 ### Windows overlay
 
 | Check | Pass condition |

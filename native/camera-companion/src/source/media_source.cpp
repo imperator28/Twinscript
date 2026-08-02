@@ -142,6 +142,19 @@ HRESULT MediaSource::Initialize() {
   if (FAILED(hr)) return hr;
   hr = stream_attributes_->SetGUID(MF_DEVICESTREAM_STREAM_CATEGORY, kPinNameVideoCapture);
   if (FAILED(hr)) return hr;
+  // Declares the stream shareable through the Windows Frame Server. Without it
+  // the source activates and is inspected, then nothing further happens: the
+  // frame server never calls Start or RequestSample and a consumer's ReadSample
+  // fails with MF_E_VIDEO_RECORDING_DEVICE_INVALIDATED. Microsoft's
+  // VirtualCamera reference sets this on every stream it exposes.
+  hr = stream_attributes_->SetUINT32(MF_DEVICESTREAM_FRAMESERVER_SHARED, 1);
+  if (FAILED(hr)) return hr;
+  // The reference declares the frame-source type per stream as well as on the
+  // source, so a frame-server client inspecting only the stream still sees a
+  // colour camera.
+  hr = stream_attributes_->SetUINT32(MF_DEVICESTREAM_ATTRIBUTE_FRAMESOURCE_TYPES,
+                                     MFFrameSourceTypes_Color);
+  if (FAILED(hr)) return hr;
 
   MediaStream* raw_stream = nullptr;
   hr = MediaStream::Create(this, stream_descriptor.Get(), &raw_stream);

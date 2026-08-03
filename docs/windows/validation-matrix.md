@@ -294,16 +294,21 @@ remain unpassed until directly observed.
 
 ## W5 — signed release
 
+Provider selection is the only blocker; see `docs/windows/signing.md`.
+
 | Check | Pass condition |
 | --- | --- |
-| Repository workflow | Signing job runs for `imperator28/bilingualmeetingcaption`, not only upstream Sokuji. |
-| Secret handling | Signing material exists only in the protected CI environment. |
-| Signature coverage | Installer, app EXE, camera companion, and registration components verify successfully. |
-| Clean install | Signed setup installs for a standard user on a clean Windows profile. |
-| Upgrade | Installing the next signed version preserves settings and meeting records. |
-| Uninstall | App and native camera are removed; user meeting records are handled according to the stated policy. |
-| SmartScreen | Release behavior is documented; no unexpected unsigned-child warning occurs. |
-| Release assets | Published EXE/NUPKG metadata matches the signed files. |
+| Repository workflow | Signing job runs for `imperator28/bilingualmeetingcaption`, not only upstream Sokuji. **Resolved by `windows-release.yml`.** `build.yml` cannot release here at all: its `sign-windows` job is gated on the upstream repository, `release` needs that job, and a skipped dependency skips its dependents — so tagging produces no release through `build.yml`. |
+| Tag/version agreement | **Automated.** `node scripts/verify-tag-version.mjs "$GITHUB_REF"` fails the release if the tag and the built version disagree. Root `package.json` and `package-lock.json` only — the extension is a separate upstream product at an unrelated version and is deliberately excluded. |
+| Secret handling | Signing material exists only in the protected CI environment. **Workflow reads provider credentials from a `windows-signing` GitHub environment; nothing is in repository secrets.** Pending real credentials. |
+| Signature coverage | Installer, app EXE, camera companion, and registration components verify successfully. **Automated** by `npm run verify:signatures`; fails on an empty scan, missing installer, unmapped status, tampering, untrusted root, or unexpected signer. Pending real signatures. |
+| Signing order | **Sign before packaging.** `electron-forge make` seals the app EXE and both native camera binaries inside the `.nupkg`; signing only the finished `*Setup*.exe` — what the inherited `build.yml` job does — leaves them unsigned. Use `maker-squirrel`'s `windowsSign`. |
+| Clean install | Signed setup installs for a standard user on a clean Windows profile. **Manual** — needs a clean profile. |
+| Upgrade | Installing the next signed version preserves settings and meeting records. **Manual** — needs two signed versions. |
+| Uninstall | App and native camera are removed; user meeting records are handled according to the stated policy. **Manual.** |
+| SmartScreen | Release behavior is documented; no unexpected unsigned-child warning occurs. **Manual.** Record the observed behaviour even if it warns: an OV certificate has no reputation on day one. |
+| Release assets | Published EXE/NUPKG metadata matches the signed files. **Partly automated** — the release job publishes only what the verified build produced, and refuses to publish at all when signing is unconfigured. |
+| Launch/exit | **Automated.** `npm run smoke:packaged` requires the packaged app to launch, survive startup, and exit completely on window close. Needs an interactive desktop session on the runner. |
 
 ## 60-minute soak script
 

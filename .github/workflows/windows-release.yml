@@ -1,0 +1,264 @@
+name: Windows release
+
+# W5 release pipeline for the Windows caption client.
+#
+# Deliberately separate from build.yml. That workflow is the inherited Sokuji
+# pipeline: it also builds the browser extension, Linux packages and macOS PKGs,
+# and its `release` job needs `sign-windows`, which is gated on
+# `github.repository == 'kizuna-ai-lab/sokuji'`. In this fork that job is
+# skipped, and a skipped dependency skips its dependents - so tagging here
+# produces no release at all through build.yml. This workflow is the fix, and it
+# does not couple a caption release to any other product.
+#
+# SIGNING IS NOT YET CONFIGURED. Until a provider is chosen this workflow will
+# build, smoke-test and verify, and will refuse to publish. See
+# docs/windows/signing.md for exactly what to add and where.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      unsigned_internal_build:
+        description: >-
+          Build and verify without signing. Produces artifacts only and never
+          publishes a release. Has no effect on a tag push.
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  # Never cancel a release mid-flight: a half-published release is worse than a
+  # duplicated run.
+  group: windows-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  test:
+    name: Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      # A tag is built verbatim, so a tag on a commit whose version fields
+      # disagree would publish an installer under a version it does not carry.
+      # Checked first: it costs seconds and invalidates everything after it.
+      - name: Verify the tag matches the built version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: node scripts/verify-tag-version.mjs "${{ github.ref }}"
+
+      - name: Caption main-process tests
+        run: npm run test:captions
+
+      - name: Renderer and component tests
+        run: npx vitest run
+
+      - name: Corpus and glossary self-check
+        run: npm run w1:corpus:check
+
+      - name: Production build
+        run: npm run build
+
+  windows-build:
+    name: Windows x64 build, smoke, and verify
+    needs: test
+    runs-on: windows-latest
+    outputs:
+      signing-configured: ${{ steps.signing.outputs.configured }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Report signing configuration
+        id: signing
+        shell: pwsh
+        env:
+          SIGNING_PROVIDER: ${{ vars.WINDOWS_SIGNING_PROVIDER }}
+        run: |
+          $configured = -not [string]::IsNullOrWhiteSpace($env:SIGNING_PROVIDER)
+          "configured=$($configured.ToString().ToLower())" |
+            Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          if ($configured) {
+            Write-Output "Signing provider configured: $env:SIGNING_PROVIDER"
+          } else {
+            Write-Output 'No signing provider configured (vars.WINDOWS_SIGNING_PROVIDER is unset).'
+          }
+
+      - name: Build native camera companion
+        shell: pwsh
+        run: |
+          cmake -S native/camera-companion -B native/camera-companion/build -A x64
+          cmake --build native/camera-companion/build --config Release
+
+      # Signing must happen HERE, before packaging, for everything that ends up
+      # nested inside the installer: twinscript.exe, vcam-host.exe and
+      # twinscript-vcam-source.dll are all sealed into the .nupkg by
+      # `electron-forge make`. A job that signs only the finished *Setup*.exe -
+      # which is what build.yml's inherited SignPath job does - leaves every
+      # nested binary unsigned. That matters most for the media source DLL,
+      # which the Windows Frame Server loads into its own process.
+      #
+      # electron-forge's maker-squirrel `windowsSign` option is the intended
+      # hook: it signs the packaged binaries and the generated setup.
+      # See docs/windows/signing.md.
+
+      - name: Build and package
+        run: npm run make -- --arch=x64
+
+      - name: Verify Squirrel output
+        shell: pwsh
+        run: |
+          $dir = 'out/make/squirrel.windows/x64'
+          if (-not (Test-Path $dir)) { throw "Missing $dir" }
+          foreach ($pattern in '*.exe', '*.nupkg', 'RELEASES') {
+            if (-not (Get-ChildItem $dir -Filter $pattern)) {
+              throw "No $pattern produced in $dir"
+            }
+          }
+          Get-ChildItem $dir | Select-Object Name, Length | Format-Table
+
+      - name: Verify packaged native camera resources
+        shell: pwsh
+        run: |
+          $resources = 'out/Twinscript-win32-x64/resources/native-camera'
+          foreach ($name in 'vcam-host.exe', 'twinscript-vcam-source.dll',
+                            'install-native-camera.ps1', 'uninstall-native-camera.ps1') {
+            $target = Join-Path $resources $name
+            if (-not (Test-Path -LiteralPath $target -PathType Leaf)) {
+              throw "Missing packaged native camera resource: $target"
+            }
+          }
+
+      - name: Scan packaged output for API keys
+        shell: pwsh
+        run: |
+          $patterns = 'sk-[A-Za-z0-9]{32,}', 'sk-(proj|svcacct|admin)-[A-Za-z0-9_-]{20,}'
+          $hits = Get-ChildItem -Recurse -File 'out/make' | Select-String -Pattern $patterns -List
+          if ($hits) {
+            $hits | ForEach-Object { Write-Output $_.Path }
+            throw 'Possible API key found in build output'
+          }
+          Write-Output 'No API key patterns found in out/make.'
+
+      # Runs here rather than as its own job on purpose: the packaged directory
+      # is ~355 MB, and shipping it to a second runner would cost a round-trip
+      # for no extra signal. The runner must have an interactive desktop session
+      # for the window to appear; the script says so explicitly if it does not.
+      - name: Packaged app launch/exit smoke test
+        shell: pwsh
+        run: npm run smoke:packaged
+
+      - name: Verify signatures
+        shell: pwsh
+        env:
+          SIGNING_CONFIGURED: ${{ steps.signing.outputs.configured }}
+          EXPECTED_SIGNER: ${{ vars.WINDOWS_SIGNING_SUBJECT }}
+        run: |
+          # Not $args: that is a reserved automatic variable in PowerShell.
+          $verifyArgs = @('out')
+          if ($env:SIGNING_CONFIGURED -eq 'true') {
+            if (-not [string]::IsNullOrWhiteSpace($env:EXPECTED_SIGNER)) {
+              $verifyArgs += @('--expect-signer', $env:EXPECTED_SIGNER)
+            }
+          } else {
+            # Not publishable; the gate in windows-release enforces that.
+            $verifyArgs += '--allow-unsigned'
+          }
+          $verifyArgs += @('--json', 'signature-report.json')
+          node scripts/verify-windows-signatures.mjs @verifyArgs
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-x64-${{ github.ref_name }}
+          retention-days: 30
+          if-no-files-found: error
+          path: |
+            out/make/squirrel.windows/x64/*.exe
+            out/make/squirrel.windows/x64/*.nupkg
+            out/make/squirrel.windows/x64/RELEASES
+            signature-report.json
+
+  windows-release:
+    name: Publish
+    needs: windows-build
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      # Fail-closed. A tag push is a real release: without signing configured it
+      # stops here with an actionable message rather than publishing something
+      # SmartScreen will block and users cannot verify. An unsigned build is
+      # reachable only by explicitly asking for one via workflow_dispatch, and
+      # even then nothing is published.
+      - name: Release gate
+        shell: pwsh
+        env:
+          SIGNING_CONFIGURED: ${{ needs.windows-build.outputs.signing-configured }}
+          IS_TAG: ${{ startsWith(github.ref, 'refs/tags/v') }}
+          UNSIGNED_INTERNAL: ${{ inputs.unsigned_internal_build }}
+        run: |
+          if ($env:SIGNING_CONFIGURED -eq 'true') {
+            Write-Output 'Signed release: proceeding to publish.'
+            'publish=true' | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          } elseif ($env:IS_TAG -eq 'true') {
+            Write-Output '::error::Refusing to publish an unsigned release.'
+            Write-Output ''
+            Write-Output 'This tag would publish binaries that no user can verify and'
+            Write-Output 'that SmartScreen will warn on. Configure signing first:'
+            Write-Output '  1. choose a code-signing provider;'
+            Write-Output '  2. set the repository variable WINDOWS_SIGNING_PROVIDER;'
+            Write-Output '  3. set WINDOWS_SIGNING_SUBJECT to the expected certificate subject;'
+            Write-Output '  4. add provider credentials to the windows-signing environment;'
+            Write-Output '  5. wire the signing hook - see docs/windows/signing.md.'
+            Write-Output ''
+            Write-Output 'To produce an unsigned internal build instead, run this workflow'
+            Write-Output 'manually with unsigned_internal_build enabled.'
+            exit 1
+          } elseif ($env:UNSIGNED_INTERNAL -eq 'true') {
+            Write-Output 'Unsigned internal build: artifacts only, nothing will be published.'
+            'publish=false' | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          } else {
+            Write-Output '::error::Signing is not configured and unsigned_internal_build was not requested.'
+            exit 1
+          }
+
+      - name: Download artifacts
+        if: env.publish == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-x64-${{ github.ref_name }}
+          path: release-assets
+
+      - name: Publish GitHub release
+        if: env.publish == 'true'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $assets = Get-ChildItem release-assets -Recurse -File |
+            Where-Object { $_.Name -ne 'signature-report.json' }
+          if (-not $assets) { throw 'No release assets found' }
+          $assets | ForEach-Object { Write-Output "asset: $($_.Name)" }
+          gh release create $env:GITHUB_REF_NAME `
+            --title $env:GITHUB_REF_NAME `
+            --generate-notes `
+            @($assets.FullName)

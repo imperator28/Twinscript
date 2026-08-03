@@ -294,7 +294,21 @@ remain unpassed until directly observed.
 
 ## W5 — signed release
 
-Provider selection is the only blocker; see `docs/windows/signing.md`.
+**Decision (2026-08-02): internal distribution, unsigned.** The release workflow
+runs on `RELEASE_CHANNEL: internal` and publishes unsigned builds as labelled
+prereleases. Signing is not required for internal use — the Frame Server loads
+our unsigned DLL, Squirrel does not verify signatures on update, and install is
+per-user. See `docs/windows/signing.md`.
+
+Two environment checks replace the signing rows for internal rollout, and both
+are hard blockers with no workaround from our side:
+
+| Check | Pass condition |
+| --- | --- |
+| Smart App Control | `SmartAppControlState` is `Off` or `Eval` on every target machine. `On` blocks unsigned installers with no override. |
+| WDAC / AppLocker | No enforced code-integrity policy on target machines. Confirm with IT. |
+
+The signing rows below stay in the matrix for a future public release.
 
 | Check | Pass condition |
 | --- | --- |

@@ -1,12 +1,44 @@
 # Windows code signing (W5)
 
-**Status: not configured.** No provider has been chosen, so no certificate,
-credential, or account exists yet. `.github/workflows/windows-release.yml` is
-complete and fail-closed around this gap: it builds, smoke-tests and verifies,
-and refuses to publish a tag until signing is wired up.
+**Status: not configured, and not required for internal distribution.**
 
-Everything on this page except step 1 is mechanical once a provider is picked.
-Step 1 is a purchasing and identity decision, and is the actual blocker.
+Decision (2026-08-02): this client ships to a known internal audience, so
+`.github/workflows/windows-release.yml` runs on `RELEASE_CHANNEL: internal` and
+publishes unsigned builds as clearly-labelled **prereleases**. Set that to
+`public` before distributing outside the organization; the gate then refuses to
+publish anything unsigned.
+
+## Why unsigned is workable internally
+
+| Concern | Reality |
+| --- | --- |
+| Frame Server loading the media source DLL | **Loads unsigned.** `DllGetClassObject` succeeds in the W4 ETW trace, so signing is not a gate. Signing was explicitly *disproven* as the cause of the blank feed. |
+| Squirrel auto-update | Squirrel.Windows does not verify publisher signatures on update. (`electron-updater` does, but this project uses `maker-squirrel`.) |
+| Install rights | Squirrel installs per-user into `%LOCALAPPDATA%`; no admin needed. |
+| SmartScreen | Warns on browser download via Mark-of-the-Web. Copying from a network share avoids it. Release notes tell users what to expect. |
+| Native camera install | Needs elevation for HKLM registration, so UAC shows "Unknown Publisher". Works, but looks alarming. |
+| Defender | Slower first scan of a ~134 MB unsigned installer; occasional false positives. |
+
+## Two things that genuinely block unsigned
+
+Check both before rolling out; neither has a workaround from our side.
+
+1. **Smart App Control** (Windows 11) blocks unsigned apps outright, with **no
+   override**. It only auto-enables on clean Windows 11 installs.
+
+   ```powershell
+   Get-CimInstance -Namespace root/Microsoft/Windows/Defender -ClassName MSFT_MpComputerStatus | Select-Object SmartAppControlState
+   ```
+
+   `Off` or `Eval` is fine. `On` means signing is mandatory for that machine.
+
+2. **WDAC / AppLocker.** If IT enforces a code-integrity policy, unsigned code
+   will not run regardless of anything in this repository. Ask before rollout.
+
+## If you later need a certificate
+
+Everything below except step 1 is mechanical once a provider is picked. Step 1
+is a purchasing and identity decision.
 
 ## What is already done
 
@@ -44,7 +76,7 @@ packaged binaries and the generated setup, rather than a post-hoc signing step.
 The hook point is marked with a comment in `windows-release.yml` between the
 native build and `npm run make`.
 
-## Step 1 — choose a provider (blocking, needs a decision)
+### Step 1 — choose a provider (blocking, needs a decision)
 
 Since June 2023 every public CA issues code-signing keys only on hardware or via
 a cloud signing service; a plain exportable `.pfx` is no longer purchasable.
@@ -64,7 +96,7 @@ W5 SmartScreen row of the validation matrix either way.
 Note the publisher identity should be established under the current app name —
 see `docs/windows/rename-2026-08-02.md`.
 
-## Step 2 — configure the repository
+### Step 2 — configure the repository
 
 Repository **variables** (not secrets — these are not sensitive and the workflow
 reads them to decide whether signing is configured at all):
@@ -79,7 +111,7 @@ Provider **secrets** go in a protected GitHub **environment** named
 reachable only from a job that declares that environment. Add required reviewers
 to the environment if the release should need an approval.
 
-## Step 3 — wire the hook
+### Step 3 — wire the hook
 
 1. Add the provider's `windowsSign` configuration to the `maker-squirrel` entry
    in `forge.config.js`, reading credentials from the environment.
@@ -87,7 +119,7 @@ to the environment if the release should need an approval.
    `windows-release.yml` so the credentials are available during `npm run make`.
 3. Set the two repository variables above.
 
-## Step 4 — verify before trusting it
+### Step 4 — verify before trusting it
 
 ```bash
 npm run verify:signatures -- out --expect-signer "CN=Your Publisher"

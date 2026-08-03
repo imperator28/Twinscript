@@ -10,9 +10,13 @@ name: Windows release
 # produces no release at all through build.yml. This workflow is the fix, and it
 # does not couple a caption release to any other product.
 #
-# SIGNING IS NOT YET CONFIGURED. Until a provider is chosen this workflow will
-# build, smoke-test and verify, and will refuse to publish. See
-# docs/windows/signing.md for exactly what to add and where.
+# SIGNING IS NOT YET CONFIGURED, and for the internal channel it is not
+# required: the Frame Server is known to load our unsigned media source DLL
+# (DllGetClassObject succeeds - see the W4 ETW evidence), Squirrel.Windows does
+# not verify publisher signatures on update, and Squirrel installs per-user
+# without admin. What unsigned costs is a SmartScreen prompt on browser
+# download and an "Unknown Publisher" UAC prompt for the native camera step.
+# See docs/windows/signing.md.
 
 on:
   push:
@@ -29,6 +33,18 @@ on:
 
 permissions:
   contents: read
+
+env:
+  # Release channel for this repository. Deliberately committed here rather than
+  # held in a GitHub repository variable: it is a policy decision that belongs in
+  # review, and it cannot drift invisibly in project settings.
+  #
+  #   internal - publish unsigned builds as clearly-labelled prereleases for a
+  #              known internal audience. Signing is still used if configured.
+  #   public   - refuse to publish anything unsigned.
+  #
+  # Change this to `public` before distributing outside the organization.
+  RELEASE_CHANNEL: internal
 
 concurrency:
   # Never cancel a release mid-flight: a half-published release is worse than a
@@ -204,11 +220,11 @@ jobs:
     permissions:
       contents: write
     steps:
-      # Fail-closed. A tag push is a real release: without signing configured it
-      # stops here with an actionable message rather than publishing something
-      # SmartScreen will block and users cannot verify. An unsigned build is
-      # reachable only by explicitly asking for one via workflow_dispatch, and
-      # even then nothing is published.
+      # Decides whether to publish, and as what. The `public` channel is
+      # fail-closed: it refuses to publish anything unsigned. The `internal`
+      # channel publishes unsigned builds, but only ever as a prerelease and
+      # only with the unsigned status stated in the release notes, so nobody
+      # downstream has to guess what they received.
       - name: Release gate
         shell: pwsh
         env:
@@ -216,28 +232,44 @@ jobs:
           IS_TAG: ${{ startsWith(github.ref, 'refs/tags/v') }}
           UNSIGNED_INTERNAL: ${{ inputs.unsigned_internal_build }}
         run: |
-          if ($env:SIGNING_CONFIGURED -eq 'true') {
-            Write-Output 'Signed release: proceeding to publish.'
-            'publish=true' | Out-File $env:GITHUB_ENV -Append -Encoding utf8
-          } elseif ($env:IS_TAG -eq 'true') {
-            Write-Output '::error::Refusing to publish an unsigned release.'
+          function Set-Output([string]$line) {
+            $line | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          }
+
+          $signed = $env:SIGNING_CONFIGURED -eq 'true'
+          $isTag = $env:IS_TAG -eq 'true'
+          $channel = if ($env:RELEASE_CHANNEL) { $env:RELEASE_CHANNEL } else { 'public' }
+          Write-Output "channel=$channel  signed=$signed  tag=$isTag"
+
+          if (-not $isTag) {
+            # workflow_dispatch: artifacts are already uploaded by windows-build.
+            if ($env:UNSIGNED_INTERNAL -eq 'true' -or $signed) {
+              Write-Output 'Manual run: artifacts only, nothing will be published.'
+              Set-Output 'publish=false'
+            } else {
+              Write-Output '::error::Signing is not configured and unsigned_internal_build was not requested.'
+              exit 1
+            }
+          } elseif ($signed) {
+            Write-Output 'Signed release: publishing.'
+            Set-Output 'publish=true'
+            Set-Output 'prerelease=false'
+          } elseif ($channel -eq 'internal') {
+            Write-Output 'Internal channel: publishing an UNSIGNED prerelease.'
+            Set-Output 'publish=true'
+            Set-Output 'prerelease=true'
+          } else {
+            Write-Output '::error::Refusing to publish an unsigned release on the public channel.'
             Write-Output ''
-            Write-Output 'This tag would publish binaries that no user can verify and'
-            Write-Output 'that SmartScreen will warn on. Configure signing first:'
+            Write-Output 'Either configure signing:'
             Write-Output '  1. choose a code-signing provider;'
             Write-Output '  2. set the repository variable WINDOWS_SIGNING_PROVIDER;'
             Write-Output '  3. set WINDOWS_SIGNING_SUBJECT to the expected certificate subject;'
             Write-Output '  4. add provider credentials to the windows-signing environment;'
             Write-Output '  5. wire the signing hook - see docs/windows/signing.md.'
             Write-Output ''
-            Write-Output 'To produce an unsigned internal build instead, run this workflow'
-            Write-Output 'manually with unsigned_internal_build enabled.'
-            exit 1
-          } elseif ($env:UNSIGNED_INTERNAL -eq 'true') {
-            Write-Output 'Unsigned internal build: artifacts only, nothing will be published.'
-            'publish=false' | Out-File $env:GITHUB_ENV -Append -Encoding utf8
-          } else {
-            Write-Output '::error::Signing is not configured and unsigned_internal_build was not requested.'
+            Write-Output 'Or set RELEASE_CHANNEL to `internal` in this workflow if these'
+            Write-Output 'builds are for a known internal audience.'
             exit 1
           }
 
@@ -254,11 +286,48 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $assets = Get-ChildItem release-assets -Recurse -File |
-            Where-Object { $_.Name -ne 'signature-report.json' }
+          # signature-report.json ships with the release on purpose: it is the
+          # record of what was verified, and for an unsigned build it is the
+          # honest statement of what was not.
+          $assets = @(Get-ChildItem release-assets -Recurse -File)
           if (-not $assets) { throw 'No release assets found' }
           $assets | ForEach-Object { Write-Output "asset: $($_.Name)" }
-          gh release create $env:GITHUB_REF_NAME `
-            --title $env:GITHUB_REF_NAME `
-            --generate-notes `
-            @($assets.FullName)
+
+          $releaseArgs = @(
+            $env:GITHUB_REF_NAME,
+            '--title', $env:GITHUB_REF_NAME,
+            '--generate-notes'
+          )
+
+          # `gh release create` documents --notes as prepending to the
+          # automatically generated notes. --notes-file is NOT documented as
+          # combinable with --generate-notes, so the banner goes through --notes.
+          # Built as an array rather than a here-string on purpose: PowerShell
+          # requires a closing '@ at column 0, which would terminate this
+          # indented YAML block scalar and break the workflow file.
+          if ($env:prerelease -eq 'true') {
+            $banner = (@(
+              '> **Unsigned internal build.** Not for distribution outside the organization.'
+              ''
+              'These binaries carry no Authenticode signature. Expect:'
+              ''
+              '- **SmartScreen** ("Windows protected your PC") when the installer is'
+              '  downloaded through a browser. Choose **More info**, then **Run anyway**.'
+              '  Copying the installer from a network share rather than downloading it'
+              '  avoids this entirely.'
+              '- **"Unknown Publisher"** on the UAC prompt if you install the native'
+              '  camera, which needs elevation to register system-wide.'
+              ''
+              'If **Smart App Control** is enabled the installer is blocked with no'
+              'override. Check before rolling out:'
+              ''
+              '    Get-CimInstance -Namespace root/Microsoft/Windows/Defender -ClassName MSFT_MpComputerStatus | Select-Object SmartAppControlState'
+              ''
+              '`signature-report.json` below records exactly what was verified.'
+              ''
+              '---'
+            ) -join "`n")
+            $releaseArgs += @('--notes', $banner, '--prerelease')
+          }
+
+          gh release create @releaseArgs @($assets.FullName)

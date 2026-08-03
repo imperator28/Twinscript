@@ -85,21 +85,46 @@ sample's own installer is interactive (`std::wcin`), so it was not used.
   `NT AUTHORITY\LocalService`; `NT AUTHORITY\SERVICE` has access to the staged
   copy, so DLL-load failure cannot be mistaken for a streaming failure.
 
-## To finish (one elevated step)
+## Blocked on elevation, not on code
 
 HKLM registration is required because the Frame Server runs as LocalService and
 cannot read HKCU — established earlier in W4.
 
+Three attempts to elevate from the agent's process context all returned
+`The operation was canceled by the user`; the UAC consent prompt goes to the
+secure desktop and never became approvable. Diagnosis:
+
+| Fact | Value |
+| --- | --- |
+| Account | `SIMPLEHUMAN\jqian`, **is** a member of `BUILTIN\Administrators` (AzureAD) |
+| Token | Administrators present but **"Group used for deny only"** — normal split-token Admin Approval Mode |
+| `EnableLUA` | `1` |
+| `ConsentPromptBehaviorAdmin` | `5` (consent prompt for non-Windows binaries) |
+| `PromptOnSecureDesktop` | `1` |
+
+So the account can elevate; the prompt simply is not reachable from here. Nothing
+was registered on any attempt — HKLM is clean, no partial state.
+
+## To finish — one command, from an elevated PowerShell
+
 ```powershell
-Start-Process "C:\Users\Public\vcam-control\control.exe" -ArgumentList "register","C:\Users\Public\vcam-control\VirtualCameraMediaSource.dll" -Verb RunAs -Wait
-& "C:\Users\Public\vcam-control\control.exe" run 10
-Start-Process "C:\Users\Public\vcam-control\control.exe" -ArgumentList "unregister" -Verb RunAs -Wait
+powershell -NoProfile -ExecutionPolicy Bypass -File "C:\Users\Public\vcam-control\run-control-experiment.ps1"
 ```
 
-The middle command runs unelevated on purpose — a meeting app is unelevated.
+It registers, reads frames, prints a verdict, unregisters, verifies the HKLM key
+is gone, and writes everything to
+`C:\Users\Public\vcam-control\control-result.log`.
+
+It refuses to run unelevated rather than failing obscurely in the middle.
+
+The consumer runs elevated inside that script so the whole experiment needs one
+approval. That does not weaken the result: the Frame Server hosts the media
+source in its own LocalService process either way, so whether the *consumer* is
+elevated has no bearing on whether `MediaSource::Start` is ever called.
 
 Read the result as: frames delivered → the fault is ours; `0xC00D3EA2` on
-`ReadSample` → environmental, and the harness labels that case explicitly.
+`ReadSample` → environmental. The script states the verdict explicitly rather
+than leaving it to interpretation.
 
 ## Cleanup owed
 

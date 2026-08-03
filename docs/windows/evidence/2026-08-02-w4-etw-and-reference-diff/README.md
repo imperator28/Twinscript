@@ -75,8 +75,22 @@ undocumented contract is not a strategy.
 
 The control experiment that would settle *whether the fault is our code or this
 machine* — building and running Microsoft's reference camera here — was not
-completed: the sample needs NuGet, C++/WinRT projections and MSBuild, and
-`vswhere` did not resolve an MSBuild instance on this machine.
+completed.
+
+> **Correction, 2026-08-02.** The reason recorded here originally — that
+> `vswhere` did not resolve an MSBuild instance — was wrong. The toolchain is
+> present and this experiment is *not* blocked:
+>
+> | Component | Status |
+> | --- | --- |
+> | MSBuild | `17.14.40` under VS 2022 BuildTools; `vswhere -requires Microsoft.Component.MSBuild` resolves it |
+> | Package restore | `dotnet` CLI on PATH (`msbuild -t:restore` works; `nuget.exe` is not needed) |
+> | Windows SDK | `10.0.26100.0` |
+> | `mfvirtualcamera.h` | present in that SDK |
+>
+> The CMake build in this repo already uses the `Visual Studio 17 2022`
+> generator, which drives MSBuild — so MSBuild was in use the whole time. The
+> experiment was simply not attempted.
 
 ## To resume
 
@@ -85,7 +99,7 @@ In priority order:
 1. **Build and run the Microsoft reference sample.** If it streams here, the
    fault is ours and the remaining gaps above are the search space. If it fails
    identically, the fault is environmental and no change to our source helps.
-   Needs an MSBuild instance and NuGet restore.
+   **Unblocked** — see the correction above; the toolchain is present.
 2. **WinDbg plus Microsoft public symbols.** Break on our `QueryInterface` for
    `{2032C7EF-…}` and read the caller's stack. This names the component and the
    code path that abandons us — the only direct route to the undocumented

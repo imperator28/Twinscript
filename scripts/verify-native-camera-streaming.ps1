@@ -103,7 +103,22 @@ try {
     Write-Output ''
     Write-Output '--- 4. cleanup ---'
     & $host_exe unregister-machine
-    $key = 'HKLM:\Software\Classes\CLSID\{6B8F2C4A-9D3E-4A17-8C25-1E7B4F6D9A03}'
-    Write-Output "  HKLM key still present: $(Test-Path $key)"
+    $unregisterExit = $LASTEXITCODE
+
+    # Check InprocServer32, not the parent CLSID key. The parent can legitimately
+    # linger as an empty key while the registration is functionally gone, so
+    # testing it would report a false leak; InprocServer32 is what actually makes
+    # the class activatable.
+    $inproc = 'HKLM:\Software\Classes\CLSID\{6B8F2C4A-9D3E-4A17-8C25-1E7B4F6D9A03}\InprocServer32'
+    if (Test-Path $inproc) {
+      Write-Output ''
+      Write-Output "  CLEANUP FAILED (unregister exit $unregisterExit)."
+      Write-Output '  The CLSID is still registered machine-wide and points at:'
+      Write-Output "    $((Get-ItemProperty $inproc).'(default)')"
+      Write-Output '  Remove it with, from an elevated shell:'
+      Write-Output "    & '$host_exe' unregister-machine"
+    } else {
+      Write-Output '  ok    HKLM registration removed'
+    }
   }
 }

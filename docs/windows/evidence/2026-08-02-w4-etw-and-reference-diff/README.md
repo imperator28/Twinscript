@@ -1,6 +1,24 @@
 # W4 blank feed — ETW trace and reference diff, 2026-08-02
 
-**Outcome: unresolved.** The native camera enumerates, activates, and is
+> **RESOLVED 2026-08-03. Read this file for method, not for conclusions.**
+>
+> Cause: the media source did not implement `IMFSampleAllocatorControl`, so the
+> Frame Server could not hand it a shareable allocator and abandoned the pipeline
+> after activation. See `../2026-08-02-w4-reference-control/`.
+>
+> **This file's central hypothesis was wrong.** The "unidentified interface"
+> below, `{2032C7EF-…}`, is a red herring: Microsoft's own reference camera
+> refuses it too and streams anyway. Three sessions treated that refusal as the
+> blocking unknown. The lesson is in the method — the ETW trace could show what
+> was *asked for* but not what was *missing*, and only a known-good source on the
+> same machine could reveal that.
+>
+> Also note the reference diff below rated `IMFSampleAllocatorControl` as
+> "may be latent rather than causal" because Windows never queried its IID in the
+> trace. That inference was too confident: absence from a trace is not absence
+> from the contract.
+
+**Original outcome: unresolved.** The native camera enumerates, activates, and is
 inspected, then the pipeline goes silent. `MediaSource::Start` and
 `MediaStream::RequestSample` are never called; a consumer's `ReadSample` fails
 with `MF_E_VIDEO_RECORDING_DEVICE_INVALIDATED` (`0xC00D3EA2`).

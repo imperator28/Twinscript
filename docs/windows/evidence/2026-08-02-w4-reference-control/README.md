@@ -50,12 +50,42 @@ inspects the source and abandons the pipeline — activation succeeds, `Start` a
 buffers with `MFCreate2DMediaBuffer`, which are process-local and of no use to
 the server.
 
-Implemented in commit for W4.5. **End-to-end confirmation still pending** — it
-needs HKLM registration, and elevation is not reachable from the agent context:
+## Confirmed fixed on hardware, 2026-08-03
+
+```
+ok    registered {6B8F2C4A-9D3E-4A17-8C25-1E7B4F6D9A03} under HKLM
+ok    MFCreateVirtualCamera
+ok    IMFVirtualCamera::Start
+      device: Integrated Camera
+      device: Twinscript (Windows Virtual Camera)
+ok    camera enumerated by friendly name
+ok    ActivateObject(camera)
+PASS  the Frame Server streamed 15 frames from our source
+```
+
+**The W4 blank feed is resolved.** Implementing `IMFSampleAllocatorControl` was
+sufficient; `MF_DEVICEMFT_SENSORPROFILE_COLLECTION` and
+`MF_VIRTUALCAMERA_CONFIGURATION_APP_PACKAGE_FAMILY_NAME` remain unimplemented and
+were **not** required.
+
+Reproduce with, from an elevated PowerShell:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify-native-camera-streaming.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File "<repo>\scripts\verify-native-camera-streaming.ps1"
 ```
+
+### Cleanup did not run on that pass
+
+The HKLM registration survived the run — `InprocServer32` still pointed at the
+build output afterwards, despite the script unregistering in a `finally` block.
+Unexplained from the captured output. Low consequence (the camera used
+`MFVirtualCameraLifetime_Session`, so nothing enumerated afterwards) but the
+registration pointed machine-wide into a build directory, which breaks silently
+if that DLL is rebuilt.
+
+The cleanup step now reports failure loudly instead of printing a bare boolean,
+and checks `InprocServer32` rather than the parent CLSID key — the parent can
+legitimately linger as an empty key, so the old check could report a false leak.
 
 ## Why `drive` passed for weeks while the camera delivered nothing
 

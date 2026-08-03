@@ -15,7 +15,16 @@ const vitestConfig = fs.readFileSync(
   'utf8',
 );
 
-const NODE_TEST_GLOB = 'electron/captions/*.test.cjs';
+// Every directory the `node --test` job collects from. Widening this list is a
+// deliberate act: a .cjs suite in a directory not listed here is run by neither
+// runner and would fail silently, which is what the second test below catches.
+const NODE_TEST_GLOBS = Object.freeze([
+  'electron/captions/*.test.cjs',
+  'scripts/release/*.test.cjs',
+]);
+const NODE_TEST_DIRS = Object.freeze(
+  NODE_TEST_GLOBS.map((glob) => path.posix.dirname(glob)),
+);
 
 function vitestArray(name) {
   const match = vitestConfig.match(
@@ -26,10 +35,12 @@ function vitestArray(name) {
 }
 
 test('the node:test job collects every caption .cjs suite', () => {
-  assert.ok(
-    packageJson.scripts['test:captions'].includes(NODE_TEST_GLOB),
-    `test:captions must run ${NODE_TEST_GLOB}`,
-  );
+  for (const glob of NODE_TEST_GLOBS) {
+    assert.ok(
+      packageJson.scripts['test:captions'].includes(glob),
+      `test:captions must run ${glob}`,
+    );
+  }
   const suites = fs
     .readdirSync(__dirname)
     .filter((entry) => entry.endsWith('.test.cjs'));
@@ -38,6 +49,19 @@ test('the node:test job collects every caption .cjs suite', () => {
     suites.includes(path.basename(__filename)),
     'this guard must itself run in the node:test job',
   );
+});
+
+test('every directory the node:test job globs actually holds a suite', () => {
+  // A glob that matches nothing makes `node --test` fail on the unmatched
+  // pattern, so an emptied directory must be removed from the list too.
+  for (const dir of NODE_TEST_DIRS) {
+    const absolute = path.join(repoRoot, dir);
+    assert.ok(fs.existsSync(absolute), `${dir} is globbed but does not exist`);
+    const suites = fs
+      .readdirSync(absolute)
+      .filter((entry) => entry.endsWith('.test.cjs'));
+    assert.ok(suites.length > 0, `${dir} is globbed but holds no .test.cjs suite`);
+  }
 });
 
 test('no .cjs suite lives outside the directory the node:test glob covers', () => {
@@ -65,7 +89,7 @@ test('no .cjs suite lives outside the directory the node:test glob covers', () =
           .relative(repoRoot, path.join(dir, entry.name))
           .split(path.sep)
           .join('/');
-        if (path.posix.dirname(relative) !== 'electron/captions') {
+        if (!NODE_TEST_DIRS.includes(path.posix.dirname(relative))) {
           stray.push(relative);
         }
       }
@@ -75,7 +99,7 @@ test('no .cjs suite lives outside the directory the node:test glob covers', () =
   assert.deepEqual(
     stray,
     [],
-    'a .cjs suite outside electron/captions/ would be run by neither command',
+    `a .cjs suite outside ${NODE_TEST_DIRS.join(', ')} would be run by neither command`,
   );
 });
 

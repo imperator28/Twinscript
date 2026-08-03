@@ -222,6 +222,9 @@ HRESULT MediaSource::QueryInterface(REFIID iid, void** out) {
     LogUnsupportedInterface("MediaSource", iid);
     return E_NOINTERFACE;
   }
+  // The accepted set matters as much as the refused set when comparing against a
+  // source the Frame Server is willing to stream.
+  LogGuidLine("MediaSource QueryInterface ok", iid, S_OK);
   AddRef();
   return S_OK;
 }
@@ -268,7 +271,16 @@ HRESULT MediaSource::QueueEvent(MediaEventType type, REFGUID extendedType, HRESU
   return event_queue_->QueueEventParamVar(type, extendedType, status, value);
 }
 
+// Every entry point below is logged, including the ones that succeed.
+//
+// Logging only failures and Start/RequestSample was not enough to diagnose the
+// blank feed: the log showed activation, three refused IIDs, and then silence -
+// which cannot distinguish "the Frame Server made several successful calls and
+// then gave up" from "it gave up immediately". Knowing the last call it makes
+// before abandoning the source is the whole diagnosis, so the trace has to cover
+// the successful path too.
 HRESULT MediaSource::GetCharacteristics(DWORD* characteristics) {
+  LogLine("MediaSource::GetCharacteristics");
   if (!characteristics) return E_POINTER;
   Lock guard(&lock_);
   HRESULT hr = CheckShutdown();
@@ -279,12 +291,16 @@ HRESULT MediaSource::GetCharacteristics(DWORD* characteristics) {
 }
 
 HRESULT MediaSource::CreatePresentationDescriptor(IMFPresentationDescriptor** descriptor) {
+  LogLine("MediaSource::CreatePresentationDescriptor");
   if (!descriptor) return E_POINTER;
   Lock guard(&lock_);
   HRESULT hr = CheckShutdown();
   if (FAILED(hr)) return hr;
   // Each caller gets its own clone so selecting streams cannot mutate ours.
-  return presentation_descriptor_->Clone(descriptor);
+  const HRESULT clone = presentation_descriptor_->Clone(descriptor);
+  LogLine("MediaSource::CreatePresentationDescriptor hr=0x%08lX",
+          static_cast<unsigned long>(clone));
+  return clone;
 }
 
 HRESULT MediaSource::Start(IMFPresentationDescriptor* descriptor, const GUID* timeFormat,
@@ -385,6 +401,7 @@ HRESULT MediaSource::Shutdown() {
 }
 
 HRESULT MediaSource::GetSourceAttributes(IMFAttributes** attributes) {
+  LogLine("MediaSource::GetSourceAttributes");
   if (!attributes) return E_POINTER;
   Lock guard(&lock_);
   HRESULT hr = CheckShutdown();
@@ -395,6 +412,7 @@ HRESULT MediaSource::GetSourceAttributes(IMFAttributes** attributes) {
 }
 
 HRESULT MediaSource::GetStreamAttributes(DWORD streamId, IMFAttributes** attributes) {
+  LogLine("MediaSource::GetStreamAttributes stream=%lu", streamId);
   if (!attributes) return E_POINTER;
   Lock guard(&lock_);
   HRESULT hr = CheckShutdown();
@@ -405,25 +423,56 @@ HRESULT MediaSource::GetStreamAttributes(DWORD streamId, IMFAttributes** attribu
   return S_OK;
 }
 
-HRESULT MediaSource::SetD3DManager(IUnknown*) {
+HRESULT MediaSource::SetD3DManager(IUnknown* manager) {
   // Frames are produced on the CPU; there is no D3D surface path to configure.
+  // Logged because refusing this is a plausible reason for the Frame Server to
+  // abandon a source, and until now we could not see whether it was even asked.
+  LogLine("MediaSource::SetD3DManager manager=%p -> E_NOTIMPL",
+          static_cast<void*>(manager));
   return E_NOTIMPL;
 }
 
-HRESULT MediaSource::GetService(REFGUID, REFIID iid, LPVOID* out) {
+HRESULT MediaSource::GetService(REFGUID service, REFIID iid, LPVOID* out) {
   if (!out) return E_POINTER;
   *out = nullptr;
   // Only interfaces this object itself implements are offered through
   // IMFGetService; there is no inner service object to delegate to.
   const HRESULT hr = QueryInterface(iid, out);
+  LogGuidLine("MediaSource::GetService service", service, SUCCEEDED(hr) ? hr : MF_E_UNSUPPORTED_SERVICE);
   return SUCCEEDED(hr) ? hr : MF_E_UNSUPPORTED_SERVICE;
 }
 
-HRESULT MediaSource::KsProperty(PKSPROPERTY, ULONG, void*, ULONG, ULONG*) {
-  return E_NOTIMPL;
+// KS controls are how the Frame Server interrogates camera capabilities. This
+// source supports no property sets, but "unsupported" has a specific encoding:
+// ERROR_SET_NOT_FOUND. Microsoft's reference camera returns that and comments
+// that it is "the standard error code returned"; returning E_NOTIMPL instead says
+// something different — that the control interface itself is unimplemented —
+// which is not true of a source that answers IKsControl.
+//
+// This is the only behavioural difference left between the reference, which
+// streams into Teams on this machine, and this source, which does not. The two
+// call sequences are otherwise identical, verified by tracing both.
+HRESULT MediaSource::KsProperty(PKSPROPERTY property, ULONG propertyLength, void*, ULONG,
+                                ULONG* bytesReturned) {
+  const HRESULT unsupported = HRESULT_FROM_WIN32(ERROR_SET_NOT_FOUND);
+  if (bytesReturned) *bytesReturned = 0;
+  if (!property || propertyLength < sizeof(KSPROPERTY)) {
+    LogLine("MediaSource::KsProperty malformed -> E_INVALIDARG");
+    return E_INVALIDARG;
+  }
+  LogGuidLine("MediaSource::KsProperty set", property->Set, unsupported);
+  return unsupported;
 }
-HRESULT MediaSource::KsMethod(PKSMETHOD, ULONG, void*, ULONG, ULONG*) { return E_NOTIMPL; }
-HRESULT MediaSource::KsEvent(PKSEVENT, ULONG, void*, ULONG, ULONG*) { return E_NOTIMPL; }
+HRESULT MediaSource::KsMethod(PKSMETHOD, ULONG, void*, ULONG, ULONG* bytesReturned) {
+  if (bytesReturned) *bytesReturned = 0;
+  LogLine("MediaSource::KsMethod -> ERROR_SET_NOT_FOUND");
+  return HRESULT_FROM_WIN32(ERROR_SET_NOT_FOUND);
+}
+HRESULT MediaSource::KsEvent(PKSEVENT, ULONG, void*, ULONG, ULONG* bytesReturned) {
+  if (bytesReturned) *bytesReturned = 0;
+  LogLine("MediaSource::KsEvent -> ERROR_SET_NOT_FOUND");
+  return HRESULT_FROM_WIN32(ERROR_SET_NOT_FOUND);
+}
 
 // The Frame Server calls this with an allocator it owns, whose samples live in
 // memory it can forward to a consumer. Only stream 0 exists.

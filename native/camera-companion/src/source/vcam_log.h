@@ -20,4 +20,15 @@ inline void LogUnsupportedInterface(const char* who, REFIID iid) {
           iid.Data4[3], iid.Data4[4], iid.Data4[5], iid.Data4[6], iid.Data4[7]);
 }
 
+// Record any GUID-carrying call with its result. Used for the calls that succeed
+// as well as the ones that fail: knowing the LAST call the Frame Server makes
+// before abandoning a source is the diagnosis, and a log of refusals alone cannot
+// distinguish "gave up immediately" from "gave up after several good calls".
+inline void LogGuidLine(const char* what, REFGUID guid, HRESULT hr) {
+  LogLine("%s {%08lX-%04X-%04X-%02X%02X-%02X%02X%02X%02X%02X%02X} hr=0x%08lX", what,
+          guid.Data1, guid.Data2, guid.Data3, guid.Data4[0], guid.Data4[1], guid.Data4[2],
+          guid.Data4[3], guid.Data4[4], guid.Data4[5], guid.Data4[6], guid.Data4[7],
+          static_cast<unsigned long>(hr));
+}
+
 }  // namespace twinscript::vcam

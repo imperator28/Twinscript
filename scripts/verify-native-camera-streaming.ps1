@@ -23,15 +23,22 @@ machine, so the two results are directly comparable.
 How many frames to require.
 
 .PARAMETER ReleaseDir
-Directory holding vcam-host.exe and twinscript-vcam-source.dll.
+Directory holding vcam-host.exe. Defaults to the build output, resolved relative
+to this script rather than the working directory - an elevated PowerShell starts
+in C:\Windows\system32, so a relative default would never resolve.
 #>
 [CmdletBinding()]
 param(
   [int]$Frames = 15,
-  [string]$ReleaseDir = 'native/camera-companion/build/Release'
+  [string]$ReleaseDir
 )
 
 $ErrorActionPreference = 'Continue'
+
+if (-not $ReleaseDir) {
+  $repoRoot = Split-Path -Parent $PSScriptRoot
+  $ReleaseDir = Join-Path $repoRoot 'native\camera-companion\build\Release'
+}
 
 $id = [Security.Principal.WindowsIdentity]::GetCurrent()
 $isAdmin = (New-Object Security.Principal.WindowsPrincipal($id)).IsInRole(
@@ -41,17 +48,23 @@ Write-Output 'W4 native camera streaming check'
 Write-Output "elevated: $isAdmin   user: $($id.Name)"
 Write-Output ''
 
+# Checked before the elevation guard so that running this unelevated still
+# reports whether the binary is where it is expected to be.
+$host_exe = Join-Path $ReleaseDir 'vcam-host.exe'
+if (-not (Test-Path -LiteralPath $host_exe)) {
+  Write-Output 'ABORT  vcam-host.exe not found at:'
+  Write-Output "       $host_exe"
+  Write-Output '       Build it first, from the repository root:'
+  Write-Output '       cmake --build native/camera-companion/build --config Release'
+  exit 2
+}
+Write-Output "host: $host_exe"
+Write-Output ''
+
 if (-not $isAdmin) {
   Write-Output 'ABORT  not elevated. The Frame Server runs as NT AUTHORITY\LocalService'
   Write-Output '       and cannot read HKCU, so the CLSID must be registered in HKLM.'
   Write-Output '       Re-run from an Administrator PowerShell.'
-  exit 2
-}
-
-$host_exe = Join-Path $ReleaseDir 'vcam-host.exe'
-if (-not (Test-Path -LiteralPath $host_exe)) {
-  Write-Output "ABORT  $host_exe not found. Build first:"
-  Write-Output '       cmake --build native/camera-companion/build --config Release'
   exit 2
 }
 

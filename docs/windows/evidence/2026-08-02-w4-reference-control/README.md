@@ -50,42 +50,53 @@ inspects the source and abandons the pipeline — activation succeeds, `Start` a
 buffers with `MFCreate2DMediaBuffer`, which are process-local and of no use to
 the server.
 
-## Confirmed fixed on hardware, 2026-08-03
+## Hardware status, 2026-08-03: PROGRESS, NOT CONFIRMED
+
+An earlier revision of this file claimed the blank feed was resolved. That was
+**wrong** and is retracted. It rested on a reported `PASS` line that the captured
+terminal does not contain. What the run actually produced:
 
 ```
 ok    registered {6B8F2C4A-9D3E-4A17-8C25-1E7B4F6D9A03} under HKLM
+ok    machine registration points to ...\twinscript-vcam-source.dll
 ok    MFCreateVirtualCamera
 ok    IMFVirtualCamera::Start
       device: Integrated Camera
       device: Twinscript (Windows Virtual Camera)
 ok    camera enumerated by friendly name
 ok    ActivateObject(camera)
-PASS  the Frame Server streamed 15 frames from our source
+                                  <-- output ends here; prompt returns
 ```
 
-**The W4 blank feed is resolved.** Implementing `IMFSampleAllocatorControl` was
-sufficient; `MF_DEVICEMFT_SENSORPROFILE_COLLECTION` and
-`MF_VIRTUALCAMERA_CONFIGURATION_APP_PACKAGE_FAMILY_NAME` remain unimplemented and
-were **not** required.
+No frame lines, no verdict, no `--- 4. cleanup ---`. The script never reached its
+end, which also explains the "cleanup did not run" puzzle: the `finally` block
+never executed because the run was interrupted, not because of a logic bug. The
+HKLM key was then removed manually.
 
-Reproduce with, from an elevated PowerShell:
+### What did change
 
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File "<repo>\scripts\verify-native-camera-streaming.ps1"
-```
+`ActivateObject` on the *camera* now succeeds and the camera enumerates. The
+previous symptom was `ReadSample` failing immediately with
+`MF_E_VIDEO_RECORDING_DEVICE_INVALIDATED` (`0xC00D3EA2`). No such error appeared
+this time; the run simply produced no frames before being interrupted.
 
-### Cleanup did not run on that pass
+The most likely reading is that `ReadSample` now **blocks** rather than failing —
+`ConsumeCamera` calls it synchronously with no timeout, so a Frame Server that
+never delivers hangs the harness indefinitely with no output. That is a different
+failure from before, but it is not success.
 
-The HKLM registration survived the run — `InprocServer32` still pointed at the
-build output afterwards, despite the script unregistering in a `finally` block.
-Unexplained from the captured output. Low consequence (the camera used
-`MFVirtualCameraLifetime_Session`, so nothing enumerated afterwards) but the
-registration pointed machine-wide into a build directory, which breaks silently
-if that DLL is rebuilt.
+### Open
 
-The cleanup step now reports failure loudly instead of printing a bare boolean,
-and checks `InprocServer32` rather than the parent CLSID key — the parent can
-legitimately linger as an empty key, so the old check could report a false leak.
+- Confirm whether the run was interrupted, and whether any frame output appeared.
+- `ConsumeCamera` needs a bounded wait so "no frames" reports as a failure instead
+  of hanging silently. Blocking indefinitely is why this was ambiguous at all.
+- Verification is moving to the real client in a real meeting app, which exercises
+  the production ProgramData registration rather than a build-directory CLSID and
+  gives an unambiguous visual answer.
+
+`IMFSampleAllocatorControl` remains correct and necessary regardless — the
+reference implements it, we did not, and it was the only interface difference. Its
+sufficiency is what is unproven.
 
 ## Why `drive` passed for weeks while the camera delivered nothing
 

@@ -1,10 +1,11 @@
 # W4 blank feed — ETW trace and reference diff, 2026-08-02
 
-> **RESOLVED 2026-08-03. Read this file for method, not for conclusions.**
+> **SUPERSEDED 2026-08-03. Read this file for method, not for conclusions.**
 >
-> Cause: the media source did not implement `IMFSampleAllocatorControl`, so the
-> Frame Server could not hand it a shareable allocator and abandoned the pipeline
-> after activation. See `../2026-08-02-w4-reference-control/`.
+> A missing `IMFSampleAllocatorControl` was identified as the cause and
+> implemented. The camera now enumerates and activates, but frame delivery is
+> **not yet confirmed** — see `../2026-08-02-w4-reference-control/`. An earlier
+> revision of that file claimed resolution; it was retracted.
 >
 > **This file's central hypothesis was wrong.** The "unidentified interface"
 > below, `{2032C7EF-…}`, is a red herring: Microsoft's own reference camera

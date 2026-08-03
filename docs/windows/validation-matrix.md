@@ -277,24 +277,26 @@ remain unpassed until directly observed.
 
 ## W4 — native Windows 11 camera
 
-**The blank feed is resolved (2026-08-03).** The Frame Server streams 15 frames
-from our source through a real consumer, verified on hardware with
-`scripts/verify-native-camera-streaming.ps1`.
+**Blank feed: progress, not resolved (2026-08-03).** A missing
+`IMFSampleAllocatorControl` was identified as the cause and implemented — the
+Frame Server cannot hand a source without it an allocator whose samples live in
+memory the server can share, so it inspects the source and abandons the pipeline.
+Found by building Microsoft's reference camera on this machine and diffing
+interface support; see `evidence/2026-08-02-w4-reference-control/`.
 
-Cause: the media source did not implement `IMFSampleAllocatorControl`, so the
-Frame Server could not hand it an allocator whose samples live in memory the
-server can forward to a consumer. It therefore inspected the source and abandoned
-the pipeline — activation succeeded, `Start` and `RequestSample` were never
-called, and consumers saw `MF_E_VIDEO_RECORDING_DEVICE_INVALIDATED`. Found by
-building Microsoft's reference camera on the same machine and diffing interface
-support; see `evidence/2026-08-02-w4-reference-control/`.
+The camera now enumerates and `ActivateObject` succeeds, and the previous
+immediate `MF_E_VIDEO_RECORDING_DEVICE_INVALIDATED` no longer appears. But no
+frame delivery has been observed: the verifying run produced no frame output
+before being interrupted, most likely because `ReadSample` blocks with no timeout
+rather than failing. **Not confirmed working.**
 
 The undocumented IID `{2032C7EF-…}` was **not** the cause — the reference refuses
-it too and still streams.
+it too and streams anyway.
 
 | Check | Pass condition |
 | --- | --- |
-| Frame Server streaming | **Hardware pass, 2026-08-03.** 15 frames delivered through `MFEnumDeviceSources` → `ActivateObject` → source reader, HKLM registration removed and verified afterwards. Re-run with `scripts/verify-native-camera-streaming.ps1` from an elevated shell. |
+| Frame Server streaming | **Unconfirmed.** Camera enumerates and activates; no frames yet observed. Verify in the real client in a meeting app, which uses the production ProgramData registration rather than a build-directory CLSID. |
+| Consumer timeout | **Gap.** `ConsumeCamera` calls `ReadSample` synchronously with no bound, so "no frames" hangs silently instead of failing. Fix before trusting the harness again. |
 | Allocator handshake | **Automated pass.** Six source-contract invariants pin the interface, `UsesProvidedAllocator`, allocation from the provided allocator only, loud failure when none is supplied, rebinding on NV12↔RGB32 renegotiation, and the in-process harness performing the handshake instead of bypassing it. |
 | OS gate | **Automated pass.** Native actions are limited to Windows Build 22000+ x64; unsupported systems retain the OBS path. Manual Windows 10 visual confirmation remains. |
 | Registration | **Implemented; manual pending.** Install/Repair/Remove use one verified ProgramData target and the stable CLSID. `bin` remains Administrator/SYSTEM-owned; only the dedicated runtime/log directories are user-writable. Approve UAC and verify install/update/repair/uninstall on the test profile. |

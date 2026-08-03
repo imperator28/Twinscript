@@ -18,11 +18,13 @@
 #include <mfvirtualcamera.h>
 #include <shlwapi.h>
 
+#include <atomic>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <string>
+#include <thread>
 
 #include "com_support.h"
 #include "vcam_guids.h"
@@ -373,6 +375,50 @@ int HostVirtualCamera(int seconds) {
 
 int ConsumeCamera(int frames);  // defined below; used by HostAndConsume
 
+// How long a single ReadSample may block before the harness gives up. Generous
+// against a slow first frame, far below any human's patience for a silent hang.
+constexpr int kConsumeWatchdogSeconds = 20;
+
+std::atomic<bool> g_read_finished{false};
+std::atomic<long long> g_read_progress{0};
+
+void NoteReadProgress() {
+  g_read_progress.fetch_add(1, std::memory_order_relaxed);
+}
+
+// Terminates the process if no ReadSample iteration completes within the budget.
+//
+// Termination rather than a graceful return: the calling thread is blocked inside
+// Media Foundation and cannot be unwound from here. A hard exit with a specific
+// code and an explicit message is honest about that, and infinitely better than
+// producing no output at all.
+void StartReadWatchdog(int seconds) {
+  std::thread([seconds]() {
+    long long last = -1;
+    for (;;) {
+      const long long before = g_read_progress.load(std::memory_order_relaxed);
+      for (int slept = 0; slept < seconds * 10; ++slept) {
+        if (g_read_finished.load(std::memory_order_relaxed)) return;
+        ::Sleep(100);
+      }
+      if (g_read_finished.load(std::memory_order_relaxed)) return;
+      const long long after = g_read_progress.load(std::memory_order_relaxed);
+      if (after == before && after != last) {
+        std::printf(
+            "\nFAIL  the consumer made no progress for %ds.\n"
+            "      Blocked somewhere between enumeration and the first frame. This\n"
+            "      is what a camera whose source the Frame Server never hosts looks\n"
+            "      like. Check the media source log: if no Frame Server process\n"
+            "      appears there, the source was never instantiated.\n",
+            seconds);
+        std::fflush(stdout);
+        ::TerminateProcess(::GetCurrentProcess(), 7);
+      }
+      last = after;
+    }
+  }).detach();
+}
+
 // Create the camera, start it, and read frames from it in ONE process.
 //
 // `camera` and `consume` are deliberately separate — one holds the lifetime, the
@@ -553,6 +599,17 @@ int ServeVirtualCamera(const std::wstring& pipe_name, const char* region_path) {
 // devices and activating the one with our friendly name — then read frames.
 // This is the only check that proves the frame server can host the source.
 int ConsumeCamera(int frames) {
+  // Bound the WHOLE consumer path, not just ReadSample. Every step here can block
+  // indefinitely against a camera the Frame Server never backs with a source -
+  // observed hanging in ActivateObject, before any read - and a silent hang is the
+  // worst possible outcome for a diagnostic: it made a failed run look like it
+  // might have succeeded.
+  //
+  // A watchdog thread rather than the async reader callback: the callback model
+  // would restructure this for no diagnostic gain, and all that is needed is
+  // "fail loudly instead of blocking forever".
+  StartReadWatchdog(kConsumeWatchdogSeconds);
+
   ComPtr<IMFAttributes> attributes;
   HRESULT hr = ::MFCreateAttributes(attributes.GetAddressOf(), 1);
   if (FAILED(hr)) return Fail("MFCreateAttributes", hr);
@@ -603,12 +660,16 @@ int ConsumeCamera(int frames) {
   int delivered = 0;
   LONGLONG previous_time = -1;
   for (int i = 0; i < frames; ++i) {
+    NoteReadProgress();
     DWORD stream_index = 0, flags = 0;
     LONGLONG timestamp = 0;
     ComPtr<IMFSample> sample;
     hr = reader->ReadSample(MF_SOURCE_READER_FIRST_VIDEO_STREAM, 0, &stream_index, &flags,
                             &timestamp, sample.GetAddressOf());
-    if (FAILED(hr)) return Fail("ReadSample(camera)", hr);
+    if (FAILED(hr)) {
+      g_read_finished.store(true, std::memory_order_relaxed);
+      return Fail("ReadSample(camera)", hr);
+    }
     if (!sample) continue;
     ComPtr<IMFMediaBuffer> buffer;
     if (FAILED(sample->ConvertToContiguousBuffer(buffer.GetAddressOf()))) continue;
@@ -626,6 +687,7 @@ int ConsumeCamera(int frames) {
     ++delivered;
   }
 
+  g_read_finished.store(true, std::memory_order_relaxed);
   std::printf("%s  %d frames read from the camera (last timestamp %lld)\n",
               delivered > 0 ? "ok  " : "FAIL", delivered, previous_time);
   reader.Reset();

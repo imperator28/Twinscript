@@ -136,6 +136,41 @@ HRESULT MediaSource::Initialize() {
                                      MFFrameSourceTypes_Color);
   if (FAILED(hr)) return hr;
 
+  // Publish a sensor profile collection.
+  //
+  // This is what a virtual camera uses to tell the Frame Server what it can
+  // actually do. Without it the server activates the source, inspects it, and then
+  // never calls Start or RequestSample — a blank feed in every meeting client,
+  // while an in-process consumer streams the same source perfectly because it
+  // bypasses the Frame Server entirely.
+  //
+  // Established by building Microsoft's reference camera on this machine: it shows
+  // a live picture in Teams, ours does not, and after eliminating the refused
+  // undocumented IIDs (the reference refuses the same ones), the allocator
+  // handshake, and the app-package PFN attribute (the reference logs "Not running
+  // in app package" and still works), this was the only remaining difference. The
+  // reference's own comment calls the Legacy profile mandatory, precisely so
+  // profile-unaware consumers keep working.
+  ComPtr<IMFSensorProfileCollection> profiles;
+  hr = ::MFCreateSensorProfileCollection(profiles.GetAddressOf());
+  if (FAILED(hr)) return hr;
+
+  ComPtr<IMFSensorProfile> legacy_profile;
+  hr = ::MFCreateSensorProfile(KSCAMERAPROFILE_Legacy, 0, nullptr,
+                               legacy_profile.GetAddressOf());
+  if (FAILED(hr)) return hr;
+  // Only the legacy profile: this source runs at 15 fps, so it satisfies the
+  // <=30 fps filter. The reference also publishes KSCAMERAPROFILE_HighFrameRate,
+  // which requires >=60 fps — advertising a profile we cannot honour would
+  // misdescribe the device to the very component we are trying to satisfy.
+  hr = legacy_profile->AddProfileFilter(kStreamId, L"((RES==;FRT<=30,1;SUT==))");
+  if (FAILED(hr)) return hr;
+  hr = profiles->AddProfile(legacy_profile.Get());
+  if (FAILED(hr)) return hr;
+  hr = source_attributes_->SetUnknown(MF_DEVICEMFT_SENSORPROFILE_COLLECTION,
+                                      profiles.Get());
+  if (FAILED(hr)) return hr;
+
   hr = ::MFCreateAttributes(stream_attributes_.GetAddressOf(), 4);
   if (FAILED(hr)) return hr;
   hr = stream_attributes_->SetUINT32(MF_DEVICESTREAM_STREAM_ID, kStreamId);

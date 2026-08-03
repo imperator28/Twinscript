@@ -6,6 +6,9 @@
 #include <mferror.h>
 #include <ks.h>
 #include <ksproxy.h>
+// KSCAMERAPROFILE_Legacy, for the sensor profile collection the Frame Server
+// requires before it will stream a virtual camera.
+#include <ksmedia.h>
 
 #include "com_support.h"
 #include "media_stream.h"

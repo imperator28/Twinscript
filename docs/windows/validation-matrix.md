@@ -277,26 +277,29 @@ remain unpassed until directly observed.
 
 ## W4 — native Windows 11 camera
 
-**Blank feed: progress, not resolved (2026-08-03).** A missing
-`IMFSampleAllocatorControl` was identified as the cause and implemented — the
-Frame Server cannot hand a source without it an allocator whose samples live in
-memory the server can share, so it inspects the source and abandons the pipeline.
-Found by building Microsoft's reference camera on this machine and diffing
-interface support; see `evidence/2026-08-02-w4-reference-control/`.
+**Blank feed: STILL BROKEN (2026-08-03).** Teams lists and selects
+**Twinscript (Windows Virtual Camera)** and the feed is blank. Enumeration works;
+frame delivery does not.
 
-The camera now enumerates and `ActivateObject` succeeds, and the previous
-immediate `MF_E_VIDEO_RECORDING_DEVICE_INVALIDATED` no longer appears. But no
-frame delivery has been observed: the verifying run produced no frame output
-before being interrupted, most likely because `ReadSample` blocks with no timeout
-rather than failing. **Not confirmed working.**
+`IMFSampleAllocatorControl` was implemented and is **not** the cause. The source
+log proves the Frame Server has never instantiated our media source at all — every
+one of the 395 loads is our own `vcam-host.exe` or the probe harness, zero are
+`svchost`/`frameserver`, and `NT AUTHORITY\LOCAL SERVICE` has Modify on the log
+directory so a Frame Server load would have been recorded. Every run stops at the
+same place: `ActivateObject` succeeds, three IIDs are refused, nothing follows —
+no allocator handshake, no `Start`, no `RequestSample`.
 
-The undocumented IID `{2032C7EF-…}` was **not** the cause — the reference refuses
-it too and streams anyway.
+Both our source and Microsoft's reference refuse the same three IIDs, and the
+reference streams, so the divergence is **before** source-interface negotiation.
+The `{2032C7EF-…}` refusal is not the cause either.
+
+Next candidate: `MF_DEVICEMFT_SENSORPROFILE_COLLECTION`, which the reference
+publishes and we do not. See `evidence/2026-08-02-w4-reference-control/`.
 
 | Check | Pass condition |
 | --- | --- |
-| Frame Server streaming | **Unconfirmed.** Camera enumerates and activates; no frames yet observed. Verify in the real client in a meeting app, which uses the production ProgramData registration rather than a build-directory CLSID. |
-| Consumer timeout | **Gap.** `ConsumeCamera` calls `ReadSample` synchronously with no bound, so "no frames" hangs silently instead of failing. Fix before trusting the harness again. |
+| Frame Server streaming | **FAIL.** Camera enumerates in Teams; feed is blank. The Frame Server never instantiates the source. |
+| Consumer timeout | **Gap.** `ConsumeCamera` calls `ReadSample` synchronously with no bound, so "no frames" hangs silently instead of failing. This is why a run could be mistaken for a possible success. |
 | Allocator handshake | **Automated pass.** Six source-contract invariants pin the interface, `UsesProvidedAllocator`, allocation from the provided allocator only, loud failure when none is supplied, rebinding on NV12↔RGB32 renegotiation, and the in-process harness performing the handshake instead of bypassing it. |
 | OS gate | **Automated pass.** Native actions are limited to Windows Build 22000+ x64; unsupported systems retain the OBS path. Manual Windows 10 visual confirmation remains. |
 | Registration | **Implemented; manual pending.** Install/Repair/Remove use one verified ProgramData target and the stable CLSID. `bin` remains Administrator/SYSTEM-owned; only the dedicated runtime/log directories are user-writable. Approve UAC and verify install/update/repair/uninstall on the test profile. |

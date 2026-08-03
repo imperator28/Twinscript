@@ -85,18 +85,69 @@ The most likely reading is that `ReadSample` now **blocks** rather than failing 
 never delivers hangs the harness indefinitely with no output. That is a different
 failure from before, but it is not success.
 
-### Open
+### Settled: the allocator was NOT the cause
 
-- Confirm whether the run was interrupted, and whether any frame output appeared.
-- `ConsumeCamera` needs a bounded wait so "no frames" reports as a failure instead
-  of hanging silently. Blocking indefinitely is why this was ambiguous at all.
-- Verification is moving to the real client in a real meeting app, which exercises
-  the production ProgramData registration rather than a build-directory CLSID and
-  gives an unambiguous visual answer.
+Verified in a meeting client: Teams lists and selects **Twinscript (Windows
+Virtual Camera)**, and the feed is blank. Enumeration works; frames do not.
 
-`IMFSampleAllocatorControl` remains correct and necessary regardless — the
-reference implements it, we did not, and it was the only interface difference. Its
-sufficiency is what is unproven.
+`C:\ProgramData\Twinscript\logs\vcam-source.log` is decisive, because
+`NT AUTHORITY\LOCAL SERVICE` holds Modify on that directory — so a Frame Server
+load would be logged.
+
+| Process that has ever loaded our DLL | Count |
+| --- | --- |
+| `vcam-host.exe` (our own host) | 374 |
+| `control.exe` (the probe harness) | 21 |
+| `svchost` / `frameserver` / `dllhost` | **0** |
+
+**The Frame Server has never instantiated our media source.** Every run ends the
+same way, unchanged by the allocator work:
+
+```
+DllGetClassObject               match=1
+ClassFactory::CreateInstance    0x00000000
+MediaSourceActivate::ActivateObject 0x00000000
+MediaSource QueryInterface REFUSED {2032C7EF-…}
+MediaSource QueryInterface REFUSED {5BC8A76B-…}
+MediaSource QueryInterface REFUSED {B91EBFEE-…}
+                                        <-- nothing further, ever
+```
+
+No `GetAllocatorUsage`, no `SetDefaultAllocator`, no `Start`, no `RequestSample`.
+The allocator handshake is never reached, so implementing it could not have
+helped. It is a real difference from the reference and probably still required
+eventually, but it is **not** the blocker.
+
+### A correction I got backwards
+
+The earlier ETW note judged `IMFSampleAllocatorControl` as *"may be latent rather
+than causal"* because Windows never queried its IID. I overrode that as "too
+confident — absence from a trace is not absence from the contract." **The original
+judgment was right and my override was wrong.** Windows genuinely never asks for
+it, and the log confirms that independently of ETW.
+
+### Where the difference actually is
+
+Both sources refuse the same three IIDs, and the reference streams — so the
+divergence is *before* source-interface negotiation. The Frame Server decides not
+to host our source at all. The remaining known differences from the reference are
+therefore the candidates:
+
+1. **`MF_DEVICEMFT_SENSORPROFILE_COLLECTION`** — the reference publishes a sensor
+   profile collection; we publish none. The Frame Server uses sensor profiles to
+   decide what a device can do, which is exactly the kind of thing that would make
+   it decline to host. Highest-value next step.
+2. `MF_VIRTUALCAMERA_CONFIGURATION_APP_PACKAGE_FAMILY_NAME`.
+
+A sharper experiment is also available now: add logging to the reference DLL, or
+diff the two activate objects' attribute sets, and see what the Frame Server reads
+from the reference that it does not get from us.
+
+### Harness defect that made this ambiguous
+
+`ConsumeCamera` calls `ReadSample` synchronously with no timeout, so "no frames"
+hangs indefinitely instead of failing. That is why a run could look like it might
+have succeeded. Bound it before trusting the harness again.
 
 ## Why `drive` passed for weeks while the camera delivered nothing
 

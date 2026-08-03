@@ -8,6 +8,12 @@
 #include "vcam_log.h"
 
 namespace twinscript::vcam {
+namespace {
+// Matches Microsoft's reference virtual camera. Deep enough that a consumer
+// holding a few frames cannot starve the stream, small enough that 1080p
+// buffers do not dominate the Frame Server's working set.
+constexpr DWORD kAllocatorSampleCount = 10;
+}  // namespace
 
 MediaStream::MediaStream() {
   ModuleObjectCreated();
@@ -163,11 +169,21 @@ HRESULT MediaStream::DeliverSample(IUnknown* token) {
   const OutputFormat format = CurrentFormat();
   const DWORD payload_bytes = static_cast<DWORD>(frames_.PayloadBytesFor(format));
 
+  // Samples must come from the allocator the Frame Server provided. A buffer we
+  // allocate ourselves lives only in this process, so the server cannot forward
+  // it to a consumer — the reason activation used to succeed and then stall.
+  HRESULT hr = EnsureAllocatorInitialized(format);
+  if (FAILED(hr)) return hr;
+
+  ComPtr<IMFSample> sample;
+  hr = allocator_->AllocateSample(sample.GetAddressOf());
+  if (FAILED(hr)) {
+    LogLine("MediaStream::AllocateSample failed hr=0x%08lX", hr);
+    return hr;
+  }
+
   ComPtr<IMFMediaBuffer> buffer;
-  const DWORD fourcc = format == OutputFormat::kNv12 ? MFVideoFormat_NV12.Data1
-                                                      : MFVideoFormat_RGB32.Data1;
-  HRESULT hr = ::MFCreate2DMediaBuffer(frames_.Width(), frames_.Height(), fourcc, FALSE,
-                                       buffer.GetAddressOf());
+  hr = sample->GetBufferByIndex(0, buffer.GetAddressOf());
   if (FAILED(hr)) return hr;
 
   std::vector<BYTE> contiguous(payload_bytes);
@@ -181,11 +197,6 @@ HRESULT MediaStream::DeliverSample(IUnknown* token) {
   hr = buffer->SetCurrentLength(payload_bytes);
   if (FAILED(hr)) return hr;
 
-  ComPtr<IMFSample> sample;
-  hr = ::MFCreateSample(sample.GetAddressOf());
-  if (FAILED(hr)) return hr;
-  hr = sample->AddBuffer(buffer.Get());
-  if (FAILED(hr)) return hr;
   hr = sample->SetSampleTime(frames_.TakeTimestamp());
   if (FAILED(hr)) return hr;
   hr = sample->SetSampleDuration(frames_.FrameDuration());
@@ -199,6 +210,52 @@ HRESULT MediaStream::DeliverSample(IUnknown* token) {
   }
 
   return event_queue_->QueueEventParamUnk(MEMediaSample, GUID_NULL, S_OK, sample.Get());
+}
+
+HRESULT MediaStream::SetSampleAllocator(IMFVideoSampleAllocator* allocator) {
+  Lock guard(&lock_);
+  const HRESULT hr = CheckShutdown();
+  if (FAILED(hr)) return hr;
+  if (!allocator) return E_POINTER;
+  LogLine("MediaStream::SetSampleAllocator");
+  allocator_ = allocator;
+  // Force re-initialization: this allocator has not been bound to a media type.
+  allocator_initialized_ = false;
+  return S_OK;
+}
+
+// `MFSampleAllocatorUsage_UsesProvidedAllocator` means we never create an
+// allocator ourselves. If the server has not given us one yet, failing here is
+// correct and diagnosable, rather than silently falling back to process-local
+// buffers that would stall the pipeline exactly as before.
+HRESULT MediaStream::EnsureAllocatorInitialized(OutputFormat format) {
+  if (!allocator_) {
+    LogLine("MediaStream::EnsureAllocatorInitialized no allocator provided");
+    return MF_E_NOT_INITIALIZED;
+  }
+  if (allocator_initialized_ && allocator_format_ == format) return S_OK;
+
+  ComPtr<IMFMediaTypeHandler> handler;
+  if (!descriptor_) return MF_E_NOT_INITIALIZED;
+  HRESULT hr = descriptor_->GetMediaTypeHandler(handler.GetAddressOf());
+  if (FAILED(hr)) return hr;
+  ComPtr<IMFMediaType> media_type;
+  hr = handler->GetCurrentMediaType(media_type.GetAddressOf());
+  if (FAILED(hr)) return hr;
+
+  // Re-binding an already-initialized allocator requires tearing the old
+  // binding down first; UninitializeSampleAllocator is a no-op when unbound.
+  allocator_->UninitializeSampleAllocator();
+  hr = allocator_->InitializeSampleAllocator(kAllocatorSampleCount, media_type.Get());
+  if (FAILED(hr)) {
+    LogLine("MediaStream::InitializeSampleAllocator failed hr=0x%08lX", hr);
+    return hr;
+  }
+  allocator_initialized_ = true;
+  allocator_format_ = format;
+  LogLine("MediaStream::InitializeSampleAllocator ok format=%s",
+          format == OutputFormat::kNv12 ? "NV12" : "RGB32");
+  return S_OK;
 }
 
 OutputFormat MediaStream::CurrentFormat() const {

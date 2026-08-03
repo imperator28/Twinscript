@@ -178,6 +178,8 @@ HRESULT MediaSource::QueryInterface(REFIID iid, void** out) {
     *out = static_cast<IMFGetService*>(this);
   } else if (iid == __uuidof(IKsControl)) {
     *out = static_cast<IKsControl*>(this);
+  } else if (iid == __uuidof(IMFSampleAllocatorControl)) {
+    *out = static_cast<IMFSampleAllocatorControl*>(this);
   } else {
     // Logged because a refused interface is the most likely cause of an
     // E_NOINTERFACE surfacing out of IMFVirtualCamera::Start, and the frame
@@ -387,5 +389,42 @@ HRESULT MediaSource::KsProperty(PKSPROPERTY, ULONG, void*, ULONG, ULONG*) {
 }
 HRESULT MediaSource::KsMethod(PKSMETHOD, ULONG, void*, ULONG, ULONG*) { return E_NOTIMPL; }
 HRESULT MediaSource::KsEvent(PKSEVENT, ULONG, void*, ULONG, ULONG*) { return E_NOTIMPL; }
+
+// The Frame Server calls this with an allocator it owns, whose samples live in
+// memory it can forward to a consumer. Only stream 0 exists.
+HRESULT MediaSource::SetDefaultAllocator(DWORD outputStreamId, IUnknown* allocator) {
+  Lock guard(&lock_);
+  HRESULT hr = CheckShutdown();
+  if (FAILED(hr)) return hr;
+  if (!allocator) return E_POINTER;
+  LogLine("MediaSource::SetDefaultAllocator stream=%lu", outputStreamId);
+  if (outputStreamId != 0 || !stream_) return MF_E_INVALIDSTREAMNUMBER;
+
+  ComPtr<IMFVideoSampleAllocator> video_allocator;
+  hr = allocator->QueryInterface(__uuidof(IMFVideoSampleAllocator),
+                                 reinterpret_cast<void**>(video_allocator.GetAddressOf()));
+  if (FAILED(hr)) {
+    LogLine("MediaSource::SetDefaultAllocator not an IMFVideoSampleAllocator hr=0x%08lX", hr);
+    return hr;
+  }
+  return stream_->SetSampleAllocator(video_allocator.Get());
+}
+
+// Declaring UsesProvidedAllocator is what makes the server supply an allocator
+// at all. Claiming to allocate our own would return the pipeline to the stalled
+// behaviour this interface exists to fix.
+HRESULT MediaSource::GetAllocatorUsage(DWORD outputStreamId, DWORD* inputStreamId,
+                                       MFSampleAllocatorUsage* usage) {
+  Lock guard(&lock_);
+  const HRESULT hr = CheckShutdown();
+  if (FAILED(hr)) return hr;
+  if (!inputStreamId || !usage) return E_POINTER;
+  if (outputStreamId != 0 || !stream_) return MF_E_INVALIDSTREAMNUMBER;
+  *inputStreamId = outputStreamId;
+  *usage = stream_->AllocatorUsage();
+  LogLine("MediaSource::GetAllocatorUsage stream=%lu usage=%d", outputStreamId,
+          static_cast<int>(*usage));
+  return S_OK;
+}
 
 }  // namespace twinscript::vcam

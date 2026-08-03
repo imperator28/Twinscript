@@ -1,8 +1,73 @@
 # W4 control experiment — Microsoft reference camera, 2026-08-02
 
-**Status: built and staged, not yet run.** The final step needs one elevated
-registration; the UAC prompt was cancelled, so nothing was registered and the
-registry is clean. Everything before that step is done and reusable.
+## Result: the reference camera STREAMS. The fault was ours.
+
+```
+ok    MFCreateVirtualCamera
+ok    IMFVirtualCamera::Start
+      [1] MSRefControlCam (Windows Virtual Camera)
+ok    ActivateObject
+      frame  1  ts=8404462362585  bytes=460800
+      ...
+PASS  9/10 frames delivered
+```
+
+640×480 NV12, advancing timestamps, HKLM key removed afterwards and verified
+gone. Frame 0 carried no sample (`flags=0x100`, a stream tick), which is normal.
+
+**This eliminated the environmental hypothesis.** Windows, the Frame Server, and
+this machine can all host an unsigned software virtual camera end to end.
+
+## What the interface diff then showed
+
+With a known-good source on the same machine, both sources were asked directly
+which interfaces they implement (`control.exe probe <clsid> <dll>`, HKCU
+registration, no elevation needed):
+
+| Interface | Reference | Ours (before) |
+| --- | --- | --- |
+| `IMFMediaSource` | YES | YES |
+| `IMFMediaSourceEx` | YES | YES |
+| `IMFGetService` | YES | YES |
+| `IMFSampleAllocatorControl` | **YES** | **no** |
+| `{2032C7EF-…}` | no | no |
+
+Two conclusions, one of which closed a long-running dead end.
+
+**`{2032C7EF-76F6-492A-94F3-4A81F69380CC}` is a red herring.** It was treated
+across three sessions as the blocking unknown — the undocumented interface
+Windows queries right after activation and which we refuse. The reference refuses
+it too, and the reference streams. Refusing it was never the cause.
+
+**`IMFSampleAllocatorControl` was the difference**, and it is the only one. The
+mechanism accounts for the symptom exactly: a source implementing it reports
+`MFSampleAllocatorUsage_UsesProvidedAllocator`, and the Frame Server then hands
+over an allocator *it* owns, whose samples live in memory it can forward to a
+consumer. Without the interface the server cannot negotiate buffers at all, so it
+inspects the source and abandons the pipeline — activation succeeds, `Start` and
+`RequestSample` are never called, and the consumer eventually sees
+`MF_E_VIDEO_RECORDING_DEVICE_INVALIDATED`. Our stream had been allocating its own
+buffers with `MFCreate2DMediaBuffer`, which are process-local and of no use to
+the server.
+
+Implemented in commit for W4.5. **End-to-end confirmation still pending** — it
+needs HKLM registration, and elevation is not reachable from the agent context:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify-native-camera-streaming.ps1
+```
+
+## Why `drive` passed for weeks while the camera delivered nothing
+
+`vcam-host drive` activates the source in-process, and in-process activation never
+involves the Frame Server. The harness was exercising a path Windows never takes,
+so it could not observe the missing allocator negotiation. `drive` now plays the
+server's role — QI the interface, read the usage, create and hand over an
+allocator — so it covers the negotiation rather than bypassing it.
+
+---
+
+## Appendix: build recipe (reusable)
 
 ## Why this experiment
 

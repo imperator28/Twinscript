@@ -184,6 +184,36 @@ int DriveMediaSource(int frames) {
   std::printf("ok    characteristics=0x%lX%s\n", characteristics,
               (characteristics & MFMEDIASOURCE_IS_LIVE) ? " (live)" : "");
 
+  // In production the Frame Server owns the allocator and hands it over via
+  // IMFSampleAllocatorControl; the source declares
+  // MFSampleAllocatorUsage_UsesProvidedAllocator and never makes one itself.
+  // This harness has to play that role too, otherwise it drives the source
+  // along a path Windows never takes — which is exactly the mistake that let
+  // `drive` pass for weeks while the real camera delivered nothing.
+  ComPtr<IMFSampleAllocatorControl> allocator_control;
+  hr = source->QueryInterface(__uuidof(IMFSampleAllocatorControl),
+                              reinterpret_cast<void**>(allocator_control.GetAddressOf()));
+  if (FAILED(hr)) return Fail("QueryInterface(IMFSampleAllocatorControl)", hr);
+
+  DWORD input_stream = 0;
+  MFSampleAllocatorUsage usage = MFSampleAllocatorUsage_UsesProvidedAllocator;
+  hr = allocator_control->GetAllocatorUsage(0, &input_stream, &usage);
+  if (FAILED(hr)) return Fail("GetAllocatorUsage", hr);
+  std::printf("ok    allocator usage=%d (%s)\n", static_cast<int>(usage),
+              usage == MFSampleAllocatorUsage_UsesProvidedAllocator ? "provided"
+                                                                    : "own");
+
+  if (usage == MFSampleAllocatorUsage_UsesProvidedAllocator) {
+    ComPtr<IMFVideoSampleAllocator> allocator;
+    hr = ::MFCreateVideoSampleAllocatorEx(
+        __uuidof(IMFVideoSampleAllocator),
+        reinterpret_cast<void**>(allocator.GetAddressOf()));
+    if (FAILED(hr)) return Fail("MFCreateVideoSampleAllocatorEx", hr);
+    hr = allocator_control->SetDefaultAllocator(0, allocator.Get());
+    if (FAILED(hr)) return Fail("SetDefaultAllocator", hr);
+    Ok("SetDefaultAllocator");
+  }
+
   // MFCreateSourceReaderFromMediaSource exercises the same Start/RequestSample
   // path the frame server uses, without hand-rolling the event pump.
   ComPtr<IMFAttributes> reader_attributes;
@@ -339,6 +369,41 @@ int HostVirtualCamera(int seconds) {
   camera->Shutdown();
   Ok("camera stopped and removed");
   return 0;
+}
+
+int ConsumeCamera(int frames);  // defined below; used by HostAndConsume
+
+// Create the camera, start it, and read frames from it in ONE process.
+//
+// `camera` and `consume` are deliberately separate — one holds the lifetime, the
+// other plays the meeting app — but that requires two coordinated processes, so
+// there was no single command that answered "does the frame server actually
+// stream this source?". This is that command, and it mirrors exactly the harness
+// that proved Microsoft's reference camera streams on this machine, so the two
+// results are directly comparable.
+int HostAndConsume(int frames) {
+  ComPtr<IMFVirtualCamera> camera;
+  HRESULT hr = ::MFCreateVirtualCamera(
+      MFVirtualCameraType_SoftwareCameraSource, MFVirtualCameraLifetime_Session,
+      MFVirtualCameraAccess_CurrentUser, kCameraFriendlyName, kMediaSourceClsidString,
+      nullptr, 0, camera.GetAddressOf());
+  if (FAILED(hr)) return Fail("MFCreateVirtualCamera", hr);
+  Ok("MFCreateVirtualCamera");
+
+  hr = camera->Start(nullptr);
+  if (FAILED(hr)) {
+    camera->Remove();
+    camera->Shutdown();
+    return Fail("IMFVirtualCamera::Start", hr);
+  }
+  Ok("IMFVirtualCamera::Start");
+
+  const int result = ConsumeCamera(frames > 0 ? frames : 10);
+
+  camera->Stop();
+  camera->Remove();
+  camera->Shutdown();
+  return result;
 }
 
 std::wstring Widen(const char* value) {
@@ -595,13 +660,15 @@ int main(int argc, char** argv) {
     result = HostVirtualCamera(amount);
   } else if (command == "consume") {
     result = ConsumeCamera(amount > 0 ? amount : 10);
+  } else if (command == "selftest") {
+    result = HostAndConsume(amount);
   } else if (command == "serve") {
     result = ServeVirtualCamera(Widen(OptionValue(argc, argv, "--pipe")),
                                 OptionValue(argc, argv, "--region"));
   } else {
     std::printf(
         "usage: vcam-host <register|unregister|register-machine|unregister-machine|"
-        "status-machine|drive|camera|consume> [count|seconds]\n"
+        "status-machine|drive|camera|consume|selftest> [count|seconds]\n"
         "       vcam-host serve --region <file> --pipe <name>\n");
   }
 

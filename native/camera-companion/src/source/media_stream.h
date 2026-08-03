@@ -60,6 +60,15 @@ class MediaStream : public IMFMediaStream2, public IKsControl {
   HRESULT Shutdown();
   IMFMediaEventQueue* EventQueue() const { return event_queue_.Get(); }
 
+  // Frame Server allocator handshake. The server hands the source an allocator
+  // it owns, backed by memory it can share with consumers; samples allocated
+  // from it are visible cross-process. Buffers we allocate ourselves are not,
+  // which is why the server abandoned the pipeline before this existed.
+  HRESULT SetSampleAllocator(IMFVideoSampleAllocator* allocator);
+  MFSampleAllocatorUsage AllocatorUsage() const {
+    return MFSampleAllocatorUsage_UsesProvidedAllocator;
+  }
+
  private:
   MediaStream();
   ~MediaStream();
@@ -70,6 +79,8 @@ class MediaStream : public IMFMediaStream2, public IKsControl {
   HRESULT DeliverSample(IUnknown* token);
   // The pixel layout the consumer most recently selected.
   OutputFormat CurrentFormat() const;
+  // Bind the provided allocator to the negotiated media type, once per format.
+  HRESULT EnsureAllocatorInitialized(OutputFormat format);
 
   LONG ref_count_ = 1;
   CRITICAL_SECTION lock_{};
@@ -82,6 +93,12 @@ class MediaStream : public IMFMediaStream2, public IKsControl {
 
   ComPtr<IMFStreamDescriptor> descriptor_;
   ComPtr<IMFMediaEventQueue> event_queue_;
+  ComPtr<IMFVideoSampleAllocator> allocator_;
+  // The format the allocator is currently initialized for. The consumer may
+  // renegotiate between NV12 and RGB32 at any time, and an allocator bound to
+  // the wrong format would hand out buffers of the wrong size.
+  OutputFormat allocator_format_ = OutputFormat::kNv12;
+  bool allocator_initialized_ = false;
   FrameSource frames_;
 };
 

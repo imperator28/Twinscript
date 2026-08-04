@@ -54,6 +54,31 @@ set_target_properties(vcam_source PROPERTIES OUTPUT_NAME "twinscript-vcam-source
 target_include_directories(vcam_source PRIVATE include src/source)
 target_link_libraries(vcam_source PRIVATE mfplat mf mfuuid mfsensorgroup ole32 advapi32)
 
+# The DirectShow camera: a second, independent COM in-proc server.
+#
+# Replaces the Media Foundation source above, which enumerates in every meeting
+# client and streams to an in-process consumer but produces a black feed in Teams.
+# Differential tracing against Microsoft's reference camera showed an identical
+# call sequence and identical interfaces, and showed that the instance which
+# actually delivers frames is not observable from either side - so that path could
+# not be debugged further.
+#
+# DirectShow is proven on the target hardware: OBS Virtual Camera is a DirectShow
+# filter, registered the same way, and it works in Teams on the machine where the
+# MF camera is black. Clean-room implementation informed by that architecture;
+# OBS is GPL-2.0 and none of its code is used here.
+#
+# strmiids carries CLSID_VideoInputDeviceCategory and CLSID_FilterMapper2.
+add_library(dshow_camera SHARED
+  src/dshow/dll_main.cpp
+  src/dshow/dshow_filter.cpp
+  src/dshow/dshow_registration.cpp
+  src/dshow/twinscript_dshow.def
+)
+set_target_properties(dshow_camera PROPERTIES OUTPUT_NAME "twinscript-dshow-camera")
+target_include_directories(dshow_camera PRIVATE include src/dshow)
+target_link_libraries(dshow_camera PRIVATE strmiids ole32 oleaut32 uuid advapi32 shlwapi)
+
 # Stage 1/2 harness: registers the source, drives it in-process, and creates the
 # virtual camera. Kept separate from the DLL so a media-source bug can be
 # reproduced without involving the Windows frame server.

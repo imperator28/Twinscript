@@ -41,9 +41,27 @@ $installDir = 'C:\ProgramData\Twinscript\bin'
 $dll = Join-Path $installDir 'twinscript-dshow-camera.dll'
 
 $clsid = '{1F5A7C2E-8D64-4B93-9E11-3A6C5D8F27B4}'
-$categoryInstance =
-  "HKLM:\SOFTWARE\Classes\CLSID\{860BB310-5D01-11d0-BD3B-00A0C911CE86}\Instance\$clsid"
+$categoryRoot =
+  'HKLM:\SOFTWARE\Classes\CLSID\{860BB310-5D01-11d0-BD3B-00A0C911CE86}\Instance'
 $comServer = "HKLM:\SOFTWARE\Classes\CLSID\$clsid\InprocServer32"
+
+# Find the category entry by its CLSID VALUE, never by assuming the key name.
+# IFilterMapper2 chooses the instance key name, and an earlier build of this
+# script assumed it equalled the CLSID - so a fully working registration was
+# reported as "half-registered", which is a far more dangerous bug than a missing
+# feature: it invites a fix to something that is not broken.
+function Get-CategoryEntry {
+  Get-ChildItem $categoryRoot -ErrorAction SilentlyContinue | ForEach-Object {
+    $p = Get-ItemProperty $_.PSPath -ErrorAction SilentlyContinue
+    if ($p.CLSID -eq $clsid) {
+      [pscustomobject]@{
+        Key          = $_.PSChildName
+        FriendlyName = $p.FriendlyName
+        FilterData   = $(if ($p.FilterData) { $p.FilterData.Length } else { 0 })
+      }
+    }
+  } | Select-Object -First 1
+}
 
 $id = [Security.Principal.WindowsIdentity]::GetCurrent()
 $isAdmin = (New-Object Security.Principal.WindowsPrincipal($id)).IsInRole(
@@ -52,8 +70,13 @@ $isAdmin = (New-Object Security.Principal.WindowsPrincipal($id)).IsInRole(
 function Show-Status {
   Write-Output '--- status ---'
   Write-Output "  COM server:     $(if (Test-Path $comServer) { (Get-ItemProperty $comServer).'(default)' } else { 'not registered' })"
-  $listed = Test-Path $categoryInstance
-  Write-Output "  camera list:    $(if ($listed) { (Get-ItemProperty $categoryInstance).FriendlyName } else { 'not registered' })"
+  $entry = Get-CategoryEntry
+  $listed = [bool]$entry
+  if ($listed) {
+    Write-Output "  camera list:    $($entry.FriendlyName)  (key '$($entry.Key)', FilterData $($entry.FilterData) bytes)"
+  } else {
+    Write-Output '  camera list:    not registered'
+  }
   if ((Test-Path $comServer) -ne $listed) {
     Write-Output '  WARNING  half-registered. A COM server without a category entry'
     Write-Output '           enumerates from stale caches and then fails to activate.'
@@ -144,8 +167,9 @@ if (Test-Path $log) {
   Get-Content $log -Tail 4 | ForEach-Object { "  " + ($_ -split '\| ')[-1] }
 }
 
-if ($Action -eq 'Install' -and (Test-Path $categoryInstance)) {
+if ($Action -eq 'Install' -and (Get-CategoryEntry)) {
   Write-Output ''
   Write-Output 'Next: open the Teams camera picker. "Twinscript" should be listed.'
   Write-Output 'It will NOT show a picture yet - the output pin is W6.2.'
+  Write-Output 'Teams caches its device list, so quit it fully and reopen before judging.'
 }

@@ -81,27 +81,45 @@ HRESULT RegisterCategoryEntry(bool add) {
   }
 
   if (!add) {
-    hr = mapper->UnregisterFilter(&CLSID_VideoInputDeviceCategory, kFilterName,
+    // Two attempts on purpose. The instance key is now named by the CLSID
+    // (szInstance == nullptr), but an earlier build named it after the filter, so
+    // an upgrade has to clear both or it leaves an orphaned camera in the list.
+    hr = mapper->UnregisterFilter(&CLSID_VideoInputDeviceCategory, nullptr,
                                   kFilterClsid);
+    const HRESULT legacy = mapper->UnregisterFilter(&CLSID_VideoInputDeviceCategory,
+                                                    kFilterName, kFilterClsid);
     // Absent is success for an uninstall: repeated removal must not fail.
-    if (hr == VFW_E_NOT_FOUND || hr == HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND)) {
-      hr = S_OK;
-    }
-    LogLine("UnregisterFilter hr=0x%08lX", static_cast<unsigned long>(hr));
+    const auto absent = [](HRESULT value) {
+      return value == VFW_E_NOT_FOUND ||
+             value == HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND);
+    };
+    if (absent(hr)) hr = SUCCEEDED(legacy) ? S_OK : hr;
+    if (absent(hr)) hr = S_OK;
+    LogLine("UnregisterFilter hr=0x%08lX legacy=0x%08lX",
+            static_cast<unsigned long>(hr), static_cast<unsigned long>(legacy));
     mapper->Release();
     return hr;
   }
 
+  // Declare the format the pin actually offers. Registering zero media types
+  // produced a 40-byte FilterData blob where the working OBS filter has 88, and a
+  // device enumerator has no reason to treat a pin that advertises no format as a
+  // usable capture pin. RGB32 is byte-identical to the BGRA the stage already
+  // publishes, so nothing converts between the renderer and the consumer.
+  REGPINTYPES pin_type = {};
+  pin_type.clsMajorType = &MEDIATYPE_Video;
+  pin_type.clsMinorType = &MEDIASUBTYPE_RGB32;
+
   REGFILTERPINS pin = {};
-  pin.strName = const_cast<wchar_t*>(L"Output");
+  pin.strName = const_cast<wchar_t*>(L"Capture");
   pin.bRendered = FALSE;
   pin.bOutput = TRUE;
   pin.bZero = FALSE;
   pin.bMany = FALSE;
   pin.clsConnectsToFilter = &CLSID_NULL;
   pin.strConnectsToPin = nullptr;
-  pin.nMediaTypes = 0;
-  pin.lpMediaType = nullptr;
+  pin.nMediaTypes = 1;
+  pin.lpMediaType = &pin_type;
 
   REGFILTER2 filter = {};
   filter.dwVersion = 1;
@@ -112,8 +130,12 @@ HRESULT RegisterCategoryEntry(bool add) {
   filter.cPins = 1;
   filter.rgPins = &pin;
 
+  // szInstance is nullptr so the mapper names the instance key after the CLSID,
+  // which is what every other capture filter on this machine does, OBS included.
+  // Naming it after the friendly name works but collides with any other filter
+  // that picks the same display name.
   hr = mapper->RegisterFilter(kFilterClsid, kFilterName, nullptr,
-                              &CLSID_VideoInputDeviceCategory, kFilterName, &filter);
+                              &CLSID_VideoInputDeviceCategory, nullptr, &filter);
   LogLine("RegisterFilter '%ls' hr=0x%08lX%s", kFilterName,
           static_cast<unsigned long>(hr),
           hr == E_ACCESSDENIED

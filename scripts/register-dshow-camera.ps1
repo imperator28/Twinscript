@@ -29,7 +29,16 @@ $ErrorActionPreference = 'Continue'
 if (-not $ReleaseDir) {
   $ReleaseDir = Join-Path (Split-Path -Parent $PSScriptRoot) 'native\camera-companion\build\Release'
 }
-$dll = Join-Path $ReleaseDir 'twinscript-dshow-camera.dll'
+$builtDll = Join-Path $ReleaseDir 'twinscript-dshow-camera.dll'
+
+# The filter is NOT registered from the build tree. Unlike a Media Foundation
+# source - which the Frame Server loads in its own LocalService process - a
+# DirectShow filter is loaded directly INTO the consumer. Teams is a packaged MSIX
+# app running in an AppContainer, so it can only load a DLL that grants
+# ALL APPLICATION PACKAGES read+execute, and nothing under a user's profile does.
+# The working OBS filter carries exactly that ACE; verified on this machine.
+$installDir = 'C:\ProgramData\Twinscript\bin'
+$dll = Join-Path $installDir 'twinscript-dshow-camera.dll'
 
 $clsid = '{1F5A7C2E-8D64-4B93-9E11-3A6C5D8F27B4}'
 $categoryInstance =
@@ -57,14 +66,27 @@ function Show-Status {
     }
 }
 
+function Show-PackageAccess([string]$path) {
+  if (-not (Test-Path -LiteralPath $path)) { return }
+  $ace = (Get-Acl -LiteralPath $path).Access |
+    Where-Object { $_.IdentityReference -match 'ALL APPLICATION PACKAGES' }
+  if ($ace) {
+    Write-Output '  AppContainer read:  granted (a packaged client such as Teams can load it)'
+  } else {
+    Write-Output '  AppContainer read:  MISSING - a packaged client cannot load this DLL'
+  }
+}
+
 if ($Action -eq 'Status') {
-  Write-Output "dll: $dll  (present: $(Test-Path -LiteralPath $dll))"
+  Write-Output "installed dll: $dll  (present: $(Test-Path -LiteralPath $dll))"
+  Write-Output "built dll:     $builtDll  (present: $(Test-Path -LiteralPath $builtDll))"
+  Show-PackageAccess $dll
   Show-Status
   exit 0
 }
 
-if (-not (Test-Path -LiteralPath $dll)) {
-  Write-Output "ABORT  not found: $dll"
+if (-not (Test-Path -LiteralPath $builtDll)) {
+  Write-Output "ABORT  not found: $builtDll"
   Write-Output '       Build first:'
   Write-Output '       cmake --build native/camera-companion/build --config Release --target dshow_camera'
   exit 2
@@ -79,11 +101,37 @@ if (-not $isAdmin) {
 # choice stays in one place inside the DLL. Its exit code is not trustworthy, so
 # the registry is inspected afterwards instead of relying on it.
 if ($Action -eq 'Install') {
-  Write-Output "installing $dll"
+  New-Item -ItemType Directory -Path $installDir -Force | Out-Null
+  Write-Output "staging  $builtDll"
+  Write-Output "      -> $dll"
+  try {
+    Copy-Item -LiteralPath $builtDll -Destination $dll -Force -ErrorAction Stop
+  } catch {
+    Write-Output "ABORT  could not replace $dll"
+    Write-Output "       $($_.Exception.Message)"
+    Write-Output '       A consumer still has the filter loaded. Close Teams and retry.'
+    exit 2
+  }
+
+  # Match the ACEs the working OBS filter carries. icacls is used rather than
+  # Set-Acl because these two SIDs have no friendly name that resolves reliably
+  # across locales: S-1-15-2-1 is ALL APPLICATION PACKAGES and S-1-15-2-2 is
+  # ALL RESTRICTED APPLICATION PACKAGES.
+  Write-Output 'granting AppContainer read access'
+  foreach ($sid in '*S-1-15-2-1', '*S-1-15-2-2') {
+    $null = icacls $dll /grant "${sid}:(RX)" 2>&1
+  }
+  Show-PackageAccess $dll
+
+  Write-Output "registering $dll"
   $null = Start-Process regsvr32.exe -ArgumentList '/s', '/n', '/i:machine', $dll -Wait -PassThru -NoNewWindow
 } else {
+  if (-not (Test-Path -LiteralPath $dll)) {
+    Write-Output "  nothing installed at $dll; removing registration anyway"
+  }
   Write-Output "removing $dll"
   $null = Start-Process regsvr32.exe -ArgumentList '/s', '/u', '/n', '/i:machine', $dll -Wait -PassThru -NoNewWindow
+  Remove-Item -LiteralPath $dll -Force -ErrorAction SilentlyContinue
 }
 
 Write-Output ''

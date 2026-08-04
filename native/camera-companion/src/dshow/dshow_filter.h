@@ -50,6 +50,10 @@ class Filter : public IBaseFilter, public IAMFilterMiscFlags, public RefCounted<
   // filter as a transform and never ask it to produce anything.
   ULONG STDMETHODCALLTYPE GetMiscFlags() override;
 
+  // -- called by the pin
+  // Connect and Disconnect are refused while running, and the pin needs to ask.
+  bool IsRunning();
+
  private:
   // Lifetime is the reference count's alone; see RefCounted.
   friend class RefCounted<Filter>;
@@ -57,7 +61,10 @@ class Filter : public IBaseFilter, public IAMFilterMiscFlags, public RefCounted<
   Filter();
   ~Filter() override;
 
+  HRESULT EnsurePin();
+
   CRITICAL_SECTION lock_{};
+  class OutputPin* pin_ = nullptr;
   FILTER_STATE state_ = State_Stopped;
   IReferenceClock* clock_ = nullptr;
   // Weak by design: the graph owns the filter, so a strong reference here would

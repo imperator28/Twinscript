@@ -72,6 +72,7 @@ target_link_libraries(vcam_source PRIVATE mfplat mf mfuuid mfsensorgroup ole32 a
 add_library(dshow_camera SHARED
   src/dshow/dll_main.cpp
   src/dshow/dshow_filter.cpp
+  src/dshow/dshow_pin.cpp
   src/dshow/dshow_registration.cpp
   src/dshow/twinscript_dshow.def
 )

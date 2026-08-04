@@ -38,7 +38,41 @@ $builtDll = Join-Path $ReleaseDir 'twinscript-dshow-camera.dll'
 # ALL APPLICATION PACKAGES read+execute, and nothing under a user's profile does.
 # The working OBS filter carries exactly that ACE; verified on this machine.
 $installDir = 'C:\ProgramData\Twinscript\bin'
-$dll = Join-Path $installDir 'twinscript-dshow-camera.dll'
+
+# Each install stages under a UNIQUE filename rather than overwriting one path.
+#
+# A DirectShow filter is loaded into every process that merely enumerates cameras
+# - observed here in ms-teams, Slack, chrome, electron and claude itself - and each
+# holds the DLL open. Overwriting a single canonical name therefore fails with a
+# sharing violation and the only remedy is closing every one of those apps, which
+# is not viable when one of them is the tool doing the work.
+#
+# Registering a fresh file each time sidesteps the lock entirely. Old copies are
+# deleted best-effort; the ones still loaded are left for the next run to collect.
+$stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+$dllPattern = 'twinscript-dshow-camera*.dll'
+$dll = Join-Path $installDir "twinscript-dshow-camera-$stamp.dll"
+
+function Remove-StaleCopies([string]$keep) {
+  Get-ChildItem -LiteralPath $installDir -Filter $dllPattern -ErrorAction SilentlyContinue |
+    Where-Object { $_.FullName -ne $keep } |
+    ForEach-Object {
+      # Captured before the try: inside catch, $_ is the error record, not the file.
+      $name = $_.Name
+      try {
+        Remove-Item -LiteralPath $_.FullName -Force -ErrorAction Stop
+      } catch {
+        Write-Output "  (still loaded, left in place: $name)"
+      }
+    }
+}
+
+# The registered path is the authority for Status and Remove, not the naming
+# convention: the timestamp differs every run.
+function Get-RegisteredDllPath {
+  $key = "HKLM:\SOFTWARE\Classes\CLSID\$clsid\InprocServer32"
+  if (Test-Path $key) { (Get-ItemProperty $key).'(default)' } else { $null }
+}
 
 $clsid = '{1F5A7C2E-8D64-4B93-9E11-3A6C5D8F27B4}'
 $categoryRoot =
@@ -101,9 +135,17 @@ function Show-PackageAccess([string]$path) {
 }
 
 if ($Action -eq 'Status') {
-  Write-Output "installed dll: $dll  (present: $(Test-Path -LiteralPath $dll))"
-  Write-Output "built dll:     $builtDll  (present: $(Test-Path -LiteralPath $builtDll))"
-  Show-PackageAccess $dll
+  $registered = Get-RegisteredDllPath
+  Write-Output "registered dll: $(if ($registered) { $registered } else { '(none)' })"
+  if ($registered) {
+    Write-Output "                present on disk: $(Test-Path -LiteralPath $registered)"
+    Show-PackageAccess $registered
+  }
+  Write-Output "built dll:      $builtDll  (present: $(Test-Path -LiteralPath $builtDll))"
+  $copies = @(Get-ChildItem -LiteralPath $installDir -Filter $dllPattern -ErrorAction SilentlyContinue)
+  if ($copies.Count -gt 1) {
+    Write-Output "  $($copies.Count) staged copies present (older ones are still loaded by some process)"
+  }
   Show-Status
   exit 0
 }
@@ -125,14 +167,22 @@ if (-not $isAdmin) {
 # the registry is inspected afterwards instead of relying on it.
 if ($Action -eq 'Install') {
   New-Item -ItemType Directory -Path $installDir -Force | Out-Null
+
+  # Unregister whatever is currently registered before pointing the CLSID at a new
+  # file, so there is never a moment where the category entry names a stale path.
+  $previous = Get-RegisteredDllPath
+  if ($previous) {
+    Write-Output "unregistering previous $previous"
+    $null = Start-Process regsvr32.exe -ArgumentList '/s', '/u', '/n', '/i:machine', $previous -Wait -PassThru -NoNewWindow
+  }
+
   Write-Output "staging  $builtDll"
   Write-Output "      -> $dll"
   try {
     Copy-Item -LiteralPath $builtDll -Destination $dll -Force -ErrorAction Stop
   } catch {
-    Write-Output "ABORT  could not replace $dll"
+    Write-Output "ABORT  could not write $dll"
     Write-Output "       $($_.Exception.Message)"
-    Write-Output '       A consumer still has the filter loaded. Close Teams and retry.'
     exit 2
   }
 
@@ -148,13 +198,15 @@ if ($Action -eq 'Install') {
 
   Write-Output "registering $dll"
   $null = Start-Process regsvr32.exe -ArgumentList '/s', '/n', '/i:machine', $dll -Wait -PassThru -NoNewWindow
+  Remove-StaleCopies $dll
 } else {
-  if (-not (Test-Path -LiteralPath $dll)) {
-    Write-Output "  nothing installed at $dll; removing registration anyway"
-  }
-  Write-Output "removing $dll"
-  $null = Start-Process regsvr32.exe -ArgumentList '/s', '/u', '/n', '/i:machine', $dll -Wait -PassThru -NoNewWindow
-  Remove-Item -LiteralPath $dll -Force -ErrorAction SilentlyContinue
+  # Unregister through the path that is actually registered, not a name guessed
+  # from the convention: the staged filename carries a timestamp.
+  $registered = Get-RegisteredDllPath
+  $target = if ($registered) { $registered } else { $builtDll }
+  Write-Output "removing registration for $target"
+  $null = Start-Process regsvr32.exe -ArgumentList '/s', '/u', '/n', '/i:machine', $target -Wait -PassThru -NoNewWindow
+  Remove-StaleCopies ''
 }
 
 Write-Output ''
@@ -169,7 +221,10 @@ if (Test-Path $log) {
 
 if ($Action -eq 'Install' -and (Get-CategoryEntry)) {
   Write-Output ''
-  Write-Output 'Next: open the Teams camera picker. "Twinscript" should be listed.'
-  Write-Output 'It will NOT show a picture yet - the output pin is W6.2.'
-  Write-Output 'Teams caches its device list, so quit it fully and reopen before judging.'
+  Write-Output 'Next: quit Teams FULLY (it caches the device list), reopen, and select'
+  Write-Output '"Twinscript" in the camera picker.'
+  Write-Output '  a colour cycling every few seconds -> the pin is streaming.'
+  Write-Output '  a single static colour              -> one frame arrived, then stalled.'
+  Write-Output '  black or an error                   -> connection failed; check'
+  Write-Output '    C:\ProgramData\Twinscript\logs\dshow-camera.log for the last call.'
 }

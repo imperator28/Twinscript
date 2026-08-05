@@ -277,6 +277,13 @@ remain unpassed until directly observed.
 
 ## W4 — native Windows 11 camera
 
+> **SUPERSEDED 2026-08-05 — the native camera works, via DirectShow.**
+>
+> The Media Foundation approach below was abandoned after five failed attempts and
+> replaced by a DirectShow capture filter, which streams the live caption stage in
+> Microsoft Teams. See `## W6 — DirectShow virtual camera` at the end of this file.
+> The rest of this section is retained for the record.
+
 **Blank feed: STILL BROKEN (2026-08-03).** Teams lists and selects
 **Twinscript (Windows Virtual Camera)** and the feed is blank. Enumeration works;
 frame delivery does not.
@@ -389,3 +396,41 @@ Never commit:
 - vendor names, part numbers, drawings, or commercial information;
 - an unredacted Electron `userData` archive; or
 - signing certificates/tokens.
+
+## W6 — DirectShow virtual camera
+
+**Working as of 2026-08-05.** The live bilingual caption stage renders in Microsoft
+Teams through our own camera, selected as **Twinscript** in the camera picker.
+
+This replaces the Media Foundation attempt in W4, which enumerated everywhere and
+streamed to an in-process consumer but produced a black feed in every meeting
+client. Five changes to that source failed; the differential trace against
+Microsoft's reference camera showed an identical call sequence and identical
+interfaces, and showed that the instance which actually delivers frames is not
+observable from either side. DirectShow has no such opacity, and it was already
+proven on the target hardware — OBS Virtual Camera is a DirectShow filter.
+
+Clean-room implementation informed by OBS's architecture. OBS is GPL-2.0 and none
+of its code is used.
+
+### Why DirectShow succeeded where Media Foundation did not
+
+The decisive difference is observability. A DirectShow filter is loaded **directly
+into the consumer process**, so `ms-teams.exe`, `Slack.exe` and `chrome.exe` all
+appear in our own log with the interfaces they asked for and the HRESULTs they got.
+Across five Media Foundation sessions a consumer process never appeared once.
+
+| Check | Pass condition |
+| --- | --- |
+| Registration | **Pass.** Both halves land — COM in-proc server plus the device-category entry via `IFilterMapper2`. Verified structurally identical to the working OBS filter: CLSID-named instance key, 88-byte `FilterData`. A failed category registration rolls the COM key back, so the half-registered "enumerates then fails to activate" state cannot occur. |
+| Enumeration | **Pass.** Listed as `Twinscript` in Teams, Slack and Chrome. |
+| Streaming | **Pass.** Cycling synthetic colour confirmed continuous delivery before the real source was wired in; the live stage renders now. |
+| Frame source | **Pass.** Reuses the W4.1 shared-memory transport unchanged (`MappedFrameReader`, `frame_transport.h`). BGRA8 top-down is byte-identical to the advertised RGB32 negative-height type, so nothing converts. |
+| AppContainer access | **Pass.** Teams is a packaged MSIX app in an AppContainer, so both the filter DLL **and** the frame region need `ALL APPLICATION PACKAGES` read. Install grants both; `Status` reports them. Missing either produces a silent slate or a load failure. |
+| Install collision | **Pass.** Each install stages under a timestamped filename. The filter is loaded by every process that merely enumerates cameras, so overwriting one canonical path fails with a sharing violation and "close every app that listed a camera" is not actionable. |
+| Zoom | **Manual pending.** Not yet checked. |
+| 60-minute soak | **Manual pending.** No frozen frame, runaway memory, or lost camera. |
+| Standard user | **Manual pending.** Install needs elevation once (`IFilterMapper2` writes under `HKEY_CLASSES_ROOT`); ordinary sessions must not. |
+| 32-bit consumers | **Not built.** OBS ships a 32-bit filter alongside its 64-bit one, so 32-bit clients exist in practice. Teams and Chrome here are x64. A 32-bit build is required before claiming general client support. |
+
+Install, remove, and inspect with `scripts/register-dshow-camera.ps1`.

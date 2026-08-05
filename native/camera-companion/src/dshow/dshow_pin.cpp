@@ -624,8 +624,8 @@ bool OutputPin::FillFrame(BYTE* destination, long capacity) {
       return true;
 
     case vcam::FrameReadStatus::kTorn:
-      // Lapped mid-copy. Reusing the previous buffer contents is correct: a torn
-      // frame is worse than a repeated one.
+      // Lapped mid-copy, so this buffer holds a mixture of two frames. The caller
+      // drops the sample entirely; a torn frame is worse than a dropped one.
       return false;
 
     case vcam::FrameReadStatus::kInvalid:
@@ -653,13 +653,24 @@ void OutputPin::DeliverLoop() {
 
     IMemAllocator* allocator = nullptr;
     IMemInputPin* input = nullptr;
+    bool flushing = false;
     {
       Lock guard(&lock_);
       if (!allocator_ || !input_) break;
-      allocator = allocator_;
-      allocator->AddRef();
-      input = input_;
-      input->AddRef();
+      // Delivering during a flush is what BeginFlush exists to prevent: the
+      // consumer is discarding queued data, so a sample pushed now is dropped at
+      // best and arrives behind the flush at worst.
+      flushing = flushing_;
+      if (!flushing) {
+        allocator = allocator_;
+        allocator->AddRef();
+        input = input_;
+        input->AddRef();
+      }
+    }
+    if (flushing) {
+      if (::WaitForSingleObject(stop_event_, 1000 / kFrameRate) == WAIT_OBJECT_0) break;
+      continue;
     }
 
     IMediaSample* sample = nullptr;
@@ -672,12 +683,25 @@ void OutputPin::DeliverLoop() {
     }
 
     BYTE* buffer = nullptr;
+    bool deliverable = false;
     if (SUCCEEDED(sample->GetPointer(&buffer)) && buffer) {
       const long capacity = sample->GetSize();
       const long wanted = static_cast<long>(kFrameBytes);
       const long usable = capacity < wanted ? capacity : wanted;
-      FillFrame(buffer, usable);
+      deliverable = FillFrame(buffer, usable);
       sample->SetActualDataLength(usable);
+    }
+
+    // Drop the frame rather than send it. Buffers come from a recycled pool, so an
+    // unfilled one holds a frame from several frames ago or uninitialised memory -
+    // NOT the previous frame. Sending that would flash stale captions or garbage;
+    // skipping simply holds the last good frame on screen for one interval.
+    if (!deliverable) {
+      sample->Release();
+      allocator->Release();
+      input->Release();
+      if (::WaitForSingleObject(stop_event_, 1000 / kFrameRate) == WAIT_OBJECT_0) break;
+      continue;
     }
 
     REFERENCE_TIME start = frame_index_ * duration;

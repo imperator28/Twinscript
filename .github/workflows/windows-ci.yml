@@ -115,6 +115,11 @@ jobs:
         run: |
           $resources = 'out/Twinscript-win32-x64/resources/native-camera'
           $required = @(
+            # The DirectShow filter is the shipping camera.
+            'twinscript-dshow-camera.dll',
+            'register-dshow-camera.ps1',
+            # Media Foundation pair, still packaged until the app's install and
+            # supervise path is rewired off it - see W6.4 in the validation matrix.
             'vcam-host.exe',
             'twinscript-vcam-source.dll',
             'install-native-camera.ps1',

@@ -716,13 +716,43 @@ int main(int argc, char** argv) {
   }
 
   int result = 1;
-  if (command == "drive") {
+  // RETIRED VERBS.
+  //
+  // `drive` and `selftest` activate the Media Foundation media source IN THIS
+  // PROCESS through the registered CLSID, which bypasses the Windows Frame Server
+  // entirely. They passed continuously for weeks while every meeting client showed
+  // a black feed, and five source changes were made on the strength of them. A
+  // harness that cannot fail when the product is broken is worse than no harness,
+  // so they refuse to run rather than mislead the next person.
+  //
+  // The camera now ships as a DirectShow filter, which is loaded directly into the
+  // consumer process and can therefore be verified in the client that matters:
+  //   scripts/register-dshow-camera.ps1 -Action Install
+  // then select Twinscript in Teams.
+  if (command == "drive" || command == "selftest") {
+    std::printf(
+        "REFUSED  `%s` tested the Media Foundation source in-process, which never\n"
+        "         involved the Frame Server. It reported success for weeks while\n"
+        "         every meeting client showed black.\n\n"
+        "         The camera is now a DirectShow filter. Verify it where it runs:\n"
+        "           scripts/register-dshow-camera.ps1 -Action Install\n"
+        "         then select Twinscript in Teams.\n",
+        command.c_str());
+    ::MFShutdown();
+    ::CoUninitialize();
+    return 2;
+  }
+
+  // Kept under an explicit `-legacy` name so the Media Foundation source can still
+  // be exercised deliberately while it remains in the tree, without anyone reaching
+  // for it by accident and trusting the result.
+  if (command == "drive-legacy") {
     result = DriveMediaSource(amount > 0 ? amount : 10);
   } else if (command == "camera") {
     result = HostVirtualCamera(amount);
   } else if (command == "consume") {
     result = ConsumeCamera(amount > 0 ? amount : 10);
-  } else if (command == "selftest") {
+  } else if (command == "selftest-legacy") {
     result = HostAndConsume(amount);
   } else if (command == "serve") {
     result = ServeVirtualCamera(Widen(OptionValue(argc, argv, "--pipe")),
@@ -730,7 +760,10 @@ int main(int argc, char** argv) {
   } else {
     std::printf(
         "usage: vcam-host <register|unregister|register-machine|unregister-machine|"
-        "status-machine|drive|camera|consume|selftest> [count|seconds]\n"
+        "status-machine|camera|consume|serve> [count|seconds]\n"
+        "       drive and selftest are RETIRED - they never involved the Frame\n"
+        "       Server. The camera is a DirectShow filter now; verify it in Teams\n"
+        "       via scripts/register-dshow-camera.ps1.\n"
         "       vcam-host serve --region <file> --pipe <name>\n");
   }
 

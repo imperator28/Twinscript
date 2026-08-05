@@ -155,7 +155,10 @@ jobs:
         shell: pwsh
         run: |
           $resources = 'out/Twinscript-win32-x64/resources/native-camera'
-          foreach ($name in 'vcam-host.exe', 'twinscript-vcam-source.dll',
+          # The DirectShow filter is the shipping camera; the Media Foundation pair is
+          # still packaged until the app's install path is rewired (W6.4).
+          foreach ($name in 'twinscript-dshow-camera.dll', 'register-dshow-camera.ps1',
+                            'vcam-host.exe', 'twinscript-vcam-source.dll',
                             'install-native-camera.ps1', 'uninstall-native-camera.ps1') {
             $target = Join-Path $resources $name
             if (-not (Test-Path -LiteralPath $target -PathType Leaf)) {

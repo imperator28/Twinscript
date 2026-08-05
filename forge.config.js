@@ -8,7 +8,26 @@ const {
 
 const macSigningIdentity = resolveMacSigningIdentity();
 
+// The DirectShow filter is the shipping camera. The Media Foundation source and
+// its host are still packaged because the app's install/supervise path has not
+// been rewired off them yet - see W6.4 in docs/windows/validation-matrix.md. The MF
+// camera enumerates but delivers a black feed in every meeting client, so nothing
+// should be built on it.
 const WINDOWS_NATIVE_CAMERA_RESOURCES = [
+  {
+    from: path.join(
+      'native',
+      'camera-companion',
+      'build',
+      'Release',
+      'twinscript-dshow-camera.dll',
+    ),
+    name: 'twinscript-dshow-camera.dll',
+  },
+  {
+    from: path.join('scripts', 'register-dshow-camera.ps1'),
+    name: 'register-dshow-camera.ps1',
+  },
   {
     from: path.join('native', 'camera-companion', 'build', 'Release', 'vcam-host.exe'),
     name: 'vcam-host.exe',

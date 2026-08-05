@@ -434,3 +434,38 @@ Across five Media Foundation sessions a consumer process never appeared once.
 | 32-bit consumers | **Not built.** OBS ships a 32-bit filter alongside its 64-bit one, so 32-bit clients exist in practice. Teams and Chrome here are x64. A 32-bit build is required before claiming general client support. |
 
 Install, remove, and inspect with `scripts/register-dshow-camera.ps1`.
+
+### W6.4 — retiring the Media Foundation path
+
+**Partially done.** The DirectShow filter is the shipping camera and is packaged
+into the installer. The Media Foundation source is still present and still
+packaged, because the app's own camera lifecycle is wired to it.
+
+Done:
+
+- `twinscript-dshow-camera.dll` and `register-dshow-camera.ps1` are staged into
+  `resources/native-camera`, asserted by both Windows workflows.
+- `vcam-host drive` and `vcam-host selftest` **refuse to run**. They activated the
+  media source in-process, bypassing the Frame Server entirely, and reported
+  success for weeks while every meeting client showed black. Five source changes
+  were made on the strength of them. They now print what to use instead. The
+  implementations remain reachable as `drive-legacy` and `selftest-legacy` for
+  deliberate use while the MF source is still in the tree.
+
+Not done, and why it is not a deletion:
+
+The app's camera output calls `nativeCameraSupervisor`, which spawns and
+health-monitors `vcam-host.exe serve` as the process that owns the camera's
+lifetime. **DirectShow has no such process** — the filter is loaded directly into
+the consumer. So retiring MF means re-architecting the camera lifecycle, not
+removing files:
+
+| Change | Why it is not trivial |
+| --- | --- |
+| Replace `native-camera-supervisor.js` (350 lines) | Health becomes "is the filter registered?" rather than "is the companion alive?" |
+| Repoint `native-camera-installer.js` | Install becomes an elevated `regsvr32` of the filter plus the two AppContainer ACEs, not a file copy plus HKLM CLSID write |
+| Rework the camera health IPC and the control-panel panel | Retry/Repair/Remove and the FAILED state all assume a crashing companion process |
+| Then drop `vcam_source`, `vcam_host serve`, and the MF scripts | Only safe once nothing calls them |
+
+Doing this out of order breaks a camera that currently works, so it is sequenced
+deliberately rather than rushed.

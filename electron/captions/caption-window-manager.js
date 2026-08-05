@@ -88,11 +88,39 @@ class CaptionWindowManager {
     }
   }
 
+  /**
+   * The work area the overlays should be laid out within.
+   *
+   * Anchored to the display the overlays are ALREADY on, not the one the mouse
+   * happens to be over. Using the cursor's display meant that after dragging an
+   * overlay to a second monitor, any later reapply — a layout change, a height
+   * change, or the frequently-fired `display-metrics-changed` — recomputed bounds
+   * for wherever the pointer was and yanked the window back to the original
+   * screen. The cursor is only a sensible guess for the very first placement,
+   * before any window exists to ask.
+   */
   targetWorkArea() {
-    const display = this.screen.getDisplayNearestPoint(
-      this.screen.getCursorScreenPoint(),
-    );
-    return display?.workArea || { x: 0, y: 0, width: 1280, height: 720 };
+    const anchor = this.anchorDisplay();
+    return anchor?.workArea || { x: 0, y: 0, width: 1280, height: 720 };
+  }
+
+  anchorDisplay() {
+    // Prefer a live caption window's own centre: that is the display the operator
+    // put it on.
+    for (const audience of AUDIENCES) {
+      const window = this.captionWindows.get(audience);
+      if (!window || window.isDestroyed?.()) continue;
+      const bounds = window.getBounds?.();
+      if (!bounds || !bounds.width || !bounds.height) continue;
+      const centre = {
+        x: Math.round(bounds.x + bounds.width / 2),
+        y: Math.round(bounds.y + bounds.height / 2),
+      };
+      const display = this.screen.getDisplayNearestPoint(centre);
+      if (display) return display;
+    }
+    // No window yet: fall back to the cursor for initial placement only.
+    return this.screen.getDisplayNearestPoint(this.screen.getCursorScreenPoint());
   }
 
   audienceBackground(audience) {
@@ -445,20 +473,25 @@ class CaptionWindowManager {
   }
 
   /**
-   * A manually dragged height is a **floor**, not an override.
+   * A manually dragged height is **authoritative**.
    *
-   * Returning `manualHeight` alone meant that once the operator resized an
-   * overlay even once, content could never grow it again — raising visible
-   * history from 3 to 10 entries silently clipped the extra lines instead of
-   * expanding the window. Taking the maximum lets content grow past the floor
-   * while a shrinking measurement still settles back to the height the operator
-   * chose rather than collapsing to fit.
+   * This previously returned `Math.max(manualHeight, automaticHeight)`, treating a
+   * dragged height as a floor so that growing content could still expand the
+   * window. That made the overlay feel broken in the most direct way possible: an
+   * operator dragging the window smaller than the current content measurement saw
+   * it snap straight back, every time, with no way to win.
+   *
+   * The reason the floor existed — that raising visible history would otherwise
+   * clip the extra lines — is now solved in the right place. The surface scales its
+   * own font to fit the height it has, so content adapts to the window instead of
+   * the window fighting the operator. Height is the operator's decision; fitting
+   * content into it is ours.
    */
   effectiveHeight() {
-    const candidates = [this.manualHeight, this.automaticHeight].filter(
-      (height) => height !== null && height !== undefined,
-    );
-    return candidates.length ? Math.max(...candidates) : null;
+    if (this.manualHeight !== null && this.manualHeight !== undefined) {
+      return this.manualHeight;
+    }
+    return this.automaticHeight ?? null;
   }
 
   requestedHeight() {

@@ -158,6 +158,7 @@ function fakeManager({
   fallbackDelayMs = 5,
   cameraFramePublisher = null,
   nativeCameraSupervisor = null,
+  screenOverrides = {},
 } = {}) {
   const displayHandlers = new Map();
   const created = [];
@@ -255,6 +256,8 @@ function fakeManager({
       getCursorScreenPoint: () => ({ x: 10, y: 10 }),
       getDisplayNearestPoint: () => ({ workArea: manager.currentWorkArea }),
       on: (event, handler) => displayHandlers.set(event, handler),
+      // Multi-display tests replace the lookups above.
+      ...screenOverrides,
     },
     controlWindow: {
       isDestroyed: () => false,
@@ -471,7 +474,7 @@ test('the window manager waits for both audiences and uses the larger natural he
   assert.equal(manager.reportContentHeight('zh', Number.NaN, 0), null);
 });
 
-test('history reset rejects stale measurements while preserving its manual height floor', () => {
+test('history reset rejects stale measurements and keeps the manual height', () => {
   const { manager, savedSettings } = fakeManager({
     settings: { captionOverlayHeight: 200 },
   });
@@ -482,38 +485,91 @@ test('history reset rejects stale measurements while preserving its manual heigh
   assert.equal(next.captionOverlayHeight, 200);
   assert.equal(savedSettings.captionOverlayHeight, 200);
   assert.equal(manager.autoSizeGeneration, 1);
+  // Stale-generation reports are still rejected outright.
   assert.equal(manager.reportContentHeight('en', 190, 0), null);
+  // Fresh measurements are recorded but no longer move a manually set height.
   manager.reportContentHeight('en', 190, 1);
   manager.reportContentHeight('zh', 210, 1);
-  assert.equal(manager.captionWindows.get('en').bounds.height, 210);
+  assert.equal(manager.captionWindows.get('en').bounds.height, 200);
 });
 
-test('content grows above the manual height and settles back only to that floor', () => {
-  // A dragged height is a floor, not a cap. Before this, any manual resize
-  // froze the overlay: raising visible history from 3 to 10 entries clipped the
-  // extra lines instead of growing the window.
+test('a manual height wins over any content measurement, taller or shorter', () => {
+  // A dragged height is authoritative, not a floor.
+  //
+  // This test previously asserted the opposite - that taller content could grow
+  // the window past the dragged height - which made the overlay unusable in the
+  // most direct way: dragging it smaller than the current content snapped it
+  // straight back, every time. Content now adapts to the operator's height by
+  // scaling its own font, so the window never fights the drag.
   const { manager } = fakeManager({ settings: { captionOverlayHeight: 180 } });
   manager.createAll();
   assert.equal(manager.captionWindows.get('en').bounds.height, 180);
 
-  // Taller content grows both overlays past the dragged floor.
+  // Taller content does NOT grow the window.
   manager.reportContentHeight('en', 230, manager.autoSizeGeneration);
   manager.reportContentHeight('zh', 215, manager.autoSizeGeneration);
-  assert.equal(manager.captionWindows.get('en').bounds.height, 230);
-  assert.equal(manager.captionWindows.get('zh').bounds.height, 230);
+  assert.equal(manager.captionWindows.get('en').bounds.height, 180);
+  assert.equal(manager.captionWindows.get('zh').bounds.height, 180);
 
-  // Shorter content settles back to the floor, not to the measurement.
+  // Shorter content does not shrink it either.
   manager.reportContentHeight('en', 120, manager.autoSizeGeneration);
   manager.reportContentHeight('zh', 130, manager.autoSizeGeneration);
   assert.equal(manager.captionWindows.get('en').bounds.height, 180);
   assert.equal(manager.captionWindows.get('zh').bounds.height, 180);
+});
 
-  // Growth still respects the work-area cap: stacked overlays may not exceed
-  // 45% of the display between them.
+test('without a manual height, content still drives the size and respects the cap', () => {
+  // Auto-sizing is unchanged for an operator who has never dragged the overlay.
+  const { manager } = fakeManager({ settings: { captionOverlayHeight: null } });
+  manager.createAll();
+
+  manager.reportContentHeight('en', 230, manager.autoSizeGeneration);
+  manager.reportContentHeight('zh', 215, manager.autoSizeGeneration);
+  assert.equal(manager.captionWindows.get('en').bounds.height, 230);
+
+  // Stacked overlays may still not exceed 45% of the display between them.
   const cap = Math.floor((FULL_HD.height * 0.45 - DEFAULT_GEOMETRY.gap) / 2);
   manager.reportContentHeight('en', cap + 400, manager.autoSizeGeneration);
   manager.reportContentHeight('zh', cap + 400, manager.autoSizeGeneration);
   assert.equal(manager.captionWindows.get('en').bounds.height, cap);
+});
+
+test('the overlay stays on the display it was moved to, not the cursor\'s', () => {
+  // Reported symptom: after dragging an overlay to a second monitor it would
+  // relocate back "after a while". targetWorkArea() used the display nearest the
+  // MOUSE, so any reapply - a layout change, a height change, or the frequently
+  // fired display-metrics-changed - recomputed bounds for wherever the pointer
+  // happened to be.
+  const secondary = { x: 1920, y: 0, width: 1920, height: 1080 };
+  const displays = [
+    { workArea: FULL_HD },
+    { workArea: secondary },
+  ];
+  const { manager } = fakeManager({
+    screenOverrides: {
+      // The cursor never leaves the primary display.
+      getCursorScreenPoint: () => ({ x: 10, y: 10 }),
+      getDisplayNearestPoint: (point) =>
+        point.x >= secondary.x ? displays[1] : displays[0],
+    },
+  });
+  manager.createAll();
+
+  // The operator drags both overlays onto the secondary display.
+  for (const audience of ['en', 'zh']) {
+    const window = manager.captionWindows.get(audience);
+    window.bounds = { ...window.bounds, x: secondary.x + 100, y: 200 };
+  }
+
+  manager.applyLayout('stacked');
+
+  for (const audience of ['en', 'zh']) {
+    const bounds = manager.captionWindows.get(audience).bounds;
+    assert.ok(
+      bounds.x >= secondary.x,
+      `${audience} overlay stayed on the secondary display (x=${bounds.x})`,
+    );
+  }
 });
 
 test('a visible-history change re-measures without discarding the manual floor', () => {
@@ -523,7 +579,7 @@ test('a visible-history change re-measures without discarding the manual floor',
   manager.createAll();
 
   const next = manager.resetContentMeasurements();
-  assert.equal(manager.manualHeight, 200, 'the dragged floor survives');
+  assert.equal(manager.manualHeight, 200, 'the dragged height survives');
   assert.equal(next.captionOverlayHeight, 200);
   assert.equal(manager.automaticHeight, null, 'measurements are invalidated');
   assert.equal(manager.autoSizeGeneration, 1);
@@ -531,22 +587,24 @@ test('a visible-history change re-measures without discarding the manual floor',
 
   // Stale-generation reports are still rejected.
   assert.equal(manager.reportContentHeight('en', 230, 0), null);
+  // Fresh ones are recorded, but the manual height still governs the window.
   manager.reportContentHeight('en', 230, 1);
   manager.reportContentHeight('zh', 220, 1);
-  assert.equal(manager.captionWindows.get('en').bounds.height, 230);
+  assert.equal(manager.captionWindows.get('en').bounds.height, 200);
 });
 
-test('content grows above a manual height and returns only to the manual floor', () => {
+test('a manual height holds on a tall display regardless of content', () => {
   const { manager } = fakeManager({
     workArea: { ...FULL_HD, height: 1600 },
     settings: { captionOverlayHeight: 210 },
   });
   manager.createAll();
 
+  // Ample room to grow, and it still must not: the operator chose 210.
   manager.reportContentHeight('en', 320, manager.autoSizeGeneration);
   manager.reportContentHeight('zh', 300, manager.autoSizeGeneration);
-  assert.equal(manager.captionWindows.get('en').bounds.height, 320);
-  assert.equal(manager.captionWindows.get('zh').bounds.height, 320);
+  assert.equal(manager.captionWindows.get('en').bounds.height, 210);
+  assert.equal(manager.captionWindows.get('zh').bounds.height, 210);
 
   manager.reportContentHeight('en', 160, manager.autoSizeGeneration);
   manager.reportContentHeight('zh', 170, manager.autoSizeGeneration);
@@ -589,11 +647,13 @@ test('manual resizing invalidates pre-drag measurements, broadcasts the new gene
   assert.equal(manager.manualHeight, 210, 'visible-history reset keeps the drag height');
   assert.equal(manager.captionWindows.get('en').bounds.height, 210);
 
+  // A visible-history change re-measures, but the drag height still governs: the
+  // surface scales its font to fit rather than the window resizing itself.
   const currentGeneration = manager.autoSizeGeneration;
   manager.reportContentHeight('en', 260, currentGeneration);
   manager.reportContentHeight('zh', 280, currentGeneration);
-  assert.equal(manager.captionWindows.get('en').bounds.height, 280);
-  assert.equal(manager.captionWindows.get('zh').bounds.height, 280);
+  assert.equal(manager.captionWindows.get('en').bounds.height, 210);
+  assert.equal(manager.captionWindows.get('zh').bounds.height, 210);
 
 });
 

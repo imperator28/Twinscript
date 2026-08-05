@@ -3,6 +3,7 @@
 #include <dshow.h>
 #include <dvdmedia.h>
 #include <cstring>
+#include <string>
 
 #include "dshow_filter.h"
 #include "dshow_guids.h"
@@ -553,12 +554,97 @@ DWORD WINAPI OutputPin::ThreadEntry(LPVOID context) {
   return 0;
 }
 
-// W6.2: a synthetic pattern, deliberately not the shared stage region yet.
-//
-// The colour cycles rather than being a flat fill so a single stuck frame is
-// visibly different from a live stream. A solid unchanging colour would look
-// identical whether one frame arrived or a thousand, which is exactly the
-// ambiguity that made the Media Foundation failure hard to read.
+// Where the caption stage publishes frames. A fixed path, not an environment
+// variable: this filter runs inside the CONSUMER process - Teams, Chrome, Slack -
+// which knows nothing about our app's environment. The Media Foundation source
+// could rely on an env var only because it was activated by our own host.
+std::wstring RegionPath() {
+  wchar_t program_data[MAX_PATH] = {};
+  if (!::GetEnvironmentVariableW(L"ProgramData", program_data, MAX_PATH)) return {};
+  std::wstring path(program_data);
+  path += L"\\Twinscript\\runtime\\camera-frame-v1.bin";
+  return path;
+}
+
+// The neutral slate shown when no session is publishing. Deliberately a flat dark
+// grey rather than black: black is indistinguishable from a broken camera, and
+// telling those two apart without reading a log is worth one shade of grey.
+void OutputPin::PaintSlate(BYTE* destination, long capacity) {
+  for (long offset = 0; offset + 3 < capacity; offset += 4) {
+    destination[offset + 0] = 0x1E;  // B
+    destination[offset + 1] = 0x1B;  // G
+    destination[offset + 2] = 0x18;  // R
+    destination[offset + 3] = 0xFF;
+  }
+}
+
+bool OutputPin::FillFrame(BYTE* destination, long capacity) {
+  // Reopen periodically rather than once: the camera is commonly selected in a
+  // meeting client before the app starts publishing, and a filter that gave up on
+  // the first miss would stay blank for the rest of the call.
+  if (!reader_.IsOpen()) {
+    const uint64_t now = vcam::MonotonicNowNs();
+    if (now - last_open_attempt_ns_ > 500'000'000ULL) {
+      last_open_attempt_ns_ = now;
+      const std::wstring path = RegionPath();
+      if (!path.empty()) {
+        const HRESULT hr = reader_.Open(path.c_str());
+        if (FAILED(hr)) {
+          // Logged once per attempt window, not per frame: at 15fps a per-frame
+          // log would bury everything else in the consumer's log.
+          LogLine("region open failed hr=0x%08lX path=%ls",
+                  static_cast<unsigned long>(hr), path.c_str());
+        } else {
+          LogLine("region opened, %zu payload bytes", reader_.PayloadBytes());
+        }
+      }
+    }
+    if (!reader_.IsOpen()) {
+      PaintSlate(destination, capacity);
+      return true;
+    }
+  }
+
+  const vcam::FrameReadResult result =
+      reader_.Read(reinterpret_cast<uint8_t*>(destination),
+                   static_cast<size_t>(capacity));
+  if (result.status != last_status_) {
+    LogLine("region status %u -> %u (sequence=%llu)",
+            static_cast<unsigned>(last_status_), static_cast<unsigned>(result.status),
+            static_cast<unsigned long long>(result.sequence));
+    last_status_ = result.status;
+  }
+
+  switch (result.status) {
+    case vcam::FrameReadStatus::kFresh:
+    case vcam::FrameReadStatus::kRepeat:
+      // The reader already wrote the pixels. BGRA8 top-down is byte-identical to
+      // the RGB32 negative-height media type this pin advertises, so nothing
+      // converts here.
+      return true;
+
+    case vcam::FrameReadStatus::kTorn:
+      // Lapped mid-copy. Reusing the previous buffer contents is correct: a torn
+      // frame is worse than a repeated one.
+      return false;
+
+    case vcam::FrameReadStatus::kInvalid:
+      // A region whose header no longer validates is not going to recover by
+      // itself; drop it and let the reopen path pick up a new one.
+      reader_.Close();
+      PaintSlate(destination, capacity);
+      return true;
+
+    case vcam::FrameReadStatus::kNoFrame:
+    case vcam::FrameReadStatus::kExpired:
+    case vcam::FrameReadStatus::kIdle:
+    case vcam::FrameReadStatus::kStopped:
+    default:
+      PaintSlate(destination, capacity);
+      return true;
+  }
+}
+
 void OutputPin::DeliverLoop() {
   const REFERENCE_TIME duration = kFrameDuration100ns;
 
@@ -590,16 +676,7 @@ void OutputPin::DeliverLoop() {
       const long capacity = sample->GetSize();
       const long wanted = static_cast<long>(kFrameBytes);
       const long usable = capacity < wanted ? capacity : wanted;
-
-      // Cycle through hues over roughly four seconds.
-      const int phase = static_cast<int>(frame_index_ % (kFrameRate * 4));
-      const BYTE level = static_cast<BYTE>(40 + (phase * 200) / (kFrameRate * 4));
-      for (long offset = 0; offset + 3 < usable; offset += 4) {
-        buffer[offset + 0] = static_cast<BYTE>(255 - level);  // B
-        buffer[offset + 1] = level;                           // G
-        buffer[offset + 2] = static_cast<BYTE>(level / 2);    // R
-        buffer[offset + 3] = 0xFF;                            // X
-      }
+      FillFrame(buffer, usable);
       sample->SetActualDataLength(usable);
     }
 

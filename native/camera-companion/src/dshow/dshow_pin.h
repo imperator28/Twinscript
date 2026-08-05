@@ -25,6 +25,7 @@
 #include <ksmedia.h>
 
 #include "dshow_object.h"
+#include "mapped_frame_reader.h"
 
 namespace twinscript::dshow {
 
@@ -102,6 +103,12 @@ class OutputPin : public IPin,
   void DeliverLoop();
   HRESULT NegotiateAllocator(IMemInputPin* input);
 
+  // Copy the newest published stage frame into `destination`, or paint the
+  // disconnected slate when there is nothing live to show. Returns false when the
+  // caller should reuse whatever is already in the buffer.
+  bool FillFrame(BYTE* destination, long capacity);
+  void PaintSlate(BYTE* destination, long capacity);
+
   CRITICAL_SECTION lock_{};
   // Weak: the filter owns the pin, so a strong reference would be a cycle.
   Filter* owner_ = nullptr;
@@ -115,6 +122,12 @@ class OutputPin : public IPin,
   HANDLE stop_event_ = nullptr;
   bool flushing_ = false;
   long long frame_index_ = 0;
+
+  // Owned by the delivery thread alone, so it needs no lock: the thread is
+  // created after and joined before anything else touches these.
+  vcam::MappedFrameReader reader_;
+  uint64_t last_open_attempt_ns_ = 0;
+  vcam::FrameReadStatus last_status_ = vcam::FrameReadStatus::kInvalid;
 };
 
 // Fill in the one media type this pin offers. Exposed so the filter's

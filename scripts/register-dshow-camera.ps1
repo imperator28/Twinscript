@@ -190,11 +190,26 @@ if ($Action -eq 'Install') {
   # Set-Acl because these two SIDs have no friendly name that resolves reliably
   # across locales: S-1-15-2-1 is ALL APPLICATION PACKAGES and S-1-15-2-2 is
   # ALL RESTRICTED APPLICATION PACKAGES.
-  Write-Output 'granting AppContainer read access'
+  Write-Output 'granting AppContainer read access to the filter'
   foreach ($sid in '*S-1-15-2-1', '*S-1-15-2-2') {
     $null = icacls $dll /grant "${sid}:(RX)" 2>&1
   }
   Show-PackageAccess $dll
+
+  # The frame region needs the same treatment, and for the same reason. The filter
+  # maps it from inside the consumer process, so an AppContainer client like Teams
+  # must be able to read the file - otherwise the camera streams a neutral slate
+  # forever while the app publishes happily to a region nobody can see.
+  #
+  # Inheritable on the directory (/T applies to existing children) so a region file
+  # recreated by a later session is still readable without reinstalling.
+  $runtimeDir = 'C:\ProgramData\Twinscript\runtime'
+  New-Item -ItemType Directory -Path $runtimeDir -Force | Out-Null
+  Write-Output 'granting AppContainer read access to the frame region'
+  foreach ($sid in '*S-1-15-2-1', '*S-1-15-2-2') {
+    $null = icacls $runtimeDir /grant "${sid}:(OI)(CI)(RX)" /T /C 2>&1
+  }
+  Show-PackageAccess $runtimeDir
 
   Write-Output "registering $dll"
   $null = Start-Process regsvr32.exe -ArgumentList '/s', '/n', '/i:machine', $dll -Wait -PassThru -NoNewWindow

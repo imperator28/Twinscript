@@ -74,10 +74,15 @@ add_library(dshow_camera SHARED
   src/dshow/dshow_filter.cpp
   src/dshow/dshow_pin.cpp
   src/dshow/dshow_registration.cpp
+  # Shared with the Media Foundation source: the frame transport is the one piece
+  # of that work that was never in doubt. It is covered by frame_transport_check
+  # and mapped-frame-reader-check, and its layout is pinned against the JavaScript
+  # writer by camera-frame-transport.test.cjs.
+  src/source/mapped_frame_reader.cpp
   src/dshow/twinscript_dshow.def
 )
 set_target_properties(dshow_camera PROPERTIES OUTPUT_NAME "twinscript-dshow-camera")
-target_include_directories(dshow_camera PRIVATE include src/dshow)
+target_include_directories(dshow_camera PRIVATE include src/dshow src/source)
 target_link_libraries(dshow_camera PRIVATE strmiids ole32 oleaut32 uuid advapi32 shlwapi)
 
 # Stage 1/2 harness: registers the source, drives it in-process, and creates the

@@ -5,8 +5,18 @@ import { ControlApp } from './ControlApp';
 const audioMocks = vi.hoisted(() => ({
   start: vi.fn().mockResolvedValue({ microphone: true, system: true }),
   stop: vi.fn().mockResolvedValue(undefined),
+  // The preview now meters both channels and reports whether loopback started, so
+  // the mock has to drive the system callback and return a result.
   previewStart: vi.fn().mockImplementation(
-    async (_deviceId: string, onLevel: (level: number) => void) => onLevel(0.04),
+    async (
+      _deviceId: string,
+      onLevel: (level: number) => void,
+      onSystemLevel?: (level: number) => void,
+    ) => {
+      onLevel(0.04);
+      onSystemLevel?.(0.06);
+      return { microphone: true, system: true };
+    },
   ),
   previewStop: vi.fn().mockResolvedValue(undefined),
 }));
@@ -792,15 +802,41 @@ describe('meeting caption controls', () => {
   it('requests microphone access and starts a visible input preview', async () => {
     render(<ControlApp />);
     await screen.findByRole('button', { name: /Start session/i });
-    fireEvent.click(screen.getByRole('button', { name: 'Test microphone' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Test audio' }));
 
-    await screen.findByText(/Microphone is active/);
+    await screen.findByText(/Both channels are live/);
     expect(window.captions.requestMicrophoneAccess).toHaveBeenCalled();
+    // The system callback must be passed: without it the meeting meter cannot
+    // move during a test, which is exactly the defect this covers.
     expect(audioMocks.previewStart).toHaveBeenCalledWith(
       'mic-1',
       expect.any(Function),
+      expect.any(Function),
     );
-    expect(screen.getByRole('button', { name: 'Retest microphone' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Retest audio' })).toBeVisible();
+  });
+
+  it('warns when the meeting channel cannot be captured during a test', async () => {
+    audioMocks.previewStart.mockImplementationOnce(
+      async (_deviceId: string, onLevel: (level: number) => void) => {
+        onLevel(0.04);
+        return {
+          microphone: true,
+          system: false,
+          warning: 'System audio capture is unavailable on this device.',
+        };
+      },
+    );
+    render(<ControlApp />);
+    await screen.findByRole('button', { name: /Start session/i });
+    fireEvent.click(screen.getByRole('button', { name: 'Test audio' }));
+
+    // A silent zero meter is what sent a previous investigation after a
+    // non-existent bug; a failed loopback now says so.
+    await screen.findByText(/System audio capture is unavailable/);
+    expect(
+      screen.getByText(/remote speech will not be transcribed separately/),
+    ).toBeVisible();
   });
 
   it('shows one universal engineering glossary with advanced controls intact', async () => {

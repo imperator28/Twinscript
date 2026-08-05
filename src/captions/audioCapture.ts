@@ -87,17 +87,37 @@ export async function enumerateAudioDevices(requestPermission = false): Promise<
   };
 }
 
+export interface CapturePreviewResult {
+  microphone: true;
+  system: boolean;
+  warning?: string;
+}
+
+/**
+ * Meters both capture channels before a session starts.
+ *
+ * It used to meter only the microphone, while the panel showed a Meeting / system
+ * row alongside it. That row could only ever read zero during a test, because the
+ * system level is published by a running session — so a perfectly healthy loopback
+ * looked broken, and cost real time chasing a capture bug that did not exist.
+ *
+ * The system preview drives the SAME LoopbackRecorder the session uses. Metering a
+ * different path would leave the test able to pass while the real thing failed,
+ * which is the mistake worth not repeating.
+ */
 export class MicrophonePreviewController {
   private stream: MediaStream | null = null;
   private context: AudioContext | null = null;
   private source: MediaStreamAudioSourceNode | null = null;
   private analyser: AnalyserNode | null = null;
   private animationFrame = 0;
+  private system: LoopbackRecorder | null = null;
 
   async start(
     microphoneDeviceId: string | undefined,
     onLevel: (level: number) => void,
-  ) {
+    onSystemLevel?: (level: number) => void,
+  ): Promise<CapturePreviewResult> {
     await this.stop();
     this.stream = await navigator.mediaDevices.getUserMedia({
       audio: microphoneDeviceId
@@ -121,6 +141,38 @@ export class MicrophonePreviewController {
       this.animationFrame = requestAnimationFrame(measure);
     };
     measure();
+
+    if (!onSystemLevel) return { microphone: true, system: false };
+
+    // Loopback failure must not fail the microphone test, exactly as it must not
+    // fail a session: the operator still learns their microphone works and is told
+    // what is wrong with the meeting channel.
+    try {
+      this.system = new LoopbackRecorder(24000);
+      const ready = await this.system.begin();
+      if (!ready) throw new Error('System audio capture is unavailable');
+      await this.system.record((data: { mono: Float32Array }) => {
+        const mono = data.mono;
+        let sum = 0;
+        for (let index = 0; index < mono.length; index++) sum += mono[index] * mono[index];
+        onSystemLevel(mono.length ? Math.sqrt(sum / mono.length) : 0);
+      });
+      return { microphone: true, system: true };
+    } catch (error) {
+      await this.system?.end().catch(() => undefined);
+      this.system = null;
+      onSystemLevel(0);
+      return {
+        microphone: true,
+        system: false,
+        // Same platform detection the session uses, so the advice matches:
+        // Windows and macOS fail loopback for entirely different reasons.
+        warning: describeSystemCaptureFailure({
+          platform: detectCapturePlatform(),
+          error,
+        }),
+      };
+    }
   }
 
   async stop() {
@@ -136,6 +188,10 @@ export class MicrophonePreviewController {
     this.context = null;
     this.source = null;
     this.analyser = null;
+    // Released before a session starts, or the session's own LoopbackRecorder
+    // would contend with this one for the same capture.
+    await this.system?.end().catch(() => undefined);
+    this.system = null;
   }
 }
 

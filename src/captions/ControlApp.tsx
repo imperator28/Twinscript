@@ -138,6 +138,8 @@ export function ControlApp() {
   const [now, setNow] = useState(() => Date.now());
   const [previewing, setPreviewing] = useState(false);
   const [previewLevel, setPreviewLevel] = useState(0);
+  const [previewSystemLevel, setPreviewSystemLevel] = useState(0);
+  const [previewSystemReady, setPreviewSystemReady] = useState(false);
   const [previewVisibility, setPreviewVisibility] = useState({
     overlaysVisible: false,
     cameraStageVisible: false,
@@ -377,6 +379,8 @@ export function ControlApp() {
     await microphonePreview.current.stop();
     setPreviewing(false);
     setPreviewLevel(0);
+    setPreviewSystemLevel(0);
+    setPreviewSystemReady(false);
     const result = await window.captions.startSession({
       mode: 'live',
       settings: {
@@ -502,6 +506,8 @@ export function ControlApp() {
       await microphonePreview.current.stop();
       setPreviewing(false);
       setPreviewLevel(0);
+      setPreviewSystemLevel(0);
+      setPreviewSystemReady(false);
       const permission = await window.captions.requestMicrophoneAccess();
       if (!permission.ok || !permission.data.granted) {
         throw new Error(
@@ -517,9 +523,21 @@ export function ControlApp() {
         : next.inputs[0].deviceId;
       setDevices(next);
       setMicrophoneId(selected);
-      await microphonePreview.current.start(selected, setPreviewLevel);
+      const preview = await microphonePreview.current.start(
+        selected,
+        setPreviewLevel,
+        setPreviewSystemLevel,
+      );
       setPreviewing(true);
-      setNotice('Microphone is active. Speak now—the input meter should respond.');
+      setPreviewSystemReady(preview.system);
+      // The meeting channel is metered too, so the test now covers the capture a
+      // session actually depends on rather than half of it.
+      setNotice(
+        preview.system
+          ? 'Both channels are live. Speak for the microphone meter, and play meeting audio for the meeting meter.'
+          : preview.warning ||
+              'Microphone is active. System audio could not be captured.',
+      );
     } catch (error) {
       setNotice(
         error instanceof Error
@@ -535,10 +553,20 @@ export function ControlApp() {
     setMicrophoneId(deviceId);
     if (!previewing) return;
     try {
-      await microphonePreview.current.start(deviceId || undefined, setPreviewLevel);
+      // The system callback must be passed here too. Omitting it restarts the
+      // preview with the microphone only, so switching device would silently kill
+      // the meeting meter and recreate the very confusion this fixes.
+      const preview = await microphonePreview.current.start(
+        deviceId || undefined,
+        setPreviewLevel,
+        setPreviewSystemLevel,
+      );
+      setPreviewSystemReady(preview.system);
     } catch (error) {
       setPreviewing(false);
       setPreviewLevel(0);
+      setPreviewSystemLevel(0);
+      setPreviewSystemReady(false);
       setNotice(
         error instanceof Error
           ? error.message
@@ -865,7 +893,10 @@ export function ControlApp() {
               <div className="section-heading">
                 <div><p className="eyebrow">CAPTURE</p><h2>Meeting audio</h2></div>
                 <button className="text-button" disabled={active || busy} onClick={() => void grantAudioAccess()}>
-                  {previewing ? 'Retest microphone' : 'Test microphone'}
+                  {/* Named for what it now does. It only ever tested the
+                      microphone while showing a meeting meter beside it, which
+                      made a working loopback look dead. */}
+                  {previewing ? 'Retest audio' : 'Test audio'}
                 </button>
               </div>
               <label className="field">
@@ -882,9 +913,15 @@ export function ControlApp() {
               </div>
               <div className="audio-row">
                 <span>Meeting / system</span>
-                <Level value={metrics.levels?.system} />
+                <Level value={active ? metrics.levels?.system : previewSystemLevel} />
                 <ChannelBadge health={systemHealth} />
               </div>
+              {!active && previewing && !previewSystemReady && (
+                <p className="capture-warning" role="alert">
+                  System audio is not being captured, so remote speech will not be
+                  transcribed separately.
+                </p>
+              )}
               {captureWarning && (
                 <p className="capture-warning" role="alert">{captureWarning}</p>
               )}

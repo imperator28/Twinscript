@@ -1007,6 +1007,10 @@ class CaptionSessionManager {
     );
     this.sessions.clear();
     this.coordinator?.flush();
+    // Emit any sentence still waiting for a continuation before tearing down. The
+    // speaker has stopped, so a trailing fragment is the last thing they said and
+    // discarding it would silently lose the end of the meeting.
+    this.coordinator?.flushHeld();
     this.coordinator?.reset();
     await Promise.allSettled([...this.pendingFinalizations]);
     this.finalizingStop = false;

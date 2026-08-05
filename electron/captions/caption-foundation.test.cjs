@@ -138,17 +138,21 @@ test('final transcripts release by source time and suppress cross-channel duplic
         : candidate.duplicateOf;
     },
   });
+  // Terminal punctuation matters now: an unfinished fragment is held back to be
+  // joined with its continuation, so a test about ORDERING has to supply text that
+  // actually looks finished. Sentence assembly has its own tests in
+  // transcript-coordinator.test.cjs.
   coordinator.submit({
     channel: 'microphone',
     itemId: 'later',
-    transcript: 'Move DVT to September',
+    transcript: 'Move DVT to September.',
     startedAt: 200,
     at: 500,
   });
   coordinator.submit({
     channel: 'system',
     itemId: 'earlier',
-    transcript: '确认模具时间',
+    transcript: '确认模具时间。',
     startedAt: 100,
     at: 450,
   });

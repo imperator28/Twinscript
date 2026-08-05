@@ -1,9 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import type { Audience, AudienceCaption, CaptionSettings, SessionStatus } from './types';
 import { captionThemeById } from './captionThemes';
-
-const clampHistoryEntries = (value: number) =>
-  Math.max(3, Math.min(10, Math.round(Number(value) || 6)));
+// Shared with the camera stage so both surfaces size text by the same rule. The
+// local copy this replaced also mishandled 0, treating it as unset.
+import { captionFontScale, clampHistoryEntries } from './captionScale';
 
 const MAX_RETAINED_SETTLED = 10;
 
@@ -168,7 +168,10 @@ export function CaptionSurface({ audience }: { audience: Audience }) {
       className={`caption-surface caption-surface--${audience}`}
       style={
         {
-          '--caption-scale': fontScale,
+          // Composed with the history fit, not the raw slider value. The overlay's
+          // height is now the operator's decision, so raising visible history has
+          // to shrink the text to fit rather than push the window taller.
+          '--caption-scale': captionFontScale(fontScale, historyEntries),
           '--caption-background': themeSurface.background,
           '--caption-primary': themeSurface.primary,
           '--caption-secondary': themeSurface.secondary,
@@ -228,15 +231,11 @@ export function CaptionSurface({ audience }: { audience: Audience }) {
                       ),
                 }}
               >
-                <span className="caption-line__speaker">
-                  {caption.sourceChannel === 'microphone'
-                    ? audience === 'en'
-                      ? 'YOU'
-                      : '你'
-                    : audience === 'en'
-                      ? 'MEETING'
-                      : '会议'}
-                </span>
+                {/* No speaker badge: it consumed a fixed 64px column on every
+                    line for a label the reader does not need, and the overlay's
+                    height is now the operator's to choose, so every pixel of it
+                    should go to caption text. `caption.sourceChannel` is still
+                    carried for transcripts and duplicate suppression. */}
                 <span>{text}</span>
               </p>
             );

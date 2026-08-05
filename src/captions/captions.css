@@ -274,10 +274,11 @@ input[type="range"] { width: 100%; }
 .caption-roll { display: flex; flex-direction: column; justify-content: flex-end; height: calc(100% - 25px); overflow-y: auto; scrollbar-gutter: stable; }
 .caption-content { width: 100%; }
 .caption-roll__empty { margin: 0; color: var(--caption-secondary); font-size: calc(24px * var(--caption-scale)); font-weight: 600; }
-.caption-line { display: grid; grid-template-columns: 64px 1fr; gap: 14px; align-items: baseline; margin: 0 0 6px; color: var(--caption-secondary); font-size: calc(17px * var(--caption-scale)); font-weight: 560; line-height: 1.25; transition: color 180ms cubic-bezier(.2,.8,.2,1), font-size 180ms cubic-bezier(.2,.8,.2,1), opacity 180ms cubic-bezier(.2,.8,.2,1); }
+/* Single column now the speaker badge is gone: the 64px label column plus its gap
+   was 78px of every line spent on text the reader cannot act on. */
+.caption-line { display: block; margin: 0 0 6px; color: var(--caption-secondary); font-size: calc(17px * var(--caption-scale)); font-weight: 560; line-height: 1.25; transition: color 180ms cubic-bezier(.2,.8,.2,1), font-size 180ms cubic-bezier(.2,.8,.2,1), opacity 180ms cubic-bezier(.2,.8,.2,1); }
 .caption-line.is-focused { color: var(--caption-primary); font-size: calc(27px * var(--caption-scale)); font-weight: 700; letter-spacing: -.015em; }
 .caption-line[data-age="2"] { opacity: .46; }
-.caption-line__speaker { color: var(--caption-secondary); font-size: 9px; font-weight: 800; letter-spacing: .09em; }
 .caption-line.is-provisional.is-focused { color: var(--caption-primary); }
 
 /* Operator chrome for the frameless preview.
@@ -373,19 +374,22 @@ input[type="range"] { width: 100%; }
 .camera-stage__live { display: flex; align-items: center; gap: .65em; }
 .camera-stage__live i { width: .55em; height: .55em; border-radius: 50%; background: #38e19a; box-shadow: 0 0 1em rgba(56,225,154,.55); }
 .camera-stage__history { display: flex; flex-direction: column; justify-content: flex-end; height: calc(100% - 5vh); overflow: hidden; }
-.camera-stage__listening { margin: 0; color: inherit; font-size: clamp(32px, 4vw, 72px); font-weight: 650; opacity: .78; }
+.camera-stage__listening { margin: 0; color: inherit; font-size: calc(clamp(32px, 4vw, 72px) * var(--stage-scale, 1)); font-weight: 650; opacity: .78; }
+/* The speaker badge is gone, so the caption text takes the full width instead of
+   sharing a two-column grid with a fixed label column. In side-by-side layout that
+   column was ~6vw of the narrowest space on the stage. */
 .camera-stage__entry {
-  display: grid;
-  grid-template-columns: minmax(7.5rem, 9vw) 1fr;
-  gap: 1.6vw;
-  align-items: baseline;
+  display: block;
   margin-block: calc(.35vh - var(--stage-density) * .22vh);
   margin-inline: 0;
-  font-size: clamp(22px, calc(3vw - var(--stage-density) * 1.15vw), 50px);
+  /* Every size is multiplied by --stage-scale, which carries both the operator's
+     Caption size setting and the history-driven fit. The clamp ceiling is raised
+     from 50px because at low history counts the text is meant to grow into the
+     space rather than stop short and leave it empty. */
+  font-size: calc(clamp(22px, calc(3vw - var(--stage-density) * 1.15vw), 76px) * var(--stage-scale, 1));
   line-height: 1.16;
   transition: opacity 180ms cubic-bezier(.2,.8,.2,1), transform 180ms cubic-bezier(.2,.8,.2,1);
 }
-.camera-stage__entry > span { font-size: .34em; font-weight: 850; letter-spacing: .09em; opacity: .72; }
 .camera-stage__entry > strong { font-weight: 720; letter-spacing: -.02em; }
 .camera-stage__entry[data-age="2"] { opacity: .72; }
 .camera-stage__entry[data-age="3"],
@@ -396,11 +400,10 @@ input[type="range"] { width: 100%; }
 .camera-stage__entry[data-age="8"],
 .camera-stage__entry[data-age="9"] {
   opacity: .52;
-  font-size: clamp(18px, calc(2.25vw - var(--stage-density) * .7vw), 40px);
+  font-size: calc(clamp(18px, calc(2.25vw - var(--stage-density) * .7vw), 60px) * var(--stage-scale, 1));
 }
 .camera-stage--side-by-side .camera-stage__entry {
-  grid-template-columns: minmax(5rem, 6vw) 1fr;
-  font-size: clamp(20px, calc(2.35vw - var(--stage-density) * .8vw), 42px);
+  font-size: calc(clamp(20px, calc(2.35vw - var(--stage-density) * .8vw), 64px) * var(--stage-scale, 1));
 }
 
 @media (max-width: 760px) {

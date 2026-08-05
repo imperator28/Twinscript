@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { captionThemeById } from './captionThemes';
+import { captionFontScale, clampHistoryEntries } from './captionScale';
 import type {
   AudienceCaption,
   CaptionSettings,
@@ -15,16 +16,14 @@ interface CameraStageEntry {
   zh?: AudienceCaption;
 }
 
-const clampHistoryEntries = (value: number) =>
-  Math.max(3, Math.min(10, Math.round(Number(value) || 6)));
-
-function entrySpeaker(
-  sourceChannel: CameraStageEntry['sourceChannel'],
-  audience: 'en' | 'zh',
-) {
-  if (sourceChannel === 'microphone') return audience === 'en' ? 'YOU' : '你';
-  return audience === 'en' ? 'MEETING' : '会议';
-}
+// Speaker attribution is deliberately NOT rendered here.
+//
+// The badge occupied a fixed column on every line - roughly 9% of the stage width
+// - for a label a remote viewer cannot act on: they can already see who is
+// speaking. Reclaiming that column gives the caption text materially more room,
+// which matters most in side-by-side layout where horizontal space is scarcest.
+// `sourceChannel` is still carried on each entry, because attribution remains
+// meaningful for saved transcripts and for duplicate suppression.
 
 /**
  * Operator chrome for the preview window.
@@ -51,6 +50,7 @@ export function CameraStage() {
   const [entries, setEntries] = useState<CameraStageEntry[]>([]);
   const [status, setStatus] = useState<SessionStatus>({ state: 'ready' });
   const [historyEntries, setHistoryEntries] = useState(6);
+  const [fontScale, setFontScale] = useState(1);
   const [layout, setLayout] = useState<CaptionSettings['layout']>('stacked');
   const [themeId, setThemeId] = useState<CaptionSettings['captionTheme']>(
     'blueprint',
@@ -122,6 +122,9 @@ export function CameraStage() {
     const applySettings = (value: Record<string, unknown>) => {
       const settings = value as unknown as CaptionSettings;
       setHistoryEntries(clampHistoryEntries(settings.captionHistoryEntries));
+      // Previously ignored here, which is why the Caption size slider appeared to
+      // do nothing whenever the virtual camera was the output.
+      setFontScale(Number(settings.captionFontScale) || 1);
       setLayout(settings.layout === 'side-by-side' ? 'side-by-side' : 'stacked');
       setThemeId(settings.captionTheme || 'blueprint');
     };
@@ -171,6 +174,9 @@ export function CameraStage() {
         {
           '--stage-history-count': String(historyEntries),
           '--stage-density': String((historyEntries - 3) / 7),
+          // Combines the operator's Caption size preference with the fit needed to
+          // make the chosen history actually fill the fixed 16:9 frame.
+          '--stage-scale': String(captionFontScale(fontScale, historyEntries)),
           '--stage-en-background': theme.surfaces.en.background,
           '--stage-en-primary': theme.surfaces.en.primary,
           '--stage-en-secondary': theme.surfaces.en.secondary,
@@ -218,7 +224,6 @@ export function CameraStage() {
                       data-age={visibleEntries.length - index - 1}
                       key={entry.id}
                     >
-                      <span>{entrySpeaker(entry.sourceChannel, audience)}</span>
                       <strong>{entry[audience]?.text}</strong>
                     </p>
                   ))

@@ -132,8 +132,11 @@ describe('CameraStage', () => {
     act(() => audienceListener?.(caption(1, 'zh')));
     expect(screen.getByText('English 1')).toBeVisible();
     expect(screen.getByText('中文 1')).toBeVisible();
-    expect(screen.getByText('YOU')).toBeVisible();
-    expect(screen.getByText('你')).toBeVisible();
+    // The speaker badge is deliberately not rendered: it spent a fixed column of
+    // every line on a label a remote viewer cannot act on, and the caption text
+    // gets that width instead.
+    expect(screen.queryByText('YOU')).not.toBeInTheDocument();
+    expect(screen.queryByText('MEETING')).not.toBeInTheDocument();
   });
 
   it('uses shared visible history and clears on a new session boundary', () => {

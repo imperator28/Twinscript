@@ -178,6 +178,7 @@ describe('meeting caption controls', () => {
           settings: { ...settings, meetingRecordsDirectory: 'C:\\Meetings' },
         }),
       ),
+      openMeetingRecordsFolder: vi.fn(() => ok({ directory: 'C:\\Meetings' })),
       keepMeetingAudio: vi.fn((sessionId: string) =>
         ok({
           recording: true,
@@ -480,7 +481,15 @@ describe('meeting caption controls', () => {
       screen.getByText(/Microphone and meeting audio are temporarily recorded/),
     ).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Choose folder…' }));
+    // "Choose folder…" is now "Change…", beside a new "Open folder". Reaching the
+    // records folder previously required recording a meeting and then using Show in
+    // folder on that one session.
+    fireEvent.click(screen.getByRole('button', { name: 'Open folder' }));
+    await waitFor(() =>
+      expect(window.captions.openMeetingRecordsFolder).toHaveBeenCalledOnce(),
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Change…' }));
     await waitFor(() =>
       expect(window.captions.chooseMeetingRecordsDirectory).toHaveBeenCalledOnce(),
     );
@@ -582,6 +591,73 @@ describe('meeting caption controls', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Delete permanently' }));
     await waitFor(() =>
       expect(window.captions.discardMeetingAudio).toHaveBeenCalledWith('pending-1'),
+    );
+  });
+
+  it('asks about every undecided meeting in one prompt', async () => {
+    // The prompt used to render records[0] and drop the rest, so an operator who ended
+    // one meeting and started the next built an invisible backlog while believing they
+    // had answered everything.
+    const pending = (id: string, startedAt: number) => ({
+      recording: true,
+      sessionId: id,
+      session: {
+        sessionId: id,
+        startedAt,
+        endedAt: startedAt + 10 * 60_000,
+        audioRetention: 'pending' as const,
+        channelAvailability: { microphone: true, system: true },
+      },
+    });
+    window.captions.listPendingMeetingRecords = vi.fn(() =>
+      Promise.resolve({
+        ok: true as const,
+        data: [pending('newest', 3_000_000), pending('older', 2_000_000), pending('oldest', 1_000_000)],
+      }),
+    ) as typeof window.captions.listPendingMeetingRecords;
+
+    render(<ControlApp />);
+    await screen.findByRole('button', { name: /Start session/i });
+
+    // The first is asked about by the main card; the other two are listed with it,
+    // not queued for future launches.
+    expect(await screen.findByText(/2 earlier meetings also undecided/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Keep all 2' })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Keep all 2' }));
+    await waitFor(() =>
+      expect(window.captions.keepMeetingAudio).toHaveBeenCalledWith('older'),
+    );
+    expect(window.captions.keepMeetingAudio).toHaveBeenCalledWith('oldest');
+  });
+
+  it('arms before deleting the whole backlog', async () => {
+    const pending = (id: string, startedAt: number) => ({
+      recording: true,
+      sessionId: id,
+      session: {
+        sessionId: id,
+        startedAt,
+        audioRetention: 'pending' as const,
+        channelAvailability: { microphone: true, system: false },
+      },
+    });
+    window.captions.listPendingMeetingRecords = vi.fn(() =>
+      Promise.resolve({
+        ok: true as const,
+        data: [pending('a', 3_000), pending('b', 2_000)],
+      }),
+    ) as typeof window.captions.listPendingMeetingRecords;
+
+    render(<ControlApp />);
+    const arm = await screen.findByRole('button', { name: 'Delete all' });
+    fireEvent.click(arm);
+    // Bulk deletion is the most destructive control in the app; one click must not do it.
+    expect(window.captions.discardMeetingAudio).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: /Delete all 1 permanently/ }));
+    await waitFor(() =>
+      expect(window.captions.discardMeetingAudio).toHaveBeenCalledWith('b'),
     );
   });
 

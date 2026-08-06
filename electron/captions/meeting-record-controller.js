@@ -11,6 +11,7 @@ const {
   updateSessionManifest,
   writeSessionManifest,
 } = require('./meeting-record-store');
+const { planPendingAudioRetention } = require('./pending-audio-retention');
 const { RecordingKeyStore } = require('./recording-key-store');
 const { finalizeSessionAudio } = require('./wav-finalizer');
 
@@ -438,7 +439,23 @@ class MeetingRecordController {
         await this.removePendingAudio(sessionId, { force: true });
       }
     }
-    return pending;
+
+    // Undecided recordings previously accumulated without limit: an operator who ends
+    // one meeting and starts the next never answers the prompt, and nothing aged the
+    // audio out. At ~2.9 MB per minute per channel that is unbounded disk growth that
+    // nothing in the UI reported.
+    //
+    // Only the audio ages out. The transcript is already finalized in the visible
+    // session directory and is never touched.
+    const { keep, expire } = planPendingAudioRetention(pending);
+    for (const entry of expire) {
+      await this.removePendingAudio(entry.sessionId, { force: true });
+      updateSessionManifest(entry.sessionDir, {
+        audioRetention: 'expired',
+        audioTracks: null,
+      });
+    }
+    return keep;
   }
 
   destroy() {

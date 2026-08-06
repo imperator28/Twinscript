@@ -89,7 +89,12 @@ export interface MeetingRecordManifest {
   startedAt?: number;
   endedAt?: number;
   captionCount?: number;
-  audioRetention: 'pending' | 'kept' | 'discarded' | 'unavailable';
+  /**
+   * `expired` is distinct from `discarded`: the operator chose to delete a discarded
+   * recording, whereas an expired one aged out because more than five meetings went
+   * undecided. Conflating them would report a deletion the operator never made.
+   */
+  audioRetention: 'pending' | 'kept' | 'discarded' | 'unavailable' | 'expired';
   channelAvailability?: Partial<Record<'microphone' | 'system', boolean>>;
   audioTracks?: Record<string, { status: string; filePath?: string }>;
 }

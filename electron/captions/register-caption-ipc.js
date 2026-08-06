@@ -1,4 +1,5 @@
 const fs = require('fs');
+const fsp = require('fs/promises');
 const path = require('path');
 const {
   createPortableConfiguration,
@@ -201,6 +202,18 @@ function registerCaptionIpc({
     const settings = settingsStore.set({ meetingRecordsDirectory: directory });
     windows.broadcast('captions:settings', settings);
     return { canceled: false, directory, settings };
+  });
+  // Opening the folder itself, not one session inside it. Reveal has always needed a
+  // sessionId, so there was no way to reach the records folder from the app at all
+  // until a meeting had been recorded and reviewed.
+  handle('captions:meeting-records-open', async () => {
+    const directory = meetingRecordController.recordsRootDir();
+    // Created on demand: on a fresh install nothing has written here yet, and opening
+    // a path that does not exist fails with a bare shell error.
+    await fsp.mkdir(directory, { recursive: true });
+    const error = await shell.openPath(directory);
+    if (error) throw new Error(error);
+    return { directory };
   });
   handle('captions:meeting-records-pending', () =>
     meetingRecordController

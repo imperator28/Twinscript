@@ -87,11 +87,16 @@
   --leading-body: 1.5;
   --leading-tight: 1.45;
 
-  --weight-regular: 450;
-  --weight-medium: 550;
-  --weight-semibold: 650;
-  --weight-bold: 750;
-  --weight-heavy: 850;
+  /* Segoe UI ships 300/400/600/700 - it has no 450, 550, 650, 750 or 850, so every one
+     of the old values was rounded by the rasteriser to a neighbour, and 750/850 both
+     landed on 700. The scale claimed five steps and rendered three, with everything
+     from an eyebrow to a button label arriving at Bold. These are real weights, so a
+     label is now distinguishable from a heading by weight rather than by luck. */
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+  --weight-bold: 600;
+  --weight-heavy: 700;
 
   /* 4px rhythm. */
   --space-1: 4px;
@@ -131,9 +136,19 @@
 
   color: var(--text);
   background: var(--surface-sunken);
-  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
-  font-synthesis: none;
+  /* "Segoe UI Variable Text" is the Windows 11 UI face and is optically sized for
+     interface text; plain "Segoe UI" is the Windows 10 fallback behind it. Naming the
+     variable family first is what lets a 500 weight exist at all. */
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text",
+    "Segoe UI Variable Text", "Segoe UI", sans-serif;
+  /* Left on: with the weights above corrected to real ones there is nothing left to
+     synthesise, and turning it off would silently drop italics if any are ever used. */
+  font-synthesis: weight;
   text-rendering: optimizeLegibility;
+  /* Grayscale antialiasing. Windows' default subpixel rendering adds colour fringing
+     that reads as a slightly muddy edge on light-on-dark text, which is most of this
+     window in the dark theme. */
+  -webkit-font-smoothing: antialiased;
   color-scheme: light dark;
 }
 
@@ -333,8 +348,24 @@ h2 { margin-bottom: var(--space-4); font-size: var(--size-title); line-height: v
 .tab-bar { display: flex; gap: 2px; margin: var(--space-7) 0 var(--space-6); border-bottom: 1px solid var(--border); }
 .tab-bar button { min-height: var(--target); padding: 0 18px; border: 0; border-bottom: 3px solid transparent; background: transparent; color: var(--text-secondary); font-weight: var(--weight-semibold); }
 .tab-bar button.is-selected { border-bottom-color: var(--text); color: var(--text); }
+/* Content stops widening past a comfortable measure. Beyond this the two columns grow
+   without gaining anything: the cards get wider, the text lines get longer, and the
+   controls drift further from the labels they belong to. */
+.panel-stack, .session-grid, .settings-layout, .app-header, .tab-bar, .app-footer {
+  width: 100%;
+  max-width: 1500px;
+  margin-inline: auto;
+}
 .panel-stack, .evaluation-list { display: grid; gap: var(--space-4); }
-.session-grid, .settings-layout { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-4); }
+/* `align-items: start` so each card takes its natural height. Stretching made the
+   sparse Meeting audio card match the tall Audience view card, leaving a large empty
+   area below its last control that read as a rendering fault. */
+.session-grid, .settings-layout {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+  gap: var(--space-4);
+}
 .card, .empty-state { border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); padding: var(--space-6); box-shadow: var(--shadow-card); }
 /* The heading's own margin is zeroed so the flex row aligns on its centre; the row
    carries the gap instead, matching the h2 value above. */
@@ -348,8 +379,54 @@ h2 { margin-bottom: var(--space-4); font-size: var(--size-title); line-height: v
 select, input[type="password"], input[type="number"], input[type="text"], textarea { width: 100%; min-height: var(--target); padding: 10px var(--space-3); border: 1px solid var(--border-strong); border-radius: var(--radius); background: var(--surface); color: var(--text); }
 textarea { resize: vertical; line-height: var(--leading-body); }
 input[type="range"] { width: 100%; accent-color: var(--accent); }
-.toggle { display: flex; align-items: center; gap: 10px; min-height: var(--target); font-size: var(--size-body); font-weight: var(--weight-semibold); }
-.toggle input { width: 18px; height: 18px; accent-color: var(--accent); }
+.toggle { display: flex; align-items: center; gap: 10px; min-height: var(--target); font-size: var(--size-body); font-weight: var(--weight-semibold); cursor: pointer; }
+/* A real checkbox input, drawn by us.
+   `accent-color` on the native Windows control only tints it: the box keeps the
+   platform's hard 1px square, its own corner radius and its own check glyph, none of
+   which match anything else here, and it does not respond to hover or press. This is
+   still an <input type="checkbox"> - keyboard, space-to-toggle, indeterminate state
+   and screen-reader semantics are the browser's, only the painting is ours. */
+.toggle input[type='checkbox'] {
+  flex: 0 0 auto;
+  display: grid;
+  place-content: center;
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  appearance: none;
+  border: 1.5px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  cursor: pointer;
+  transition: background-color var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out),
+    transform var(--dur-press) var(--ease-out);
+}
+/* The tick is a rotated L drawn from two borders, so it scales with the box and
+   inherits its colour instead of shipping an image. */
+.toggle input[type='checkbox']::before {
+  content: '';
+  width: 10px;
+  height: 5px;
+  border: solid var(--text-on-accent);
+  border-width: 0 0 2px 2px;
+  border-radius: 1px;
+  opacity: 0;
+  transform: rotate(-45deg) translate(1px, -1px) scale(.7);
+  transition: opacity var(--dur-fast) var(--ease-out),
+    transform var(--dur-fast) var(--ease-out);
+}
+.toggle:hover input[type='checkbox']:not(:disabled) { border-color: var(--accent); }
+.toggle input[type='checkbox']:active:not(:disabled) { transform: scale(.92); }
+.toggle input[type='checkbox']:checked {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+.toggle input[type='checkbox']:checked::before {
+  opacity: 1;
+  transform: rotate(-45deg) translate(1px, -1px) scale(1);
+}
+.toggle input[type='checkbox']:disabled { opacity: .48; cursor: not-allowed; }
 .toggle--compact { min-height: var(--target); font-size: var(--size-sm); }
 /* Was bare 14px bold blue text with no padding, no radius and no hover, hard against
    the card's right edge - it read as unstyled markup rather than a control, and at
@@ -378,9 +455,43 @@ input[type="range"] { width: 100%; accent-color: var(--accent); }
 .button:active:not(:disabled), .text-button:active:not(:disabled), .segmented button:active:not(:disabled), .tab-bar button:active:not(:disabled), .notice button:active:not(:disabled) {
   transform: scale(.97);
 }
+/* A disabled button says "not now"; a busy one says "working". Without a distinct
+   state they looked identical, so pressing Install and waiting for the UAC prompt was
+   indistinguishable from the button being dead. */
+.button[aria-busy='true'], .button.is-busy {
+  position: relative;
+  color: transparent;
+  pointer-events: none;
+}
+.button[aria-busy='true']::after, .button.is-busy::after {
+  content: '';
+  position: absolute;
+  width: 15px;
+  height: 15px;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  color: var(--text);
+  animation: button-spin 620ms linear infinite;
+}
+.button--primary[aria-busy='true']::after, .button--stop[aria-busy='true']::after,
+.button--danger[aria-busy='true']::after { color: var(--text-on-accent); }
+@keyframes button-spin { to { transform: rotate(1turn); } }
+.segmented button:hover:not(.is-selected):not(:disabled) { color: var(--text); }
+.tab-bar button:hover:not(.is-selected) { color: var(--text); }
+/* Every variant answers hover as well as press. They previously had only the shared
+   :active scale, so on a mouse - which is how this window is driven - nothing happened
+   until the click, and the whole settings page read as a static picture.
+   `color-mix` keeps each hover derived from its own base colour, so a token change
+   cannot leave a hover state behind pointing at the old one. */
 .button--primary { background: var(--accent); color: var(--text-on-accent); }
+.button--primary:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 88%, black); }
 .button--secondary { border-color: var(--border-strong); background: var(--surface); color: var(--text); }
+.button--secondary:hover:not(:disabled) { border-color: var(--accent); background: var(--accent-quiet); }
 .button--quiet { background: var(--surface-inset); color: var(--text); }
+.button--quiet:hover:not(:disabled) { background: color-mix(in srgb, var(--surface-inset) 82%, var(--text)); }
+.button--stop:hover:not(:disabled),
+.button--danger:hover:not(:disabled) { background: color-mix(in srgb, var(--danger) 88%, black); }
 .button--stop { background: var(--danger); color: var(--text-on-danger); }
 /* Destructive, in two weights. The armed state is filled; the resting state is an
    outline, so "Delete audio" is legible as destructive without shouting louder than
@@ -395,6 +506,10 @@ input[type="range"] { width: 100%; accent-color: var(--accent); }
 .segmented--triple { grid-template-columns: repeat(3, 1fr); }
 .segmented button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; white-space: nowrap; }
 .segmented svg { flex: 0 0 auto; }
+/* Every segmented control carries its own bottom gap. Only `.output-mode` had one, so
+   the Stacked / Side by side switch sat flush against the status note beneath it with
+   no separation at all - the two read as one welded control. */
+.segmented { margin-bottom: var(--space-3); }
 .output-mode { margin-bottom: var(--space-3); }
 .output-mode__note {
   margin: 0 0 var(--space-4);
@@ -556,6 +671,15 @@ input[type="range"] { width: 100%; accent-color: var(--accent); }
 }
 /* Navigation, subordinate to the decision. */
 .meeting-review__secondary { gap: var(--space-1); }
+/* The rest of the undecided backlog, inside the same prompt. */
+.backlog { width: 100%; margin-top: var(--space-5); padding-top: var(--space-4); border-top: 1px solid var(--border-subtle); }
+.backlog__heading { margin: 0 0 var(--space-3); color: var(--text-secondary); font-size: var(--size-2xs); font-weight: var(--weight-heavy); letter-spacing: var(--track-label); text-transform: uppercase; }
+.backlog__list { display: grid; gap: var(--space-2); margin: 0 0 var(--space-3); padding: 0; list-style: none; }
+.backlog__row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-3); padding: var(--space-3); border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface-muted); }
+.backlog__row > div:first-child { flex: 1; min-width: 0; }
+.backlog__row strong { display: block; font-size: var(--size-sm); font-weight: var(--weight-semibold); }
+.backlog__row span { color: var(--text-secondary); font-size: var(--size-xs); font-variant-numeric: tabular-nums; }
+.backlog__row .button { min-height: 36px; padding: 0 var(--space-3); }
 .meeting-review__path,
 .record-location strong {
   color: var(--text-secondary);
@@ -563,6 +687,8 @@ input[type="range"] { width: 100%; accent-color: var(--accent); }
   font-size: var(--size-xs);
   overflow-wrap: anywhere;
 }
+/* Icons inside buttons sit on the label's optical centre and never shrink. */
+.button svg { flex: 0 0 auto; margin-right: 7px; margin-left: -2px; }
 .record-location {
   align-items: end;
   border-top: 1px solid var(--border-subtle);
@@ -787,6 +913,23 @@ a:hover { text-decoration-color: currentColor; }
 }
 .camera-stage--side-by-side .camera-stage__entry {
   font-size: calc(clamp(20px, calc(2.35vw - var(--stage-density) * .8vw), 64px) * var(--stage-scale, 1));
+}
+
+/* Two columns need real room. The only breakpoint used to be 760px, so between there
+   and about 1400px both columns were squeezed - visibly enough that a microphone name
+   was truncated mid-word in the device picker, which is the one string in that card
+   the operator has to be able to read. */
+@media (max-width: 1180px) {
+  .session-grid, .settings-layout { grid-template-columns: 1fr; }
+  /* A single column should not stretch to the full width of a wide-but-short window. */
+  .panel-stack, .session-grid, .settings-layout, .app-header, .tab-bar, .app-footer {
+    max-width: 820px;
+  }
+}
+
+@media (max-width: 900px) {
+  .control-shell { padding: var(--space-5) var(--space-5) var(--space-6); }
+  .theme-picker__grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 @media (max-width: 760px) {

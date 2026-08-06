@@ -3,6 +3,7 @@ import {
   AlertTriangle,
   Check,
   Clock,
+  FolderOpen,
   KeyRound,
   Mic,
   Monitor,
@@ -192,6 +193,11 @@ export function ControlApp() {
   const [reviewOrigin, setReviewOrigin] = useState<'stopped' | 'recovered'>(
     'stopped',
   );
+  // Every recording still awaiting a decision, not just the first. The prompt used to
+  // render `records[0]` and drop the rest on the floor, so a backlog built up
+  // invisibly while the operator believed they had answered everything.
+  const [backlog, setBacklog] = useState<MeetingRecordReview[]>([]);
+  const [confirmDiscardAll, setConfirmDiscardAll] = useState(false);
   const [captureStartedAt, setCaptureStartedAt] = useState(0);
   const [now, setNow] = useState(() => Date.now());
   const [previewing, setPreviewing] = useState(false);
@@ -256,6 +262,7 @@ export function ControlApp() {
         setBackupStates((current) => ({ ...current, [value.channel]: value }));
       }),
       window.captions.onPendingMeetingRecords((records) => {
+        setBacklog(records);
         if (records[0]) {
           setMeetingReview(records[0]);
           setReviewOrigin('recovered');
@@ -299,9 +306,12 @@ export function ControlApp() {
         setSessionActive(true);
         setStatus({ state: 'running' });
       }
-      if (pendingResult.ok && pendingResult.data[0]) {
-        setMeetingReview(pendingResult.data[0]);
-        setReviewOrigin('recovered');
+      if (pendingResult.ok) {
+        setBacklog(pendingResult.data);
+        if (pendingResult.data[0]) {
+          setMeetingReview(pendingResult.data[0]);
+          setReviewOrigin('recovered');
+        }
       }
       setDevices(deviceResult);
       setMicrophoneId(deviceResult.inputs[0]?.deviceId || '');
@@ -551,35 +561,50 @@ export function ControlApp() {
     }
   };
 
-  const keepMeetingAudio = async () => {
-    if (!meetingReview?.sessionId) return;
+  // Takes an explicit sessionId so a backlog row can be decided without first being
+  // promoted to the main card, and updates whichever list holds that session.
+  const applyAudioDecision = async (
+    decision: 'keep' | 'discard',
+    sessionId?: string,
+  ) => {
+    const target = sessionId || meetingReview?.sessionId;
+    if (!target) return;
     setBusy(true);
-    const result = await window.captions.keepMeetingAudio(meetingReview.sessionId);
+    const result =
+      decision === 'keep'
+        ? await window.captions.keepMeetingAudio(target)
+        : await window.captions.discardMeetingAudio(target);
     setBusy(false);
     if (!result.ok) {
       setNotice(result.error.message);
       return;
     }
-    setMeetingReview(result.data);
+    if (meetingReview?.sessionId === target) setMeetingReview(result.data);
+    setBacklog((current) =>
+      current.map((entry) =>
+        entry.sessionId === target ? result.data : entry,
+      ),
+    );
   };
+
+  const keepMeetingAudio = () => applyAudioDecision('keep');
 
   // Confirmation lives in the card as a two-step Delete audio -> Delete permanently,
   // not here. This used to raise window.confirm as well, which in Electron is a
   // blocking, unstyled native dialog - and once the inline step existed it became a
   // second prompt for the same decision. Two confirmations for one action is how
   // operators learn to click through both.
-  const discardMeetingAudio = async () => {
-    if (!meetingReview?.sessionId) return;
-    setBusy(true);
-    const result = await window.captions.discardMeetingAudio(
-      meetingReview.sessionId,
-    );
-    setBusy(false);
-    if (!result.ok) {
-      setNotice(result.error.message);
-      return;
+  const discardMeetingAudio = () => applyAudioDecision('discard');
+
+  /**
+   * Decides every outstanding recording in one action. An operator returning after a
+   * few ignored meetings wants one answer, not five identical prompts.
+   */
+  const decideAllAudio = async (decision: 'keep' | 'discard') => {
+    for (const entry of undecided) {
+      if (entry.sessionId) await applyAudioDecision(decision, entry.sessionId);
     }
-    setMeetingReview(result.data);
+    setConfirmDiscardAll(false);
   };
 
   const grantAudioAccess = async () => {
@@ -850,6 +875,13 @@ export function ControlApp() {
   const pendingDecision =
     meetingReview?.recording &&
     meetingReview.session?.audioRetention === 'pending';
+  // Everything still awaiting an answer, excluding whichever record the main card is
+  // already asking about, so a meeting is never presented twice in one prompt.
+  const undecided = backlog.filter(
+    (entry) =>
+      entry.session?.audioRetention === 'pending' &&
+      entry.sessionId !== meetingReview?.sessionId,
+  );
   const selectedTheme = captionThemeById(settings.captionTheme);
 
   const sessionActionLabel =
@@ -1083,7 +1115,95 @@ export function ControlApp() {
                     )}
                   </div>
                 )}
-                {meetingReview.sessionId && (
+                {/* The rest of the backlog, asked about in the same prompt rather than
+                    one launch at a time. Each row carries its own facts, because
+                    "keep or delete" is not answerable for a meeting you cannot
+                    identify. */}
+                {undecided.length > 0 && (
+                  <div className="backlog">
+                    <p className="backlog__heading">
+                      {undecided.length} earlier meeting
+                      {undecided.length === 1 ? '' : 's'} also undecided
+                    </p>
+                    <ul className="backlog__list">
+                      {undecided.map((entry) => (
+                        <li className="backlog__row" key={entry.sessionId}>
+                          <div>
+                            <strong>
+                              {entry.session?.startedAt
+                                ? new Date(entry.session.startedAt).toLocaleString()
+                                : entry.sessionId}
+                            </strong>
+                            <span>{buildReviewFacts(entry.session) || 'Audio recorded'}</span>
+                          </div>
+                          <div className="button-row">
+                            <button
+                              className="button button--secondary"
+                              disabled={busy}
+                              onClick={() =>
+                                void applyAudioDecision('keep', entry.sessionId)
+                              }
+                            >
+                              Keep
+                            </button>
+                            <button
+                              className="button button--danger-quiet"
+                              disabled={busy}
+                              onClick={() =>
+                                void applyAudioDecision('discard', entry.sessionId)
+                              }
+                            >
+                              Delete
+                            </button>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                    <div className="button-row">
+                      <button
+                        className="button button--quiet"
+                        disabled={busy}
+                        onClick={() => void decideAllAudio('keep')}
+                      >
+                        Keep all {undecided.length}
+                      </button>
+                      {/* Bulk deletion is the most destructive control in the app, so
+                          it arms before it fires, like the single-meeting one. */}
+                      {confirmDiscardAll ? (
+                        <>
+                          <button
+                            className="button button--danger"
+                            disabled={busy}
+                            onClick={() => void decideAllAudio('discard')}
+                          >
+                            Delete all {undecided.length} permanently
+                          </button>
+                          <button
+                            className="button button--quiet"
+                            disabled={busy}
+                            onClick={() => setConfirmDiscardAll(false)}
+                          >
+                            Cancel
+                          </button>
+                        </>
+                      ) : (
+                        <button
+                          className="button button--danger-quiet"
+                          disabled={busy}
+                          onClick={() => setConfirmDiscardAll(true)}
+                        >
+                          Delete all
+                        </button>
+                      )}
+                    </div>
+                    <p className="field-note">
+                      Only the five most recent undecided recordings keep their audio.
+                      Older ones release the audio automatically; every transcript is
+                      always kept.
+                    </p>
+                  </div>
+                )}
+                {meetingReview.sessionId && !undecided.length && (
                   // Navigation, not the decision. Kept visually subordinate so it
                   // stops competing with Keep and Delete in one flat row of four.
                   <div className="button-row meeting-review__secondary">
@@ -1548,13 +1668,25 @@ export function ControlApp() {
                     'Documents\\Twinscript'}
                 </strong>
               </div>
-              <button
-                className="button button--secondary"
-                disabled={active || busy}
-                onClick={() => void chooseMeetingRecordsDirectory()}
-              >
-                Choose folder…
-              </button>
+              <div className="button-row">
+                {/* Reaching the records folder previously required recording a meeting
+                    and then using Show in folder on that one session. */}
+                <button
+                  className="button button--secondary"
+                  disabled={busy}
+                  onClick={() => void window.captions.openMeetingRecordsFolder()}
+                >
+                  <FolderOpen size={15} strokeWidth={2.25} aria-hidden="true" />
+                  Open folder
+                </button>
+                <button
+                  className="button button--quiet"
+                  disabled={active || busy}
+                  onClick={() => void chooseMeetingRecordsDirectory()}
+                >
+                  Change…
+                </button>
+              </div>
             </div>
             <p className="field-note">
               Two retained one-hour, 24 kHz mono WAV tracks can use approximately 346 MB.

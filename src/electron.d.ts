@@ -52,6 +52,8 @@ interface CaptionsAPI {
     directory?: string;
     settings?: Record<string, unknown>;
   }>>;
+  /** Opens the records folder itself; reveal needs a sessionId and so could not. */
+  openMeetingRecordsFolder(): Promise<Result<{ directory: string }>>;
   listPendingMeetingRecords(): Promise<Result<
     import('./captions/types').MeetingRecordReview[]
   >>;

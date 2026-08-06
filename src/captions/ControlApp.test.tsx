@@ -312,15 +312,21 @@ describe('meeting caption controls', () => {
     await waitFor(() => expect(window.captions.stopSession).toHaveBeenCalledOnce());
   });
 
-  it('offers an inline native-camera install and persistent repair controls', async () => {
+  it('offers the camera install from the readiness checklist and from Settings', async () => {
+    // Two places, each with a distinct job: the readiness checklist fixes it
+    // before starting, the Settings card manages it. Both use the same label. The
+    // Audience view card no longer carries a third button with different copy.
     render(<ControlApp />);
     await screen.findByRole('button', { name: /Start session/i });
     fireEvent.click(screen.getByRole('button', { name: 'Virtual camera' }));
 
-    const install = await screen.findByRole('button', {
-      name: 'Install native camera',
-    });
-    expect(screen.getByText(/not installed yet/i)).toBeInTheDocument();
+    expect(
+      await screen.findByRole('heading', {
+        name: /before captions can run|one thing worth doing/i,
+      }),
+    ).toBeInTheDocument();
+    const install = await screen.findByRole('button', { name: 'Install camera' });
+    expect(screen.getByText(/not listed as a camera in Teams or Zoom/i)).toBeInTheDocument();
     fireEvent.click(install);
     await waitFor(() =>
       expect(window.captions.installNativeCamera).toHaveBeenCalledOnce(),
@@ -344,6 +350,57 @@ describe('meeting caption controls', () => {
     // idempotent and is the fix for a moved file or an app update.
     expect(screen.getByRole('button', { name: 'Reinstall camera' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Remove camera' })).toBeInTheDocument();
+  });
+
+  it('explains what is missing on a fresh install instead of just failing', async () => {
+    // The day-one defect: Start is the most prominent control on the window, and
+    // pressing it without a key simply did nothing. The blocker was on another tab
+    // and nothing named it.
+    window.captions.credentialStatus = () =>
+      Promise.resolve({
+        ok: true as const,
+        data: { available: false, source: 'none', encryptionAvailable: true },
+      });
+
+    render(<ControlApp />);
+    const startAction = await screen.findByRole('button', { name: /Start session/i });
+
+    expect(
+      screen.getByRole('heading', { name: /one step left before captions can run/i }),
+    ).toBeInTheDocument();
+    expect(screen.getByText('Add your OpenAI API key')).toBeInTheDocument();
+    expect(startAction).toBeDisabled();
+
+    // The row's own button takes the operator to the fix rather than making them
+    // discover which tab it lives on.
+    fireEvent.click(screen.getByRole('button', { name: 'Add key' }));
+    expect(
+      await screen.findByRole('heading', { name: 'Connection' }),
+    ).toBeInTheDocument();
+  });
+
+  it('hides the readiness checklist once nothing is outstanding', async () => {
+    render(<ControlApp />);
+    await screen.findByRole('button', { name: /Start session/i });
+    // Default mocks: key present, a microphone enumerated, on-screen output. The
+    // camera is not part of that path, so it must not be listed.
+    expect(screen.queryByText('BEFORE YOU START')).not.toBeInTheDocument();
+    expect(screen.queryByText('Install the virtual camera')).not.toBeInTheDocument();
+  });
+
+  it('keeps caption size beside visible history, not on another tab', async () => {
+    // The two controls decide together how the audience reads a caption, and both
+    // now sit under the preview that shows the result. Caption size used to be in
+    // Settings, one tab away from its sibling.
+    render(<ControlApp />);
+    await screen.findByRole('button', { name: /Start session/i });
+
+    expect(screen.getByLabelText('Caption size')).toBeInTheDocument();
+    expect(screen.getByLabelText('Visible history')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+    await screen.findByRole('heading', { name: 'Connection' });
+    expect(screen.queryByLabelText('Caption size')).not.toBeInTheDocument();
   });
 
   it('always offers a way to install the camera, even with no health report', async () => {
@@ -810,7 +867,11 @@ describe('meeting caption controls', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
     expect(screen.getByText(/Caption Quality/i)).toBeVisible();
-    expect(screen.getByText('Save this meeting')).toBeVisible();
+    // "Save this meeting" moved out of Settings: saving is a per-meeting action,
+    // not durable configuration, so it now sits under the transcript it saves.
+    // Settings keeps only the policy — whether to auto-save, and where.
+    expect(screen.queryByText('Save this meeting')).not.toBeInTheDocument();
+    expect(screen.getByText('Meeting records')).toBeVisible();
     expect(screen.queryByText(/validation/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/shadow/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/evaluation/i)).not.toBeInTheDocument();

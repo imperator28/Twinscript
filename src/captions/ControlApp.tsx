@@ -7,6 +7,7 @@ import {
 } from './audioCapture';
 import { type ChannelHealth, deriveChannelHealth } from './captureHealth';
 import { captionThemeById, captionThemes } from './captionThemes';
+import { type ReadinessId, reviewReadiness } from './readiness';
 import type {
   CaptionEvent,
   GlossaryConfiguration,
@@ -773,10 +774,32 @@ export function ControlApp() {
       : active
         ? 'Stop session'
         : 'Start session';
+  // One place decides what is missing and how much it matters, so the checklist the
+  // operator reads and the Start button they press cannot disagree.
+  const readiness = reviewReadiness({
+    credentialAvailable: Boolean(credential?.available),
+    microphoneAvailable: devices.inputs.length > 0,
+    outputMode: settings.outputMode,
+    cameraInstalled: nativeCameraHealth ? nativeCameraHealth.installed : null,
+    cameraSupported: nativeCameraHealth ? nativeCameraHealth.supported : null,
+  });
+
+  const resolveReadiness = (id: ReadinessId) => {
+    if (id === 'credential') {
+      setTab('settings');
+      window.requestAnimationFrame(() => apiKeyInput.current?.focus());
+      return;
+    }
+    if (id === 'microphone') {
+      void grantAudioAccess();
+      return;
+    }
+    void runNativeCameraAction('install');
+  };
+
   const sessionActionDisabled =
     operation === 'stopping' ||
-    (!active &&
-      (busy || !credential?.available || Boolean(pendingDecision)));
+    (!active && (busy || !readiness.canStart || Boolean(pendingDecision)));
 
   return (
     <main className="control-shell">
@@ -824,6 +847,47 @@ export function ControlApp() {
 
       {tab === 'session' && (
         <section className="panel-stack">
+          {/* Shown only while something is outstanding, and never during a live
+              session - mid-meeting is the wrong moment to be told about setup.
+              On a fresh install this is the first thing on the page, because
+              Start is otherwise the most prominent control on a window where
+              pressing it cannot work. */}
+          {!active && !readiness.allClear && (
+            <article className="card readiness" aria-labelledby="readiness-heading">
+              <p className="eyebrow">BEFORE YOU START</p>
+              <h2 id="readiness-heading">
+                {readiness.canStart
+                  ? 'Ready, with one thing worth doing'
+                  : 'One step left before captions can run'}
+              </h2>
+              <ol className="readiness__list">
+                {readiness.outstanding.map((step) => (
+                  <li
+                    className={`readiness__step is-${step.severity}`}
+                    key={step.id}
+                  >
+                    <div>
+                      <strong>{step.title}</strong>
+                      <p>{step.detail}</p>
+                    </div>
+                    {step.action && (
+                      <button
+                        className={`button ${
+                          step.severity === 'blocking'
+                            ? 'button--primary'
+                            : 'button--secondary'
+                        }`}
+                        disabled={busy}
+                        onClick={() => resolveReadiness(step.id)}
+                      >
+                        {step.action}
+                      </button>
+                    )}
+                  </li>
+                ))}
+              </ol>
+            </article>
+          )}
           {meetingReview?.recording && (
             <article className="card meeting-review" aria-live="polite">
               <div>
@@ -989,21 +1053,20 @@ export function ControlApp() {
                   className={`output-mode__note native-camera-note is-${nativeCameraHealth?.state || 'checking'}`}
                   role={nativeCameraHealth?.state === 'failed' ? 'alert' : 'status'}
                 >
-                  <span>{nativeCameraMessage}</span>
-                  {nativeCameraHealth?.supported && !nativeCameraHealth.installed && (
-                    <button
-                      className="button button--secondary"
-                      disabled={busy}
-                      onClick={() => void runNativeCameraAction('install')}
-                    >
-                      Install native camera
-                    </button>
-                  )}
-                  {(!nativeCameraHealth?.supported || !nativeCameraHealth?.installed) && (
-                    <small>
-                      Or capture the Twinscript Camera Stage window in OBS, then start OBS Virtual Camera.
-                    </small>
-                  )}
+                  {/* Status only, no button. The camera used to be installable from
+                      here AND from Settings, with different labels and different
+                      copy in each — two answers to the same question. There are now
+                      exactly two places to act, each with a distinct job: the
+                      readiness checklist above (fix it before starting) and the
+                      Settings card (manage it). Both say "Install camera". */}
+                  <span>
+                    {nativeCameraMessage}
+                    {nativeCameraHealth?.installed === false && (
+                      <small>
+                        Or capture the Twinscript Camera Stage window in OBS, then start OBS Virtual Camera.
+                      </small>
+                    )}
+                  </span>
                 </div>
               )}
               <fieldset className="theme-picker">
@@ -1063,7 +1126,34 @@ export function ControlApp() {
                   <span>10</span>
                 </span>
                 <span className="pace-control__note">
-                  Keep complete caption entries visible for audience context.
+                  Fewer entries means larger text: the caption fills the space it has.
+                </span>
+              </label>
+              {/* Moved here from Settings. It is the sibling of Visible history -
+                  the two together decide how the audience reads the caption - and
+                  it sits directly under the preview that shows the result. */}
+              <label className="field pace-control">
+                <span className="pace-control__heading">
+                  <span>Caption size</span>
+                  <output>{Math.round(settings.captionFontScale * 100)}%</output>
+                </span>
+                <input
+                  type="range"
+                  min="0.8"
+                  max="1.4"
+                  step="0.05"
+                  value={settings.captionFontScale}
+                  aria-label="Caption size"
+                  aria-valuetext={`${Math.round(settings.captionFontScale * 100)} percent`}
+                  onChange={(event) =>
+                    void saveSettings({
+                      captionFontScale: Number(event.target.value),
+                    })
+                  }
+                />
+                <span className="pace-control__scale" aria-hidden="true">
+                  <span>80%</span>
+                  <span>140%</span>
                 </span>
               </label>
             </article>
@@ -1102,6 +1192,22 @@ export function ControlApp() {
                     </section>
                   </div>
                 ))}
+              </div>
+              {/* Saving the log lives with the log. Previously in Settings, a tab
+                  away from the thing it acts on. */}
+              <div className="button-row transcript-actions">
+                <button
+                  className="button button--secondary"
+                  onClick={() => void window.captions.exportSession('markdown')}
+                >
+                  Save readable transcript
+                </button>
+                <button
+                  className="button button--quiet"
+                  onClick={() => void window.captions.exportSession('json')}
+                >
+                  Save JSON
+                </button>
               </div>
             </article>
           )}
@@ -1146,7 +1252,9 @@ export function ControlApp() {
             <p className="eyebrow">CAPTION DISPLAY</p><h2>Timing and text</h2>
             <label className="toggle"><input type="checkbox" checked={settings.provisionalTranslation} onChange={(event) => void saveSettings({ provisionalTranslation: event.target.checked })} /><span>Show early captions while speech is processing</span></label>
             <label className="field"><span>Caption responsiveness</span><select value={settings.delayProfile} onChange={(event) => void saveSettings({ delayProfile: event.target.value as CaptionSettings['delayProfile'] })}><option value="minimal">Fastest</option><option value="low">Fast</option><option value="default">Stable</option></select></label>
-            <label className="field"><span>Caption size · {Math.round(settings.captionFontScale * 100)}%</span><input type="range" min="0.8" max="1.4" step="0.05" value={settings.captionFontScale} onChange={(event) => void saveSettings({ captionFontScale: Number(event.target.value) })} /></label>
+            {/* Caption size lived here, one tab away from Visible history - its
+                sibling control, affecting the same pixels. Both now sit in the
+                Audience view card, beside the preview that shows what they do. */}
           </article>
 
           <article className="card glossary-card">
@@ -1303,11 +1411,11 @@ export function ControlApp() {
             </article>
           )}
 
-          <article className="card export-card">
-            <p className="eyebrow">SESSION TRANSCRIPT</p><h2>Save this meeting</h2>
-            <p className="supporting-copy">Save a copy of the current bilingual captions, timing, and estimated cost.</p>
-            <div className="button-row"><button className="button button--secondary" onClick={() => void window.captions.exportSession('json')}>Save JSON</button><button className="button button--quiet" onClick={() => void window.captions.exportSession('markdown')}>Save readable transcript</button></div>
-          </article>
+          {/* "Save this meeting" was here, one tab away from both the log it saves
+              and the post-meeting review card that also saves. Saving is a
+              per-meeting action, not durable configuration, so it now sits on the
+              Session tab under the transcript. Settings keeps only the policy:
+              whether to auto-save, and where. */}
         </section>
       )}
 

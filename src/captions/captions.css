@@ -120,6 +120,12 @@
   /* The minimum comfortable target. Kept as a token so it cannot drift. */
   --target: 44px;
 
+  /* The docked primary action's height plus the breathing room above and below it.
+     The shell's bottom padding and scroll-padding both derive from this, so the layout
+     is designed around the dock rather than having content slide underneath it. */
+  --dock-height: 52px;
+  --dock-clearance: calc(var(--dock-height) + var(--space-8));
+
   /* Motion. Built-in CSS easings are too weak to read as intentional, so both
      curves are explicit. `--ease-out` is for anything entering or responding to
      input; `--ease-in-out` for something already on screen moving to a new place. */
@@ -283,8 +289,12 @@ button:disabled { cursor: not-allowed; opacity: .48; }
   /* The 50px top inset exists to clear macOS's `hiddenInset` traffic lights, which
      overlay the content. Windows and Linux draw a real title bar above the web view,
      so there the same inset was 50px of dead space above the heading - which is what
-     made the top of the window look padded out for no reason. */
-  padding: var(--space-6) var(--space-8) var(--space-8);
+     made the top of the window look padded out for no reason.
+     The bottom inset reserves the docked action's height inside the scroll range, so
+     the last card can always be scrolled clear of it. Without this the dock would
+     cover the final control on the page and nothing could reach it. */
+  padding: var(--space-6) var(--space-8) var(--dock-clearance);
+  scroll-padding-bottom: var(--dock-clearance);
 }
 :root[data-platform='darwin'] .control-shell {
   padding-top: 50px;
@@ -330,6 +340,27 @@ h2 { margin-bottom: var(--space-4); font-size: var(--size-title); line-height: v
   transition: transform var(--dur-press) var(--ease-out),
     background-color var(--dur-enter) var(--ease-out),
     color var(--dur-enter) var(--ease-out);
+}
+/* Docked chrome: fixed, centred, floating above the scrolling content.
+   Only the pill itself takes pointer events, so the invisible band either side of it
+   never swallows a click meant for a card underneath. */
+.session-dock {
+  position: fixed;
+  bottom: var(--space-5);
+  left: 0;
+  right: 0;
+  z-index: 40;
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+}
+.session-dock > * { pointer-events: auto; }
+/* A raised shadow rather than a full-width bar: the pill has to read as floating over
+   the content, and a bar would cut the window in two for one button. */
+.session-dock .session-pill {
+  min-height: var(--dock-height);
+  padding: 0 var(--space-6);
+  box-shadow: var(--shadow-raised), 0 0 0 4px var(--surface-sunken);
 }
 .session-pill svg { flex: 0 0 auto; }
 .session-pill strong { font: inherit; white-space: nowrap; }
@@ -689,18 +720,25 @@ input[type="range"] { width: 100%; accent-color: var(--accent); }
 }
 /* Icons inside buttons sit on the label's optical centre and never shrink. */
 .button svg { flex: 0 0 auto; margin-right: 7px; margin-left: -2px; }
+/* One rule for card actions, so they stop appearing in a different place per card.
+   Every card's buttons sit in a `.button-row` at the bottom, packed from the left.
+   Previously the records card floated its two buttons to the far right of a
+   space-between row - away from the path they act on, wrapping into a two-high stack
+   on a narrow window, and out of line with the glossary card's bottom-left buttons
+   directly above it. */
 .record-location {
-  align-items: end;
-  border-top: 1px solid var(--border-subtle);
-  display: flex;
-  justify-content: space-between;
-  gap: var(--space-4);
-  margin-top: var(--space-4);
-  padding-top: var(--space-4);
-}
-.record-location > div {
   display: grid;
   gap: 5px;
+  border-top: 1px solid var(--border-subtle);
+  margin-top: var(--space-4);
+  padding-top: var(--space-4);
+  margin-bottom: var(--space-4);
+}
+.record-usage {
+  margin: var(--space-1) 0 0;
+  color: var(--text-secondary);
+  font-size: var(--size-sm);
+  font-variant-numeric: tabular-nums;
 }
 .evaluation-row { padding-top: var(--space-5); border-top: 1px solid var(--border); }
 .evaluation-source p { margin: var(--space-1) 0 13px; font-weight: var(--weight-semibold); }
@@ -928,12 +966,12 @@ a:hover { text-decoration-color: currentColor; }
 }
 
 @media (max-width: 900px) {
-  .control-shell { padding: var(--space-5) var(--space-5) var(--space-6); }
+  .control-shell { padding: var(--space-5) var(--space-5) var(--dock-clearance); }
   .theme-picker__grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 @media (max-width: 760px) {
-  .control-shell { padding: 22px 18px; }
+  .control-shell { padding: 22px 18px var(--dock-clearance); }
   .session-grid, .settings-layout, .result-grid { grid-template-columns: 1fr; }
   .theme-picker__grid { grid-template-columns: 1fr; }
   .diagnostic-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }

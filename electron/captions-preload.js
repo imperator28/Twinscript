@@ -50,6 +50,7 @@ contextBridge.exposeInMainWorld('captions', {
   chooseMeetingRecordsDirectory: () =>
     invoke('captions:meeting-records-directory-choose'),
   openMeetingRecordsFolder: () => invoke('captions:meeting-records-open'),
+  getMeetingRecordsUsage: () => invoke('captions:meeting-records-usage'),
   listPendingMeetingRecords: () =>
     invoke('captions:meeting-records-pending'),
   keepMeetingAudio: (sessionId) =>

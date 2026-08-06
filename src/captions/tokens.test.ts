@@ -170,6 +170,40 @@ describe('theme switching', () => {
   });
 });
 
+describe('docked primary action', () => {
+  it('reserves its height in the scroll range instead of covering content', () => {
+    // Fixed chrome over a scrolling container hides whatever is at the bottom unless
+    // the container pads for it. Without this the dock sits on top of the last card's
+    // controls and nothing can reach them.
+    const shell = CSS.match(/\.control-shell \{[^}]+\}/)?.[0] ?? '';
+    expect(shell).toMatch(/padding:[^;]*var\(--dock-clearance\)/);
+    expect(shell).toMatch(/scroll-padding-bottom:\s*var\(--dock-clearance\)/);
+  });
+
+  it('derives the clearance from the dock height rather than a magic number', () => {
+    expect(CSS).toMatch(/--dock-height:\s*\d+px/);
+    expect(CSS).toMatch(/--dock-clearance:\s*calc\(var\(--dock-height\)/);
+  });
+
+  it('keeps the clearance at every breakpoint', () => {
+    // A narrow window is where content is tallest and the dock most likely to cover
+    // something, so a breakpoint that reset the bottom padding would be worst there.
+    for (const rule of CSS.match(/\.control-shell \{ padding:[^}]+\}/g) ?? []) {
+      expect(rule, `breakpoint rule dropped the dock clearance: ${rule}`).toMatch(
+        /var\(--dock-clearance\)/,
+      );
+    }
+  });
+
+  it('lets clicks through the empty band beside the pill', () => {
+    // The dock spans the full width to centre its child, so without this it would
+    // swallow clicks meant for cards underneath.
+    const dock = CSS.match(/\.session-dock \{[^}]+\}/)?.[0] ?? '';
+    expect(dock).toMatch(/pointer-events:\s*none/);
+    expect(CSS).toMatch(/\.session-dock > \* \{ pointer-events: auto/);
+  });
+});
+
 describe('window chrome', () => {
   it('reserves the traffic-light inset for macOS only', () => {
     // The 50px top inset clears macOS's `hiddenInset` traffic lights, which overlay

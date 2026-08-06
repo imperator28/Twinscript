@@ -179,6 +179,9 @@ describe('meeting caption controls', () => {
         }),
       ),
       openMeetingRecordsFolder: vi.fn(() => ok({ directory: 'C:\\Meetings' })),
+      getMeetingRecordsUsage: vi.fn(() =>
+        ok({ bytes: 1_400_000_000, sessionCount: 6, pendingBytes: 173_000_000 }),
+      ),
       keepMeetingAudio: vi.fn((sessionId: string) =>
         ok({
           recording: true,
@@ -408,6 +411,32 @@ describe('meeting caption controls', () => {
     expect(document.documentElement.dataset.theme).toBe('dark');
   });
 
+  it('reports what the recordings are actually using, not an estimate', async () => {
+    // The card only ever stated a hypothetical - "two one-hour tracks can use about
+    // 346 MB" - which says nothing about the meetings the operator has.
+    render(<ControlApp />);
+    await screen.findByRole('button', { name: /Start session/i });
+    fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+
+    const usage = await screen.findByText(/1\.4 GB across 6 meetings/);
+    // Pending audio is called out separately: it is the part still releasable by
+    // answering the prompt.
+    expect(usage.textContent).toMatch(/173 MB of audio still awaiting a decision/);
+  });
+
+  it('docks the primary action outside the scrolling content', async () => {
+    // Start is the entry point to the whole app and used to scroll away with the
+    // header. Fixed chrome, so the shell must also reserve its height - otherwise it
+    // covers the last control on the page and nothing can reach it.
+    // The reserved-space half of this contract is asserted in tokens.test.ts, which
+    // reads the stylesheet; `import.meta.url` is an http URL under Vitest, so a test
+    // here cannot read it from disk.
+    render(<ControlApp />);
+    const action = await screen.findByRole('button', { name: /Start session/i });
+    expect(action.closest('.session-dock')).not.toBeNull();
+    expect(action.closest('.app-header')).toBeNull();
+  });
+
   it('does not convey channel status by colour alone', async () => {
     // Four pills in green/amber/red with a state name on them left a red-green
     // colourblind operator unable to tell a live channel from a dead one.
@@ -489,7 +518,7 @@ describe('meeting caption controls', () => {
       expect(window.captions.openMeetingRecordsFolder).toHaveBeenCalledOnce(),
     );
 
-    fireEvent.click(screen.getByRole('button', { name: 'Change…' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Change location…' }));
     await waitFor(() =>
       expect(window.captions.chooseMeetingRecordsDirectory).toHaveBeenCalledOnce(),
     );

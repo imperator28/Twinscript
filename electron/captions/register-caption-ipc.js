@@ -6,6 +6,7 @@ const {
   listGlossaryConfigurations,
   parseGlossaryContent,
 } = require('./glossary-config');
+const { summarizeRecordsUsage } = require('./records-usage');
 
 function assertSender(event, windows) {
   const senderId = event.sender.id;
@@ -214,6 +215,13 @@ function registerCaptionIpc({
     const error = await shell.openPath(directory);
     if (error) throw new Error(error);
     return { directory };
+  });
+  handle('captions:meeting-records-usage', () => {
+    const recordsRoot = meetingRecordController.recordsRootDir();
+    return summarizeRecordsUsage({
+      recordsRoot,
+      pendingRoot: meetingRecordController.pendingAudioRoot,
+    });
   });
   handle('captions:meeting-records-pending', () =>
     meetingRecordController

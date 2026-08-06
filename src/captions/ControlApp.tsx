@@ -30,6 +30,7 @@ import {
   reviewCopy as buildReviewCopy,
   reviewFacts as buildReviewFacts,
   reviewHeading as buildReviewHeading,
+  formatSize,
 } from './meetingReviewCopy';
 import {
   THEME_STORAGE_KEY,
@@ -198,6 +199,11 @@ export function ControlApp() {
   // invisibly while the operator believed they had answered everything.
   const [backlog, setBacklog] = useState<MeetingRecordReview[]>([]);
   const [confirmDiscardAll, setConfirmDiscardAll] = useState(false);
+  const [recordsUsage, setRecordsUsage] = useState<{
+    bytes: number;
+    sessionCount: number;
+    pendingBytes: number;
+  } | null>(null);
   const [captureStartedAt, setCaptureStartedAt] = useState(0);
   const [now, setNow] = useState(() => Date.now());
   const [previewing, setPreviewing] = useState(false);
@@ -336,6 +342,16 @@ export function ControlApp() {
   useEffect(() => {
     applyPlatform(document.documentElement, window.captions?.platform);
   }, []);
+
+  // Re-measured whenever a decision could have changed what is on disk - keeping audio
+  // writes WAV files, deleting removes them - so the figure is never stale in the one
+  // moment the operator is looking at it to decide.
+  const refreshRecordsUsage = () => {
+    void window.captions.getMeetingRecordsUsage?.().then((result) => {
+      if (result.ok) setRecordsUsage(result.data);
+    });
+  };
+  useEffect(refreshRecordsUsage, [backlog, meetingReview?.session?.audioRetention]);
 
   useEffect(() => {
     if (!repairedLaunch.current || tab !== 'settings' || !credential) return;
@@ -932,6 +948,13 @@ export function ControlApp() {
           <p className="eyebrow">TWINSCRIPT<span lang="zh-Hans"> 会意</span></p>
           <h1>Live Caption Studio</h1>
         </div>
+      </header>
+
+      {/* The primary action, docked bottom-centre so it is reachable without scrolling
+          back to a header that has scrolled away. It is fixed chrome, so the shell
+          reserves its height as bottom padding rather than letting it cover the last
+          card - see `--dock-height` in the stylesheet. */}
+      <div className="session-dock">
         <button
           type="button"
           className={`session-pill session-action ${active ? 'is-live' : ''}`}
@@ -955,7 +978,7 @@ export function ControlApp() {
             </>
           )}
         </button>
-      </header>
+      </div>
 
       <nav className="tab-bar" aria-label="Primary">
         {(['session', 'settings'] as const).map((item) => (
@@ -1660,36 +1683,52 @@ export function ControlApp() {
               />
               <span>Keep audio automatically</span>
             </label>
+            {/* Location and its actions read top to bottom: label, value, then the
+                buttons that act on it. They used to sit in a space-between row that
+                pushed them to the far right of the card, away from the path they
+                belonged to and out of line with every other card's actions. */}
             <div className="record-location">
-              <div>
-                <span>Save location</span>
-                <strong>
-                  {settings.meetingRecordsDirectory ||
-                    'Documents\\Twinscript'}
-                </strong>
-              </div>
-              <div className="button-row">
-                {/* Reaching the records folder previously required recording a meeting
-                    and then using Show in folder on that one session. */}
-                <button
-                  className="button button--secondary"
-                  disabled={busy}
-                  onClick={() => void window.captions.openMeetingRecordsFolder()}
-                >
-                  <FolderOpen size={15} strokeWidth={2.25} aria-hidden="true" />
-                  Open folder
-                </button>
-                <button
-                  className="button button--quiet"
-                  disabled={active || busy}
-                  onClick={() => void chooseMeetingRecordsDirectory()}
-                >
-                  Change…
-                </button>
-              </div>
+              <span>Save location</span>
+              <strong>
+                {settings.meetingRecordsDirectory || 'Documents\\Twinscript'}
+              </strong>
+              {/* What the recordings are actually costing, rather than only what a
+                  hypothetical hour-long meeting would cost. */}
+              <p className="record-usage">
+                {recordsUsage
+                  ? recordsUsage.sessionCount === 0
+                    ? 'No meetings saved yet.'
+                    : `${formatSize(recordsUsage.bytes)} across ${recordsUsage.sessionCount} meeting${
+                        recordsUsage.sessionCount === 1 ? '' : 's'
+                      }${
+                        recordsUsage.pendingBytes > 0
+                          ? `, including ${formatSize(recordsUsage.pendingBytes)} of audio still awaiting a decision`
+                          : ''
+                      }.`
+                  : 'Measuring saved meetings…'}
+              </p>
+            </div>
+            <div className="button-row">
+              {/* Reaching the records folder previously required recording a meeting
+                  and then using Show in folder on that one session. */}
+              <button
+                className="button button--secondary"
+                disabled={busy}
+                onClick={() => void window.captions.openMeetingRecordsFolder()}
+              >
+                <FolderOpen size={15} strokeWidth={2.25} aria-hidden="true" />
+                Open folder
+              </button>
+              <button
+                className="button button--quiet"
+                disabled={active || busy}
+                onClick={() => void chooseMeetingRecordsDirectory()}
+              >
+                Change location…
+              </button>
             </div>
             <p className="field-note">
-              Two retained one-hour, 24 kHz mono WAV tracks can use approximately 346 MB.
+              A one-hour meeting keeps about 346 MB across both 24 kHz mono tracks.
             </p>
           </article>
 

@@ -54,6 +54,12 @@ interface CaptionsAPI {
   }>>;
   /** Opens the records folder itself; reveal needs a sessionId and so could not. */
   openMeetingRecordsFolder(): Promise<Result<{ directory: string }>>;
+  /** Measured disk use, so the card reports what is stored rather than an estimate. */
+  getMeetingRecordsUsage(): Promise<Result<{
+    bytes: number;
+    sessionCount: number;
+    pendingBytes: number;
+  }>>;
   listPendingMeetingRecords(): Promise<Result<
     import('./captions/types').MeetingRecordReview[]
   >>;

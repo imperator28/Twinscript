@@ -13,7 +13,6 @@ import {
   ShieldCheck,
   Square,
   Sun,
-  Trash2,
   Video,
   VolumeX,
   X,
@@ -29,14 +28,20 @@ import { captionThemeById, captionThemes } from './captionThemes';
 import { type ReadinessId, reviewReadiness } from './readiness';
 import {
   blankDraft,
-  draftsFromTerms,
+  draftSections,
   draftsToTerms,
   filterTerms,
-  formatContextNotes,
   parseContextNotes,
+  partitionGlossary,
   type DraftTerm,
   type EffectiveGlossary,
 } from './glossaryView';
+import {
+  ContextSection,
+  LiteralSection,
+  TermPairSection,
+  TokenSection,
+} from './GlossaryEditor';
 import {
   reviewCopy as buildReviewCopy,
   reviewFacts as buildReviewFacts,
@@ -185,8 +190,14 @@ export function ControlApp() {
   const [captions, setCaptions] = useState<CaptionEvent[]>([]);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState('');
-  const [termDrafts, setTermDrafts] = useState<DraftTerm[]>(() => draftsFromTerms([]));
-  const [contextText, setContextText] = useState('');
+  const [pairDrafts, setPairDrafts] = useState<DraftTerm[]>(
+    () => draftSections([]).pairs,
+  );
+  const [literalDrafts, setLiteralDrafts] = useState<DraftTerm[]>(
+    () => draftSections([]).literal,
+  );
+  // Kept as rows, not one blob of text: a textarea gives no per-entry remove and no count.
+  const [contextEntries, setContextEntries] = useState<string[]>(['']);
   const [glossaryQuery, setGlossaryQuery] = useState('');
   const [effectiveGlossary, setEffectiveGlossary] =
     useState<EffectiveGlossary | null>(null);
@@ -311,11 +322,13 @@ export function ControlApp() {
         setSettingsState(next);
         // One helper populates all three editors, so first load and post-save cannot
         // drift apart - they used to duplicate the same term-formatting logic.
-        setTermDrafts(draftsFromTerms(next.customGlossaryConfiguration?.terms));
+        const sections = draftSections(next.customGlossaryConfiguration?.terms);
+        setPairDrafts(sections.pairs);
+        setLiteralDrafts(sections.literal);
         setProtectedTokenText(
           next.customGlossaryConfiguration?.protectedTokens.join(', ') || '',
         );
-        setContextText(formatContextNotes(next.glossaryContextNotes));
+        setContextEntries([...(next.glossaryContextNotes || []), '']);
       }
       if (glossaryResult.ok) setGlossaryConfigurations(glossaryResult.data);
       if (credentialResult.ok) {
@@ -800,35 +813,59 @@ export function ControlApp() {
   // carry their own two fields and a do-not-translate flag, which the old format could
   // not express at all.
   const syncGlossaryEditors = (next: CaptionSettings) => {
-    setTermDrafts(draftsFromTerms(next.customGlossaryConfiguration?.terms));
+    const sections = draftSections(next.customGlossaryConfiguration?.terms);
+    setPairDrafts(sections.pairs);
+    setLiteralDrafts(sections.literal);
     setProtectedTokenText(
       next.customGlossaryConfiguration?.protectedTokens.join(', ') || '',
     );
-    setContextText(formatContextNotes(next.glossaryContextNotes));
+    // Always one empty row so the section is never a dead end.
+    setContextEntries([...(next.glossaryContextNotes || []), '']);
   };
 
-  const updateDraft = (id: string, patch: Partial<DraftTerm>) => {
-    setTermDrafts((current) => {
+  // The two term sections are edited independently and recombined on save, so a row
+  // cannot silently change category by having a checkbox toggled.
+  const sectionSetter = (section: 'pairs' | 'literal') =>
+    section === 'pairs' ? setPairDrafts : setLiteralDrafts;
+
+  const updateDraft = (
+    section: 'pairs' | 'literal',
+    id: string,
+    patch: Partial<DraftTerm>,
+  ) => {
+    sectionSetter(section)((current) => {
       const next = current.map((draft) =>
         draft.id === id ? { ...draft, ...patch } : draft,
       );
-      // A new blank row appears as soon as the last one is touched, so adding a term
-      // never needs a separate click and the editor never looks full.
+      // A blank row appears as soon as the last one is touched, so adding never needs a
+      // separate click and the section never looks full.
       const last = next[next.length - 1];
-      if (last && (last.en.trim() || last.zh.trim())) next.push(blankDraft());
+      if (last && (last.en.trim() || last.zh.trim())) {
+        next.push(blankDraft(section === 'literal'));
+      }
       return next;
     });
   };
 
-  const removeDraft = (id: string) => {
-    setTermDrafts((current) => {
+  const removeDraft = (section: 'pairs' | 'literal', id: string) => {
+    sectionSetter(section)((current) => {
       const next = current.filter((draft) => draft.id !== id);
-      return next.length ? next : [blankDraft()];
+      return next.length ? next : [blankDraft(section === 'literal')];
     });
   };
 
+  const addDraft = (section: 'pairs' | 'literal') => {
+    sectionSetter(section)((current) => [
+      ...current,
+      blankDraft(section === 'literal'),
+    ]);
+  };
+
   const saveGlossaryOverrides = async () => {
-    const { terms: draftTerms, incomplete } = draftsToTerms(termDrafts);
+    const { terms: draftTerms, incomplete } = draftsToTerms([
+      ...pairDrafts,
+      ...literalDrafts,
+    ]);
     if (incomplete > 0) {
       // Refused rather than silently dropped: a row with one side filled is unfinished
       // work, and saving around it would lose what was typed with no explanation.
@@ -845,7 +882,7 @@ export function ControlApp() {
       priority: 5,
     }));
     const protectedTokens = parseProtectedTokens();
-    const glossaryContextNotes = parseContextNotes(contextText);
+    const glossaryContextNotes = parseContextNotes(contextEntries.join('\n'));
     const customGlossaryConfiguration: GlossaryConfiguration | null =
       terms.length || protectedTokens.length
         ? {
@@ -1692,25 +1729,44 @@ export function ControlApp() {
                 <>
                   <ul className="glossary-list">
                     {glossaryMatches.visible.map((term) => (
-                      <li key={`${term.source}-${term.en}`}>
+                      <li
+                        key={`${term.source}-${term.en}`}
+                        className={term.active ? '' : 'is-inactive'}
+                      >
                         <span className="glossary-list__en">{term.en}</span>
                         <span className="glossary-list__zh" lang="zh-Hans">
                           {term.doNotTranslate ? 'kept in English' : term.zh}
                         </span>
-                        {term.source === 'custom' && (
-                          <span className="glossary-list__tag">YOURS</span>
-                        )}
+                        <span className="glossary-list__marks">
+                          {term.source === 'custom' && (
+                            <span className="glossary-list__tag">YOURS</span>
+                          )}
+                          {/* Stored but past the cap, so it never reaches the model. */}
+                          {!term.active && (
+                            <span className="glossary-list__tag is-muted">STORED</span>
+                          )}
+                        </span>
                       </li>
                     ))}
                   </ul>
+                  {/* Two numbers that used to disagree in public: the card counted
+                      STORED terms (138) while this list showed the ACTIVE subset (40).
+                      Both were true and neither said so. The gap is real and worth
+                      surfacing - terms past the cap never reach the model - so the list
+                      now shows everything stored, marks what is sent, and says why. */}
                   <p className="glossary-count">
                     {glossaryMatches.matchCount === 0
                       ? 'No terms match. Add it below and it will apply to the next session.'
-                      : `${glossaryMatches.matchCount} match${glossaryMatches.matchCount === 1 ? '' : 'es'}${
+                      : `${glossaryMatches.matchCount} of ${effectiveGlossary.storedCount} terms${
                           glossaryMatches.truncated > 0
-                            ? ` · showing the first ${glossaryMatches.visible.length}, narrow the search to see the rest`
+                            ? ` · showing ${glossaryMatches.visible.length}, narrow the search for the rest`
                             : ''
                         }`}
+                  </p>
+                  <p className="field-note">
+                    The first {effectiveGlossary.activeLimit} terms are sent to OpenAI each
+                    session; the rest stay stored. Your own entries sort ahead of built-in
+                    ones.
                   </p>
                 </>
               ) : (
@@ -1721,99 +1777,41 @@ export function ControlApp() {
             <details className="glossary-advanced">
               <summary>Edit your own terms, phrases and context</summary>
               <div className="glossary-advanced__body">
-                {/* Category 1: one-to-one pairs, edited as rows rather than as a blob of
-                    "en = zh" lines that gave no feedback until the whole thing saved. */}
-                <p className="glossary-editor__label">Your term pairs</p>
-                <div className="glossary-editor">
-                  {termDrafts.map((draft, index) => (
-                    <div className="glossary-editor__row" key={draft.id}>
-                      <input
-                        type="text"
-                        disabled={active}
-                        value={draft.en}
-                        aria-label={`English term ${index + 1}`}
-                        placeholder="boss"
-                        onChange={(event) =>
-                          updateDraft(draft.id, { en: event.target.value })
-                        }
-                      />
-                      <input
-                        type="text"
-                        lang="zh-Hans"
-                        disabled={active || draft.doNotTranslate}
-                        value={draft.doNotTranslate ? '' : draft.zh}
-                        aria-label={`Chinese term ${index + 1}`}
-                        placeholder={draft.doNotTranslate ? 'kept in English' : '凸台'}
-                        onChange={(event) =>
-                          updateDraft(draft.id, { zh: event.target.value })
-                        }
-                      />
-                      {/* Category 2: never translate this phrase. It was only reachable
-                          before by importing a file that set the flag. */}
-                      <label className="toggle toggle--compact">
-                        <input
-                          type="checkbox"
-                          disabled={active}
-                          checked={draft.doNotTranslate}
-                          onChange={(event) =>
-                            updateDraft(draft.id, {
-                              doNotTranslate: event.target.checked,
-                            })
-                          }
-                        />
-                        <span>Keep in English</span>
-                      </label>
-                      <button
-                        className="text-button"
-                        disabled={active || termDrafts.length === 1}
-                        aria-label={`Remove term ${index + 1}`}
-                        onClick={() => removeDraft(draft.id)}
-                      >
-                        <Trash2 size={15} strokeWidth={2.25} aria-hidden="true" />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-                <p className="field-note">
-                  A new row appears as you fill the last one. Your rows take priority over
-                  the built-in glossary.
-                </p>
-
-                <div className="field">
-                  <label htmlFor="custom-protected-tokens">Codes to leave untouched</label>
-                  <input
-                    id="custom-protected-tokens"
-                    type="text"
-                    disabled={active}
-                    value={protectedTokenText}
-                    onChange={(event) => setProtectedTokenText(event.target.value)}
-                    placeholder="Project Falcon, ABC-123, Gate 4"
-                    aria-describedby="custom-protected-tokens-note"
-                  />
-                  <span id="custom-protected-tokens-note" className="field-note">Separate with commas. These stay literal in both languages.</span>
-                </div>
-
-                {/* Category 3, new: who and what is being discussed. Not translation
-                    pairs - this is what stops a supplier's name being guessed at
-                    phonetically, the most common way a bilingual engineering transcript
-                    goes wrong. */}
-                <div className="field">
-                  <label htmlFor="glossary-context">Meeting context</label>
-                  <textarea
-                    id="glossary-context"
-                    rows={4}
-                    disabled={active}
-                    value={contextText}
-                    onChange={(event) => setContextText(event.target.value)}
-                    placeholder={'Lily Chen, quality lead at the Suzhou plant\nFalcon 2 tooling programme'}
-                    aria-describedby="glossary-context-note"
-                  />
-                  <span id="glossary-context-note" className="field-note">
-                    One per line: people, projects, sites. Names spelled here are
-                    transcribed rather than guessed at.
-                  </span>
-                </div>
-
+                <TermPairSection
+                  drafts={pairDrafts}
+                  disabled={active}
+                  onChange={(id, patch) => updateDraft('pairs', id, patch)}
+                  onRemove={(id) => removeDraft('pairs', id)}
+                  onAdd={() => addDraft('pairs')}
+                />
+                <LiteralSection
+                  drafts={literalDrafts}
+                  disabled={active}
+                  onChange={(id, patch) => updateDraft('literal', id, patch)}
+                  onRemove={(id) => removeDraft('literal', id)}
+                  onAdd={() => addDraft('literal')}
+                />
+                <TokenSection
+                  value={protectedTokenText}
+                  disabled={active}
+                  onChange={setProtectedTokenText}
+                />
+                <ContextSection
+                  entries={contextEntries}
+                  disabled={active}
+                  onChange={(index, value) =>
+                    setContextEntries((current) =>
+                      current.map((entry, i) => (i === index ? value : entry)),
+                    )
+                  }
+                  onRemove={(index) =>
+                    setContextEntries((current) => {
+                      const next = current.filter((_, i) => i !== index);
+                      return next.length ? next : [''];
+                    })
+                  }
+                  onAdd={() => setContextEntries((current) => [...current, ''])}
+                />
                 <div className="button-row">
                   <button
                     className="button button--primary"
@@ -1823,6 +1821,10 @@ export function ControlApp() {
                     Save changes
                   </button>
                 </div>
+                <p className="field-note">
+                  Your entries take priority over the built-in glossary and apply to the
+                  next session.
+                </p>
               </div>
             </details>
           </article>

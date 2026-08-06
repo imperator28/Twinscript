@@ -9,6 +9,7 @@ const {
   CORE_PRODUCT_DEVELOPMENT_TOKENS,
   compileGlossarySelection,
   createPortableConfiguration,
+  describeEffectiveGlossary,
   listGlossaryConfigurations,
   parseGlossaryContent,
   sanitizeConfiguration,
@@ -368,4 +369,55 @@ test('glossary file operations reject untrusted renderer senders', async () => {
   assert.equal(confirmedRepair.ok, true);
   assert.equal(confirmedRepair.data.canceled, false);
   assert.equal(credentialRepairs, 1);
+});
+
+test('describeEffectiveGlossary reports stored terms and marks which are sent', () => {
+  // The card counted STORED terms (138) while the viewer showed compileGlossarySelection's
+  // `glossary`, which is already sliced to ACTIVE_TERM_LIMIT (40). Both numbers were true
+  // and neither said what it measured, so the UI appeared to contradict itself.
+  const described = describeEffectiveGlossary('universal-engineering', null);
+
+  assert.equal(described.activeLimit, ACTIVE_TERM_LIMIT);
+  assert.ok(
+    described.terms.length > ACTIVE_TERM_LIMIT,
+    'the built-in glossary is larger than the active cap, which is the whole point',
+  );
+  assert.equal(
+    described.terms.length,
+    described.storedCount,
+    'every stored term is described, not just the active subset',
+  );
+
+  const active = described.terms.filter((term) => term.active);
+  assert.equal(active.length, ACTIVE_TERM_LIMIT);
+  // Active terms are a prefix: the ordering is what decides which ones reach the model.
+  assert.ok(
+    described.terms.slice(0, ACTIVE_TERM_LIMIT).every((term) => term.active),
+    'the first N terms are the active ones',
+  );
+  assert.ok(
+    described.terms.slice(ACTIVE_TERM_LIMIT).every((term) => !term.active),
+    'everything past the cap is marked inactive rather than omitted',
+  );
+});
+
+test('describeEffectiveGlossary marks the operator own rows and sorts them first', () => {
+  const described = describeEffectiveGlossary('universal-engineering', {
+    schemaVersion: 1,
+    id: 'custom-overrides',
+    name: 'Custom overrides',
+    description: '',
+    regions: [],
+    domains: [],
+    protectedTokens: ['ABC-123'],
+    terms: [{ en: 'gasket', zh: '垫片', priority: 9 }],
+  });
+
+  const mine = described.terms.filter((term) => term.source === 'custom');
+  assert.equal(mine.length, 1);
+  assert.equal(mine[0].en, 'gasket');
+  // Marked so the editor knows which rows it may change, and active so an override the
+  // operator just typed is not silently pushed past the cap by built-in terms.
+  assert.equal(mine[0].active, true);
+  assert.ok(described.protectedTokens.includes('ABC-123'));
 });

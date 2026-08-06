@@ -16,13 +16,46 @@ export interface EffectiveGlossaryTerm {
   zh: string;
   doNotTranslate: boolean;
   source: GlossarySource;
+  /**
+   * Whether this term is within the active cap and therefore actually reaches the model.
+   * Stored-but-inactive terms exist, and hiding that was how the card came to show
+   * "138 built-in terms" beside a list of 40.
+   */
+  active: boolean;
 }
 
 export interface EffectiveGlossary {
   configurationId: string;
   protectedTokens: string[];
   storedCount: number;
+  activeLimit: number;
   terms: EffectiveGlossaryTerm[];
+}
+
+/**
+ * The glossary splits into the three things it actually contains, which the flat list
+ * conflated:
+ *
+ *  - `pairs`     one-to-one terminology, English to Chinese
+ *  - `literal`   phrases that must survive untranslated in both captions
+ *  - `tokens`    protected codes, which are literal but are stored separately because
+ *                they are matched as tokens rather than as glossary entries
+ *
+ * A do-not-translate entry has no meaningful Chinese column, so rendering it in a
+ * two-column term list showed either a duplicate of the English or an empty cell. They
+ * are different kinds of instruction and belong in different sections.
+ */
+export function partitionGlossary(glossary: EffectiveGlossary | null): {
+  pairs: EffectiveGlossaryTerm[];
+  literal: EffectiveGlossaryTerm[];
+  tokens: string[];
+} {
+  const terms = glossary?.terms || [];
+  return {
+    pairs: terms.filter((term) => !term.doNotTranslate),
+    literal: terms.filter((term) => term.doNotTranslate),
+    tokens: glossary?.protectedTokens || [],
+  };
 }
 
 /** A row in the in-place editor. `id` is local only, to key React rows stably. */
@@ -74,10 +107,35 @@ export function filterTerms(
 
 let draftCounter = 0;
 
-/** A blank editor row. */
-export function blankDraft(): DraftTerm {
+/** A blank editor row. `doNotTranslate` decides which section it belongs to. */
+export function blankDraft(doNotTranslate = false): DraftTerm {
   draftCounter += 1;
-  return { id: `draft-${draftCounter}`, en: '', zh: '', doNotTranslate: false };
+  return { id: `draft-${draftCounter}`, en: '', zh: '', doNotTranslate };
+}
+
+/**
+ * Split stored custom terms into the two editable sections, each ending in a blank row
+ * so adding never needs a separate click. The sections are edited independently and
+ * recombined on save, so a row cannot silently change category.
+ */
+export function draftSections(
+  terms: Array<{ en: string; zh: string; doNotTranslate?: boolean }> | null | undefined,
+): { pairs: DraftTerm[]; literal: DraftTerm[] } {
+  const all = terms || [];
+  const toDraft = (
+    term: { en: string; zh: string; doNotTranslate?: boolean },
+    literal: boolean,
+  ) => ({ ...blankDraft(literal), en: term.en, zh: term.zh });
+  return {
+    pairs: [
+      ...all.filter((term) => !term.doNotTranslate).map((term) => toDraft(term, false)),
+      blankDraft(false),
+    ],
+    literal: [
+      ...all.filter((term) => term.doNotTranslate).map((term) => toDraft(term, true)),
+      blankDraft(true),
+    ],
+  };
 }
 
 /**

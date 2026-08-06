@@ -1198,14 +1198,61 @@ describe('meeting caption controls', () => {
     fireEvent.click(screen.getByText(summary));
     expect(details).toHaveAttribute('open');
 
-    // Rows with two fields and a keep-in-English flag, instead of one textarea of
-    // "en = zh" lines that could not express the flag at all and gave no feedback until
-    // the whole blob was saved.
+    // Four sections, because a glossary carries four different instructions and a flat
+    // list conflated them - a never-translate entry has no meaningful Chinese column.
+    expect(screen.getByRole('heading', { name: 'Term pairs' })).toBeVisible();
+    expect(screen.getByRole('heading', { name: 'Never translate' })).toBeVisible();
+    expect(screen.getByRole('heading', { name: 'Protected codes' })).toBeVisible();
+    expect(screen.getByRole('heading', { name: 'Meeting context' })).toBeVisible();
+
     expect(screen.getByRole('textbox', { name: 'English term 1' })).toBeVisible();
     expect(screen.getByRole('textbox', { name: 'Chinese term 1' })).toBeVisible();
-    expect(screen.getByLabelText('Keep in English')).toBeVisible();
-    expect(screen.getByRole('textbox', { name: 'Codes to leave untouched' })).toBeVisible();
-    expect(screen.getByRole('textbox', { name: 'Meeting context' })).toBeVisible();
+    expect(
+      screen.getByRole('textbox', { name: 'Never-translate phrase 1' }),
+    ).toBeVisible();
+    expect(screen.getByRole('textbox', { name: 'Context entry 1' })).toBeVisible();
+    expect(screen.getByRole('textbox', { name: 'Protected codes' })).toBeVisible();
+  });
+
+  it('adds and removes glossary entries per section', async () => {
+    render(<ControlApp />);
+    await screen.findByRole('button', { name: /Start session/i });
+    fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+    fireEvent.click(screen.getByText('Edit your own terms, phrases and context'));
+
+    // Every section can grow without filling a row first.
+    fireEvent.click(screen.getByRole('button', { name: 'Add pair' }));
+    expect(screen.getByRole('textbox', { name: 'English term 2' })).toBeVisible();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add context' }));
+    expect(screen.getByRole('textbox', { name: 'Context entry 2' })).toBeVisible();
+
+    // An empty row has nothing to remove, so its control is inert rather than
+    // destructive-looking.
+    expect(screen.getByRole('button', { name: 'Remove term pair 1' })).toBeDisabled();
+    fireEvent.change(screen.getByRole('textbox', { name: 'English term 1' }), {
+      target: { value: 'gasket' },
+    });
+    const remove = screen.getByRole('button', { name: 'Remove term pair 1' });
+    expect(remove).toBeEnabled();
+    fireEvent.click(remove);
+    expect(
+      (screen.getByRole('textbox', { name: 'English term 1' }) as HTMLInputElement).value,
+    ).toBe('');
+  });
+
+  it('previews protected codes as parsed, not as raw text', async () => {
+    render(<ControlApp />);
+    await screen.findByRole('button', { name: /Start session/i });
+    fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+    fireEvent.click(screen.getByText('Edit your own terms, phrases and context'));
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'Protected codes' }), {
+      target: { value: 'ABC-123, Gate 4 ,, Falcon' },
+    });
+    const preview = screen.getByLabelText('Protected codes preview');
+    // What was understood is shown, so a stray comma is visibly harmless.
+    expect(preview.textContent).toBe('ABC-123Gate 4Falcon');
   });
 
   it('shows the terms themselves, searchable in both languages', async () => {
@@ -1259,8 +1306,12 @@ describe('meeting caption controls', () => {
     fireEvent.change(screen.getByRole('textbox', { name: 'Chinese term 1' }), {
       target: { value: '垫片' },
     });
-    fireEvent.change(screen.getByRole('textbox', { name: 'Meeting context' }), {
-      target: { value: 'Lily Chen, quality lead\n\nFalcon 2 tooling' },
+    fireEvent.change(screen.getByRole('textbox', { name: 'Context entry 1' }), {
+      target: { value: 'Lily Chen, quality lead' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Add context' }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Context entry 2' }), {
+      target: { value: 'Falcon 2 tooling' },
     });
     fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
 

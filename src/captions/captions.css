@@ -355,12 +355,31 @@ h2 { margin-bottom: var(--space-4); font-size: var(--size-title); line-height: v
   pointer-events: none;
 }
 .session-dock > * { pointer-events: auto; }
-/* A raised shadow rather than a full-width bar: the pill has to read as floating over
-   the content, and a bar would cut the window in two for one button. */
+/* Content fades out beneath the pill instead of the pill wearing a ring.
+   The ring was `0 0 0 4px var(--surface-sunken)` - a hard 4px halo in the page's own
+   background colour, which read as a stroke rather than as depth and broke wherever the
+   pill overlapped a white card, since the halo colour matched the page and not the card.
+   A gradient scrim is the same idea done continuously: the band under the pill dims
+   toward the bottom edge, so text scrolling past it recedes instead of colliding. */
+.session-dock::before {
+  content: '';
+  position: absolute;
+  inset: calc(var(--space-8) * -1) 0 calc(var(--space-5) * -1);
+  background: linear-gradient(
+    to top,
+    var(--surface-sunken) 0%,
+    color-mix(in srgb, var(--surface-sunken) 82%, transparent) 45%,
+    color-mix(in srgb, var(--surface-sunken) 30%, transparent) 78%,
+    transparent 100%
+  );
+  pointer-events: none;
+}
+/* Above the scrim. */
+.session-dock > * { position: relative; }
 .session-dock .session-pill {
   min-height: var(--dock-height);
   padding: 0 var(--space-6);
-  box-shadow: var(--shadow-raised), 0 0 0 4px var(--surface-sunken);
+  box-shadow: var(--shadow-raised);
 }
 .session-pill svg { flex: 0 0 auto; }
 .session-pill strong { font: inherit; white-space: nowrap; }
@@ -388,15 +407,28 @@ h2 { margin-bottom: var(--space-4); font-size: var(--size-title); line-height: v
   margin-inline: auto;
 }
 .panel-stack, .evaluation-list { display: grid; gap: var(--space-4); }
-/* `align-items: start` so each card takes its natural height. Stretching made the
-   sparse Meeting audio card match the tall Audience view card, leaving a large empty
-   area below its last control that read as a rendering fault. */
 .session-grid, .settings-layout {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  align-items: start;
   gap: var(--space-4);
 }
+/* Session: natural heights. Its two cards differ enormously - Meeting audio has four
+   controls, Audience view has a dozen - and stretching left a half-empty card that read
+   as a rendering fault. */
+.session-grid { align-items: start; }
+/* Settings: paired heights. Eight cards of unrelated length in two columns looked
+   ragged; each ROW now shares a height, which is what reads as deliberate. The trailing
+   note or button row is pushed to the bottom so the extra space lands in one place
+   instead of as a gap in the middle. */
+.settings-layout { align-items: stretch; }
+.settings-layout > .card { display: flex; flex-direction: column; }
+.settings-layout > .card > :last-child { margin-bottom: 0; }
+.settings-layout > .card > .field-note:last-child,
+.settings-layout > .card > .button-row:last-child,
+.settings-layout > .card > details:last-child { margin-top: auto; }
+/* A note explaining the buttons above it needs room to read as a caption rather than as
+   a wrapped third line of the button row. */
+.button-row + .field-note, .button-row + .supporting-copy { margin-top: var(--space-3); }
 .card, .empty-state { border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); padding: var(--space-6); box-shadow: var(--shadow-card); }
 /* The heading's own margin is zeroed so the flex row aligns on its centre; the row
    carries the gap instead, matching the h2 value above. */
@@ -634,21 +666,43 @@ input[type="range"] { width: 100%; accent-color: var(--accent); }
 .glossary-list__zh { color: var(--text-secondary); }
 /* Marks a row the operator owns, and therefore one the editor below can change.
    Built-in rows are shipped data and are shadowed by a custom row, not edited. */
-.glossary-list__tag { padding: 2px 6px; border-radius: var(--radius-pill); background: var(--success-surface); color: var(--success-text); font-size: 9px; font-weight: var(--weight-heavy); letter-spacing: var(--track-label); }
-.glossary-editor { display: grid; gap: var(--space-2); }
-.glossary-editor__label { margin: var(--space-4) 0 var(--space-2); font-size: var(--size-sm); font-weight: var(--weight-semibold); }
-.glossary-editor__row {
-  display: grid;
-  grid-template-columns: 1fr 1fr auto auto;
-  align-items: center;
-  gap: var(--space-2);
+.glossary-list__marks { display: flex; gap: var(--space-1); }
+.glossary-list__tag { padding: 2px 6px; border-radius: var(--radius-pill); background: var(--success-surface); color: var(--success-text); font-size: 9px; font-weight: var(--weight-heavy); letter-spacing: var(--track-label); white-space: nowrap; }
+/* Stored past the active cap: dimmed because it is inert this session, but still legible
+   because the operator may want to promote it. */
+.glossary-list__tag.is-muted { background: var(--surface-inset); color: var(--text-secondary); }
+.glossary-list li.is-inactive .glossary-list__en,
+.glossary-list li.is-inactive .glossary-list__zh { opacity: .6; }
+/* One section per kind of instruction. Each is a bordered group so the boundary between
+   "translate this as that" and "never translate this" is visible, rather than four sets
+   of inputs running together down one column. */
+.glossary-section {
+  margin-top: var(--space-4);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--border-subtle);
 }
-.glossary-editor__row input[type='text'] { min-height: 38px; }
-.glossary-editor__row .toggle { min-height: 38px; white-space: nowrap; }
-.glossary-editor__row .text-button { min-height: 38px; padding: 0 var(--space-2); color: var(--text-secondary); }
-.glossary-editor__row .text-button:hover:not(:disabled) { background: var(--danger-surface); color: var(--danger-text); }
+.glossary-section:first-of-type { border-top: 0; padding-top: 0; }
+.glossary-section > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+.glossary-section h3 { margin: 0; font-size: var(--size-body); font-weight: var(--weight-semibold); }
+.glossary-section > header p { margin: 3px 0 0; color: var(--text-secondary); font-size: var(--size-sm); line-height: var(--leading-tight); }
+.glossary-section > header .text-button { flex: 0 0 auto; margin-right: -10px; }
+.glossary-rows { display: grid; gap: var(--space-2); }
+.glossary-row { display: grid; align-items: center; gap: var(--space-2); }
+/* The arrow is the whole point of the pair section: it says which direction the rule
+   runs, which a bare pair of inputs does not. */
+.glossary-row--pair { grid-template-columns: 1fr auto 1fr auto; }
+.glossary-row--single { grid-template-columns: 1fr auto; }
+.glossary-row__arrow { color: var(--text-secondary); font-size: var(--size-sm); }
+.glossary-row input[type='text'] { min-height: 38px; }
+.glossary-row__remove { min-height: 38px; padding: 0 var(--space-2); color: var(--text-secondary); }
+.glossary-row__remove:hover:not(:disabled) { background: var(--danger-surface); color: var(--danger-text); }
 @media (max-width: 1180px) {
-  .glossary-editor__row { grid-template-columns: 1fr 1fr; }
   .glossary-list li { grid-template-columns: 1fr 1fr; }
 }
 .glossary-advanced { margin-top: var(--space-3); border-top: 1px solid var(--border-subtle); }

@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  draftSections,
+  partitionGlossary,
   blankDraft,
   draftsFromTerms,
   draftsToTerms,
@@ -20,6 +22,7 @@ const term = (
   zh,
   doNotTranslate: false,
   source: 'builtin',
+  active: true,
   ...extra,
 });
 
@@ -195,5 +198,69 @@ describe('formatContextNotes', () => {
     expect(formatContextNotes([])).toBe('');
     expect(formatContextNotes(null)).toBe('');
     expect(formatContextNotes(undefined)).toBe('');
+  });
+});
+
+describe('partitionGlossary', () => {
+  const glossary = {
+    configurationId: 'universal-engineering',
+    protectedTokens: ['T1', 'EVT'],
+    storedCount: 3,
+    activeLimit: 40,
+    terms: [
+      term('boss', '凸台'),
+      term('wall thickness', '壁厚'),
+      term('Design for Six Sigma', 'Design for Six Sigma', { doNotTranslate: true }),
+    ],
+  };
+
+  it('separates pairs from never-translate phrases', () => {
+    // A never-translate entry has no meaningful Chinese column, so rendering it in a
+    // two-column pair list showed either a duplicate of the English or an empty cell.
+    const { pairs, literal } = partitionGlossary(glossary);
+    expect(pairs.map((t) => t.en)).toEqual(['boss', 'wall thickness']);
+    expect(literal.map((t) => t.en)).toEqual(['Design for Six Sigma']);
+  });
+
+  it('carries protected tokens through as their own category', () => {
+    expect(partitionGlossary(glossary).tokens).toEqual(['T1', 'EVT']);
+  });
+
+  it('returns empty sections for no glossary', () => {
+    expect(partitionGlossary(null)).toEqual({ pairs: [], literal: [], tokens: [] });
+  });
+});
+
+describe('draftSections', () => {
+  it('routes each stored term to its own section', () => {
+    const { pairs, literal } = draftSections([
+      { en: 'boss', zh: '凸台' },
+      { en: 'EVT', zh: 'EVT', doNotTranslate: true },
+    ]);
+    // Each section ends in a blank row, so neither is ever a dead end.
+    expect(pairs.map((d) => d.en)).toEqual(['boss', '']);
+    expect(literal.map((d) => d.en)).toEqual(['EVT', '']);
+  });
+
+  it('marks literal rows so they cannot be recombined as pairs', () => {
+    const { literal } = draftSections([{ en: 'EVT', zh: 'EVT', doNotTranslate: true }]);
+    expect(literal.every((d) => d.doNotTranslate)).toBe(true);
+  });
+
+  it('gives a blank glossary one empty row per section', () => {
+    const { pairs, literal } = draftSections([]);
+    expect(pairs).toHaveLength(1);
+    expect(literal).toHaveLength(1);
+  });
+
+  it('round-trips through draftsToTerms without changing categories', () => {
+    const stored = [
+      { en: 'boss', zh: '凸台', doNotTranslate: false },
+      { en: 'EVT', zh: 'EVT', doNotTranslate: true },
+    ];
+    const { pairs, literal } = draftSections(stored);
+    const { terms, incomplete } = draftsToTerms([...pairs, ...literal]);
+    expect(incomplete).toBe(0);
+    expect(terms).toEqual(stored);
   });
 });

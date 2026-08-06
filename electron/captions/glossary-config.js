@@ -489,21 +489,45 @@ function compileGlossarySelection(configurationId, customRaw) {
  * edited in place.
  */
 function describeEffectiveGlossary(configurationId, customRaw) {
-  const compiled = compileGlossarySelection(configurationId, customRaw);
+  const base = getBuiltinConfiguration(configurationId);
+  const custom = customRaw
+    ? sanitizeConfiguration(customRaw, {
+        id: 'custom-overrides',
+        name: 'Custom overrides',
+      }).configuration
+    : null;
+
+  // Every STORED term, not the active subset.
+  //
+  // compileGlossarySelection returns `glossary` already sliced to ACTIVE_TERM_LIMIT
+  // (40), because that is what is sent to OpenAI. Reporting that list as "the glossary"
+  // is how the card came to say "138 built-in terms" beside a viewer showing 40 rows -
+  // two true numbers measuring different things, with nothing explaining the gap.
+  //
+  // The gap matters: terms past the cap are stored but never reach the model. An
+  // operator adding a term needs to know whether it will actually be used, so the rows
+  // carry an `active` flag and the caller reports the limit.
+  const storedTerms = mergeTerms(base.terms, custom?.terms || []);
   const customKeys = new Set(
-    (compiled.customGlossaryConfiguration?.terms || []).map((term) =>
-      term.en.toLowerCase(),
-    ),
+    (custom?.terms || []).map((term) => term.en.toLowerCase()),
   );
+
   return {
-    configurationId: compiled.glossaryConfigurationId,
-    protectedTokens: compiled.protectedTokens,
-    storedCount: compiled.glossaryStoredCount,
-    terms: compiled.glossary.map((term) => ({
+    configurationId: base.id,
+    protectedTokens: mergeProtectedTokens(
+      CORE_PRODUCT_DEVELOPMENT_TOKENS,
+      base.protectedTokens,
+      custom?.protectedTokens,
+    ),
+    storedCount: storedTerms.length,
+    activeLimit: ACTIVE_TERM_LIMIT,
+    terms: storedTerms.map((term, index) => ({
       en: term.en,
       zh: term.zh,
       doNotTranslate: Boolean(term.doNotTranslate),
       source: customKeys.has(term.en.toLowerCase()) ? 'custom' : 'builtin',
+      // Ordering is mergeTerms' priority order, so the first N are the ones sent.
+      active: index < ACTIVE_TERM_LIMIT,
     })),
   };
 }

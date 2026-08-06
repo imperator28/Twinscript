@@ -21,7 +21,10 @@ Install, Remove, or Status.
 param(
   [ValidateSet('Install', 'Remove', 'Status')]
   [string]$Action = 'Status',
-  [string]$ReleaseDir
+  [string]$ReleaseDir,
+  # Set only on the relaunched, elevated copy of this script. Guards against
+  # recursing forever if the elevated child somehow still is not an administrator.
+  [switch]$Elevated
 )
 
 $ErrorActionPreference = 'Continue'
@@ -159,11 +162,44 @@ if ($Action -eq 'Status') {
   exit 0
 }
 
-if (-not (Test-Path -LiteralPath $builtDll)) {
+# Install needs a filter to stage; Remove does not - it unregisters through the
+# path recorded in the registry, so a half-uninstalled machine whose DLL is
+# already gone stays recoverable instead of being stuck registered forever.
+if ($Action -eq 'Install' -and -not (Test-Path -LiteralPath $builtDll)) {
   Write-Output "ABORT  not found: $builtDll"
   Write-Output '       Build first:'
   Write-Output '       cmake --build native/camera-companion/build --config Release --target dshow_camera'
   exit 2
+}
+# REQUEST elevation rather than merely requiring it.
+#
+# Install and Remove write the device-category registration under
+# HKEY_CLASSES_ROOT, which resolves to HKLM, so they need administrator. The app
+# spawns this script with its own non-elevated token, so a script that only
+# *checks* for admin can never succeed from the UI - it aborted with exit 2 and
+# the operator saw "Native camera action failed (exit 2)" with no way forward.
+# The retired install-native-camera.ps1 self-elevated exactly like this; moving to
+# this script dropped that step.
+#
+# Placed after the Status early-exit (read-only, must never prompt) and after the
+# built-DLL check (a missing filter should report without a pointless UAC prompt).
+if (-not $isAdmin -and -not $Elevated) {
+  Write-Output 'requesting administrator approval'
+  $powershell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+  # Every path is quoted: the development ReleaseDir contains a space.
+  $childArgs = '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "{0}" -Action {1} -ReleaseDir "{2}" -Elevated' -f
+    $PSCommandPath, $Action, $ReleaseDir
+  try {
+    $child = Start-Process -FilePath $powershell -ArgumentList $childArgs `
+      -Verb RunAs -Wait -PassThru -WindowStyle Hidden -ErrorAction Stop
+    exit $child.ExitCode
+  } catch [System.ComponentModel.Win32Exception] {
+    # 1223 is ERROR_CANCELLED: the operator dismissed the UAC prompt. Reported as
+    # a distinct code so the app can say "approval was canceled" instead of
+    # "failed", which are different things to a user.
+    if ($_.Exception.NativeErrorCode -eq 1223) { exit 1223 }
+    throw
+  }
 }
 if (-not $isAdmin) {
   Write-Output 'ABORT  not elevated. The device-category registration is written under'

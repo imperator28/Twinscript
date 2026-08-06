@@ -139,9 +139,12 @@
 
 /* Dark theme. Not an inversion - surfaces are re-picked so the contrast ratios
    hold on their own, and status colours are desaturated rather than reused, since
-   the light-mode pastels wash out to noise on a dark surface. */
-@media (prefers-color-scheme: dark) {
-  :root {
+   the light-mode pastels wash out to noise on a dark surface.
+   Keyed on the attribute rather than `prefers-color-scheme` so that an explicit
+   Light/Dark choice and "follow the system" arrive through one channel and cannot
+   disagree - see theme.ts. It also keeps this as the single dark token block; a
+   media query plus an attribute selector would need two copies of all of it. */
+:root[data-theme='dark'] {
     --surface-sunken: #14161a;
     --surface: #1c1f24;
     --surface-muted: #22262c;
@@ -190,7 +193,15 @@
 
     --shadow-card: 0 1px 2px rgba(0, 0, 0, .3);
     --shadow-raised: 0 8px 24px -8px rgba(0, 0, 0, .6);
-  }
+}
+
+/* Pre-paint fallback, deliberately only the two root properties.
+   theme.ts stamps data-theme during module evaluation, before React renders, but on a
+   dark system there is still one frame where the attribute is absent - long enough to
+   flash a white window. This covers that frame and nothing else, so the full dark
+   palette above stays the single source of truth. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) { color: #eef0f3; background: #14161a; }
 }
 
 * { box-sizing: border-box; }
@@ -259,6 +270,13 @@ button:disabled { cursor: not-allowed; opacity: .48; }
 .app-header, .section-heading, .app-footer, .button-row, .audio-row {
   display: flex; align-items: center; justify-content: space-between; gap: var(--space-4);
 }
+/* A button group is a group: packed from the left, wrapping as a whole, never
+   stretched edge to edge.
+   `.button-row` inherited `space-between` from the rule above, which spread three
+   buttons across the full card width and squeezed each one until its label wrapped
+   onto two lines - "Validate &" / "save" - leaving tall, uneven, lopsided buttons.
+   The 16px gap of a layout row is also too airy between related buttons. */
+.button-row { justify-content: flex-start; flex-wrap: wrap; gap: var(--space-2); }
 h1, h2, p { margin-top: 0; }
 h1 { margin-bottom: 0; font-size: var(--size-display); line-height: var(--leading-display); letter-spacing: var(--track-display); }
 /* One gap between a card's title block and its content, everywhere.
@@ -343,7 +361,10 @@ input[type="range"] { width: 100%; accent-color: var(--accent); }
 }
 .section-heading > .text-button { margin-right: -10px; }
 .text-button:hover:not(:disabled) { background: var(--accent-quiet); }
-.button { min-height: var(--target); padding: 0 17px; border: 1px solid transparent; border-radius: var(--radius); font-weight: var(--weight-bold); }
+/* Labels never wrap. A wrapped label turns a 44px control into a 60px one and breaks
+   the row's alignment; if a label is too long for the space, the row should wrap
+   instead. */
+.button { display: inline-flex; align-items: center; justify-content: center; min-height: var(--target); padding: 0 17px; border: 1px solid transparent; border-radius: var(--radius); font-weight: var(--weight-bold); white-space: nowrap; }
 .button, .text-button, .segmented button, .tab-bar button, .notice button {
   transition: transform var(--dur-press) var(--ease-out), background-color var(--dur-fast) ease, border-color var(--dur-fast) ease;
 }
@@ -364,6 +385,9 @@ input[type="range"] { width: 100%; accent-color: var(--accent); }
 .segmented { display: grid; grid-template-columns: 1fr 1fr; padding: 3px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface-inset); }
 .segmented button { min-height: 39px; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--text-secondary); font-weight: var(--weight-semibold); }
 .segmented button.is-selected { background: var(--surface); color: var(--text); box-shadow: var(--shadow-card); }
+.segmented--triple { grid-template-columns: repeat(3, 1fr); }
+.segmented button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; white-space: nowrap; }
+.segmented svg { flex: 0 0 auto; }
 .output-mode { margin-bottom: var(--space-3); }
 .output-mode__note {
   margin: 0 0 var(--space-4);
@@ -427,7 +451,6 @@ input[type="range"] { width: 100%; accent-color: var(--accent); }
 .glossary-tags span { padding: 5px var(--space-2); border-radius: var(--radius-pill); background: var(--surface-inset); color: var(--text-secondary); font-size: var(--size-3xs); font-weight: var(--weight-semibold); }
 .glossary-count { margin: var(--space-3) 0 0; color: var(--text-secondary); font-size: var(--size-2xs); font-variant-numeric: tabular-nums; }
 .glossary-count strong { color: var(--success-text); }
-.glossary-actions { justify-content: flex-start; flex-wrap: wrap; }
 .glossary-advanced { margin-top: var(--space-3); border-top: 1px solid var(--border-subtle); }
 .glossary-advanced summary { min-height: var(--target); padding: var(--space-3) 0 0; cursor: pointer; color: var(--text); font-size: var(--size-sm); font-weight: var(--weight-bold); }
 .glossary-advanced__body { padding-top: 2px; }
@@ -524,7 +547,6 @@ input[type="range"] { width: 100%; accent-color: var(--accent); }
   gap: var(--space-4);
   margin-top: var(--space-5);
 }
-.meeting-review__actions .button-row { justify-content: flex-start; }
 /* Navigation, subordinate to the decision. */
 .meeting-review__secondary { gap: var(--space-1); }
 .meeting-review__path,
@@ -595,7 +617,7 @@ input[type="range"] { width: 100%; accent-color: var(--accent); }
 .readiness__step strong { display: block; font-size: var(--size-body); font-weight: var(--weight-bold); }
 .readiness__step p { margin: var(--space-1) 0 0; color: var(--text-secondary); font-size: var(--size-sm); line-height: var(--leading-tight); }
 .readiness__step .button { flex: 0 0 auto; }
-.transcript-actions { justify-content: flex-start; margin-top: var(--space-4); padding-top: var(--space-4); border-top: 1px solid var(--border-subtle); }
+.transcript-actions { margin-top: var(--space-4); padding-top: var(--space-4); border-top: 1px solid var(--border-subtle); }
 .empty-state { color: var(--text-secondary); text-align: center; line-height: 1.6; }
 .app-footer { margin-top: var(--space-6); padding-top: var(--space-4); border-top: 1px solid var(--border); color: var(--text-secondary); font-size: var(--size-xs); }
 

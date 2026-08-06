@@ -28,12 +28,14 @@ function baseBlock(): string {
   return CSS.slice(start, CSS.indexOf('\n}', start));
 }
 
-/** The `:root` block nested inside the prefers-color-scheme: dark media query. */
+/**
+ * The dark token block. Keyed on the stamped attribute rather than a media query so
+ * an explicit choice and "follow the system" share one code path - see theme.ts.
+ */
 function darkBlock(): string {
-  const media = CSS.indexOf('@media (prefers-color-scheme: dark)');
-  expect(media).toBeGreaterThan(-1);
-  const start = CSS.indexOf(':root {', media);
-  return CSS.slice(start, CSS.indexOf('\n  }', start));
+  const start = CSS.indexOf(":root[data-theme='dark'] {");
+  expect(start).toBeGreaterThan(-1);
+  return CSS.slice(start, CSS.indexOf('\n}', start));
 }
 
 const relativeLuminance = (hex: string) => {
@@ -121,6 +123,50 @@ describe('token hygiene', () => {
 
   it('does not reintroduce a third text level that cannot pass contrast', () => {
     expect(CSS).not.toMatch(/--text-tertiary/);
+  });
+});
+
+describe('button layout', () => {
+  it('never lets a button label wrap onto a second line', () => {
+    // A wrapped label turns a 44px control into a 60px one and breaks the row's
+    // alignment. Observed as "Validate &" / "save" across two lines.
+    expect(CSS).toMatch(/\.button\b[^{]*\{[^}]*white-space:\s*nowrap/);
+  });
+
+  it('packs a button group from the left instead of stretching it', () => {
+    // `.button-row` inherited `justify-content: space-between` from the shared layout
+    // rule, which spread three buttons across the full card width and squeezed each
+    // one until its label wrapped.
+    expect(CSS).toMatch(/\.button-row\s*\{[^}]*justify-content:\s*flex-start/);
+    expect(CSS).toMatch(/\.button-row\s*\{[^}]*flex-wrap:\s*wrap/);
+  });
+
+  it('uses a tighter gap between related buttons than between layout regions', () => {
+    const row = CSS.match(/\.button-row\s*\{[^}]+\}/)?.[0] ?? '';
+    expect(row).toMatch(/gap:\s*var\(--space-2\)/);
+  });
+});
+
+describe('theme switching', () => {
+  it('keys the dark palette on the stamped attribute, not a media query', () => {
+    // One dark trigger meant the operator got whatever the OS was set to. Resolution
+    // now happens in theme.ts so an explicit choice and "follow the system" share one
+    // channel - and so there is one dark token block instead of one per trigger.
+    expect(CSS).toMatch(/:root\[data-theme='dark'\]\s*\{/);
+    expect(CSS).not.toMatch(/@media \(prefers-color-scheme: dark\)\s*\{\s*:root\s*\{/);
+  });
+
+  it('covers the pre-paint frame without duplicating the palette', () => {
+    // theme.ts stamps the attribute before React renders, but on a dark system there
+    // is still one frame with no attribute - long enough to flash a white window.
+    const fallback = CSS.match(
+      /@media \(prefers-color-scheme: dark\)\s*\{\s*:root:not\(\[data-theme\]\)\s*\{([^}]*)\}/,
+    );
+    expect(fallback).not.toBeNull();
+    // Only the two root properties: anything more would be a second palette to keep
+    // in sync.
+    const declarations = (fallback![1].match(/[\w-]+\s*:/g) ?? []).length;
+    expect(declarations).toBe(2);
   });
 });
 

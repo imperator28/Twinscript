@@ -5,10 +5,13 @@ import {
   Clock,
   KeyRound,
   Mic,
+  Monitor,
+  Moon,
   Play,
   Radio,
   ShieldCheck,
   Square,
+  Sun,
   Video,
   VolumeX,
   X,
@@ -27,6 +30,12 @@ import {
   reviewFacts as buildReviewFacts,
   reviewHeading as buildReviewHeading,
 } from './meetingReviewCopy';
+import {
+  THEME_STORAGE_KEY,
+  bindTheme,
+  readThemePreference,
+  type ThemePreference,
+} from './theme';
 import type {
   CaptionEvent,
   GlossaryConfiguration,
@@ -203,6 +212,9 @@ export function ControlApp() {
   // Second step of the inline delete confirmation. Reset whenever a different
   // meeting comes up for review, so a pending confirm cannot carry across.
   const [confirmDiscard, setConfirmDiscard] = useState(false);
+  const [theme, setTheme] = useState<ThemePreference>(() =>
+    readThemePreference(window.localStorage),
+  );
   const audio = useRef(new AudioCaptureController());
   const microphonePreview = useRef(new MicrophonePreviewController());
   const apiKeyInput = useRef<HTMLInputElement>(null);
@@ -305,6 +317,10 @@ export function ControlApp() {
   useEffect(() => {
     setConfirmDiscard(false);
   }, [meetingReview?.sessionId]);
+
+  // Re-binds on change so that switching to System starts following the OS again, and
+  // switching away stops - an explicit choice must not move when the system flips.
+  useEffect(() => bindTheme(theme), [theme]);
 
   useEffect(() => {
     if (!repairedLaunch.current || tab !== 'settings' || !credential) return;
@@ -1364,6 +1380,39 @@ export function ControlApp() {
       {tab === 'settings' && (
         <section className="settings-layout">
           <article className="card">
+            <p className="eyebrow">APPEARANCE</p><h2>Day and night</h2>
+            <p className="supporting-copy">
+              The control window only. Caption overlays and the camera stage keep the
+              caption theme you chose for your audience.
+            </p>
+            {/* System is the default and stays offered, rather than being replaced by
+                a two-way switch: an operator who has set their whole machine to shift
+                at sunset should not have to set this one too. */}
+            <div className="segmented segmented--triple" aria-label="Appearance">
+              {(
+                [
+                  ['system', 'System', Monitor],
+                  ['light', 'Light', Sun],
+                  ['dark', 'Dark', Moon],
+                ] as const
+              ).map(([value, label, Icon]) => (
+                <button
+                  key={value}
+                  aria-pressed={theme === value}
+                  className={theme === value ? 'is-selected' : ''}
+                  onClick={() => {
+                    setTheme(value);
+                    window.localStorage.setItem(THEME_STORAGE_KEY, value);
+                  }}
+                >
+                  <Icon size={14} strokeWidth={2.25} aria-hidden="true" />
+                  {label}
+                </button>
+              ))}
+            </div>
+          </article>
+
+          <article className="card">
             <p className="eyebrow">OPENAI</p><h2>Connection</h2>
             <p className="supporting-copy">Your API key is stored securely by this computer and is never shown after saving.</p>
             {(credentialIssue || credential?.repairRecommended) && (
@@ -1396,7 +1445,9 @@ export function ControlApp() {
           </article>
 
           <article className="card">
-            <p className="eyebrow">CAPTION DISPLAY</p><h2>Timing and text</h2>
+            {/* Was "Timing and text". Caption size moved to the Audience view card
+                beside Visible history, so nothing here concerns text any more. */}
+            <p className="eyebrow">CAPTION DISPLAY</p><h2>Caption timing</h2>
             <label className="toggle"><input type="checkbox" checked={settings.provisionalTranslation} onChange={(event) => void saveSettings({ provisionalTranslation: event.target.checked })} /><span>Show early captions while speech is processing</span></label>
             <label className="field"><span>Caption responsiveness</span><select value={settings.delayProfile} onChange={(event) => void saveSettings({ delayProfile: event.target.value as CaptionSettings['delayProfile'] })}><option value="minimal">Fastest</option><option value="low">Fast</option><option value="default">Stable</option></select></label>
             {/* Caption size lived here, one tab away from Visible history - its

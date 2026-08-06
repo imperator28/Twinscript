@@ -379,6 +379,34 @@ describe('meeting caption controls', () => {
     ).toBeInTheDocument();
   });
 
+  it('offers an explicit day/night switch that overrides the system', async () => {
+    // The stylesheet had one dark trigger - prefers-color-scheme - so the operator
+    // got whatever the OS was set to with no way to override it.
+    window.localStorage.removeItem('captions.theme');
+    render(<ControlApp />);
+    await screen.findByRole('button', { name: /Start session/i });
+    fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+
+    const dark = await screen.findByRole('button', { name: 'Dark' });
+    fireEvent.click(dark);
+    expect(document.documentElement.dataset.theme).toBe('dark');
+    expect(window.localStorage.getItem('captions.theme')).toBe('dark');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Light' }));
+    expect(document.documentElement.dataset.theme).toBe('light');
+
+    // System stays on offer rather than being replaced by a two-way switch.
+    fireEvent.click(screen.getByRole('button', { name: 'System' }));
+    expect(window.localStorage.getItem('captions.theme')).toBe('system');
+  });
+
+  it('restores a stored theme on launch', async () => {
+    window.localStorage.setItem('captions.theme', 'dark');
+    render(<ControlApp />);
+    await screen.findByRole('button', { name: /Start session/i });
+    expect(document.documentElement.dataset.theme).toBe('dark');
+  });
+
   it('does not convey channel status by colour alone', async () => {
     // Four pills in green/amber/red with a state name on them left a red-green
     // colourblind operator unable to tell a live channel from a dead one.

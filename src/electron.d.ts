@@ -60,6 +60,10 @@ interface CaptionsAPI {
     sessionCount: number;
     pendingBytes: number;
   }>>;
+  /** The glossary as it will be applied, each row marked builtin or custom. */
+  getGlossaryTerms(): Promise<Result<
+    import('./captions/glossaryView').EffectiveGlossary
+  >>;
   listPendingMeetingRecords(): Promise<Result<
     import('./captions/types').MeetingRecordReview[]
   >>;

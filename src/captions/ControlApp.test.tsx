@@ -148,6 +148,23 @@ describe('meeting caption controls', () => {
         return () => {};
       },
       getSettings: () => ok(settings),
+      getGlossaryTerms: vi.fn(() =>
+        ok({
+          configurationId: 'universal-engineering',
+          protectedTokens: ['T1', 'EVT'],
+          storedCount: 3,
+          terms: [
+            { en: 'boss', zh: '凸台', doNotTranslate: false, source: 'custom' as const },
+            {
+              en: 'wall thickness',
+              zh: '壁厚',
+              doNotTranslate: false,
+              source: 'builtin' as const,
+            },
+            { en: 'EVT', zh: 'EVT', doNotTranslate: true, source: 'builtin' as const },
+          ],
+        }),
+      ),
       getGlossaryConfigurations: () =>
         ok([
           {
@@ -1165,22 +1182,100 @@ describe('meeting caption controls', () => {
     expect(screen.getByText(/138 built-in terms/)).toBeVisible();
     expect(screen.getByText(/5 protected tokens/)).toBeVisible();
     expect(screen.getByRole('button', { name: 'Import glossary' })).toBeVisible();
-    expect(screen.getByText(/Advanced .* Custom terms and protected tokens/)).toBeVisible();
+    expect(
+      screen.getByText('Edit your own terms, phrases and context'),
+    ).toBeVisible();
   });
 
-  it('keeps custom glossary editing behind an advanced disclosure', async () => {
+  it('keeps custom glossary editing behind a disclosure', async () => {
     render(<ControlApp />);
     await screen.findByRole('button', { name: /Start session/i });
     fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
 
-    const details = screen
-      .getByText('Advanced · Custom terms and protected tokens')
-      .closest('details');
+    const summary = 'Edit your own terms, phrases and context';
+    const details = screen.getByText(summary).closest('details');
     expect(details).not.toHaveAttribute('open');
-    fireEvent.click(screen.getByText('Advanced · Custom terms and protected tokens'));
+    fireEvent.click(screen.getByText(summary));
     expect(details).toHaveAttribute('open');
-    expect(screen.getByRole('textbox', { name: 'Custom bilingual overrides' })).toBeVisible();
-    expect(screen.getByRole('textbox', { name: 'Additional protected tokens' })).toBeVisible();
+
+    // Rows with two fields and a keep-in-English flag, instead of one textarea of
+    // "en = zh" lines that could not express the flag at all and gave no feedback until
+    // the whole blob was saved.
+    expect(screen.getByRole('textbox', { name: 'English term 1' })).toBeVisible();
+    expect(screen.getByRole('textbox', { name: 'Chinese term 1' })).toBeVisible();
+    expect(screen.getByLabelText('Keep in English')).toBeVisible();
+    expect(screen.getByRole('textbox', { name: 'Codes to leave untouched' })).toBeVisible();
+    expect(screen.getByRole('textbox', { name: 'Meeting context' })).toBeVisible();
+  });
+
+  it('shows the terms themselves, searchable in both languages', async () => {
+    // The card reported a count and nothing else, so there was no way to check whether a
+    // term was covered or what its built-in Chinese rendering was.
+    render(<ControlApp />);
+    await screen.findByRole('button', { name: /Start session/i });
+    fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+
+    expect(await screen.findByText('boss')).toBeVisible();
+    expect(screen.getByText('凸台')).toBeVisible();
+    // A row the operator owns is marked, because that is the one the editor can change.
+    expect(screen.getByText('YOURS')).toBeVisible();
+
+    const search = screen.getByRole('searchbox', { name: 'Search the glossary' });
+    fireEvent.change(search, { target: { value: '壁厚' } });
+    expect(screen.getByText('wall thickness')).toBeVisible();
+    expect(screen.queryByText('boss')).not.toBeInTheDocument();
+
+    fireEvent.change(search, { target: { value: 'no-such-term' } });
+    expect(screen.getByText(/No terms match/)).toBeVisible();
+  });
+
+  it('refuses to save a half-typed term rather than dropping it silently', async () => {
+    render(<ControlApp />);
+    await screen.findByRole('button', { name: /Start session/i });
+    fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+    fireEvent.click(screen.getByText('Edit your own terms, phrases and context'));
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'English term 1' }), {
+      target: { value: 'gasket' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+
+    // Saving around it would lose what was typed with no explanation.
+    expect(await screen.findByText(/need both languages/)).toBeVisible();
+    expect(window.captions.setSettings).not.toHaveBeenCalledWith(
+      expect.objectContaining({ customGlossaryConfiguration: expect.anything() }),
+    );
+  });
+
+  it('saves term pairs and context together', async () => {
+    render(<ControlApp />);
+    await screen.findByRole('button', { name: /Start session/i });
+    fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+    fireEvent.click(screen.getByText('Edit your own terms, phrases and context'));
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'English term 1' }), {
+      target: { value: 'gasket' },
+    });
+    fireEvent.change(screen.getByRole('textbox', { name: 'Chinese term 1' }), {
+      target: { value: '垫片' },
+    });
+    fireEvent.change(screen.getByRole('textbox', { name: 'Meeting context' }), {
+      target: { value: 'Lily Chen, quality lead\n\nFalcon 2 tooling' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+
+    await waitFor(() =>
+      expect(window.captions.setSettings).toHaveBeenCalledWith(
+        expect.objectContaining({
+          glossaryContextNotes: ['Lily Chen, quality lead', 'Falcon 2 tooling'],
+          customGlossaryConfiguration: expect.objectContaining({
+            terms: [
+              expect.objectContaining({ en: 'gasket', zh: '垫片', doNotTranslate: false }),
+            ],
+          }),
+        }),
+      ),
+    );
   });
 
   it('invokes native glossary import and export actions', async () => {

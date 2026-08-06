@@ -13,6 +13,7 @@ import {
   ShieldCheck,
   Square,
   Sun,
+  Trash2,
   Video,
   VolumeX,
   X,
@@ -26,6 +27,16 @@ import {
 import { type ChannelHealth, deriveChannelHealth } from './captureHealth';
 import { captionThemeById, captionThemes } from './captionThemes';
 import { type ReadinessId, reviewReadiness } from './readiness';
+import {
+  blankDraft,
+  draftsFromTerms,
+  draftsToTerms,
+  filterTerms,
+  formatContextNotes,
+  parseContextNotes,
+  type DraftTerm,
+  type EffectiveGlossary,
+} from './glossaryView';
 import {
   reviewCopy as buildReviewCopy,
   reviewFacts as buildReviewFacts,
@@ -174,7 +185,11 @@ export function ControlApp() {
   const [captions, setCaptions] = useState<CaptionEvent[]>([]);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState('');
-  const [glossaryText, setGlossaryText] = useState('');
+  const [termDrafts, setTermDrafts] = useState<DraftTerm[]>(() => draftsFromTerms([]));
+  const [contextText, setContextText] = useState('');
+  const [glossaryQuery, setGlossaryQuery] = useState('');
+  const [effectiveGlossary, setEffectiveGlossary] =
+    useState<EffectiveGlossary | null>(null);
   const [protectedTokenText, setProtectedTokenText] = useState('');
   const [glossaryConfigurations, setGlossaryConfigurations] = useState<
     GlossaryConfigurationSummary[]
@@ -294,14 +309,13 @@ export function ControlApp() {
       if (settingsResult.ok) {
         const next = settingsResult.data as unknown as CaptionSettings;
         setSettingsState(next);
-        setGlossaryText(
-          next.customGlossaryConfiguration?.terms
-            .map((entry) => `${entry.en} = ${entry.zh}`)
-            .join('\n') || '',
-        );
+        // One helper populates all three editors, so first load and post-save cannot
+        // drift apart - they used to duplicate the same term-formatting logic.
+        setTermDrafts(draftsFromTerms(next.customGlossaryConfiguration?.terms));
         setProtectedTokenText(
           next.customGlossaryConfiguration?.protectedTokens.join(', ') || '',
         );
+        setContextText(formatContextNotes(next.glossaryContextNotes));
       }
       if (glossaryResult.ok) setGlossaryConfigurations(glossaryResult.data);
       if (credentialResult.ok) {
@@ -352,6 +366,18 @@ export function ControlApp() {
     });
   };
   useEffect(refreshRecordsUsage, [backlog, meetingReview?.session?.audioRetention]);
+
+  const refreshGlossaryTerms = () => {
+    void window.captions.getGlossaryTerms?.().then((result) => {
+      if (result.ok) setEffectiveGlossary(result.data);
+    });
+  };
+  useEffect(refreshGlossaryTerms, []);
+
+  const glossaryMatches = filterTerms(
+    effectiveGlossary?.terms || [],
+    glossaryQuery,
+  );
 
   useEffect(() => {
     if (!repairedLaunch.current || tab !== 'settings' || !credential) return;
@@ -764,39 +790,62 @@ export function ControlApp() {
     window.requestAnimationFrame(() => apiKeyInput.current?.focus());
   };
 
-  const parseGlossary = (): GlossaryTerm[] =>
-    glossaryText
-      .split('\n')
-      .map((line) => line.split(/=|→/).map((value) => value.trim()))
-      .filter(([en, zh]) => en && zh)
-      .map(([en, zh]) => ({
-        en,
-        zh,
-        aliases: [],
-        doNotTranslate: false,
-        priority: 5,
-      }));
-
   const parseProtectedTokens = () =>
     protectedTokenText
       .split(/[,\n;]/)
       .map((token) => token.trim())
       .filter(Boolean);
 
+  // The "en = zh" textarea is gone, so there is no line-parsing step left here: rows
+  // carry their own two fields and a do-not-translate flag, which the old format could
+  // not express at all.
   const syncGlossaryEditors = (next: CaptionSettings) => {
-    setGlossaryText(
-      next.customGlossaryConfiguration?.terms
-        .map((entry) => `${entry.en} = ${entry.zh}`)
-        .join('\n') || '',
-    );
+    setTermDrafts(draftsFromTerms(next.customGlossaryConfiguration?.terms));
     setProtectedTokenText(
       next.customGlossaryConfiguration?.protectedTokens.join(', ') || '',
     );
+    setContextText(formatContextNotes(next.glossaryContextNotes));
+  };
+
+  const updateDraft = (id: string, patch: Partial<DraftTerm>) => {
+    setTermDrafts((current) => {
+      const next = current.map((draft) =>
+        draft.id === id ? { ...draft, ...patch } : draft,
+      );
+      // A new blank row appears as soon as the last one is touched, so adding a term
+      // never needs a separate click and the editor never looks full.
+      const last = next[next.length - 1];
+      if (last && (last.en.trim() || last.zh.trim())) next.push(blankDraft());
+      return next;
+    });
+  };
+
+  const removeDraft = (id: string) => {
+    setTermDrafts((current) => {
+      const next = current.filter((draft) => draft.id !== id);
+      return next.length ? next : [blankDraft()];
+    });
   };
 
   const saveGlossaryOverrides = async () => {
-    const terms = parseGlossary();
+    const { terms: draftTerms, incomplete } = draftsToTerms(termDrafts);
+    if (incomplete > 0) {
+      // Refused rather than silently dropped: a row with one side filled is unfinished
+      // work, and saving around it would lose what was typed with no explanation.
+      setNotice(
+        `${incomplete} row${incomplete === 1 ? '' : 's'} need both languages, or "Keep in English" ticked.`,
+      );
+      return;
+    }
+    const terms: GlossaryTerm[] = draftTerms.map((term) => ({
+      en: term.en,
+      zh: term.zh,
+      aliases: [],
+      doNotTranslate: term.doNotTranslate,
+      priority: 5,
+    }));
     const protectedTokens = parseProtectedTokens();
+    const glossaryContextNotes = parseContextNotes(contextText);
     const customGlossaryConfiguration: GlossaryConfiguration | null =
       terms.length || protectedTokens.length
         ? {
@@ -810,13 +859,17 @@ export function ControlApp() {
             terms,
           }
         : null;
-    const next = await saveSettings({ customGlossaryConfiguration });
+    const next = await saveSettings({
+      customGlossaryConfiguration,
+      glossaryContextNotes,
+    });
     if (!next) return;
     syncGlossaryEditors(next);
+    refreshGlossaryTerms();
     setNotice(
-      customGlossaryConfiguration
-        ? 'Custom glossary overrides saved.'
-        : 'Custom glossary overrides cleared.',
+      customGlossaryConfiguration || glossaryContextNotes.length
+        ? 'Glossary saved. It applies to the next session.'
+        : 'Your glossary entries were cleared.',
     );
   };
 
@@ -1619,24 +1672,115 @@ export function ControlApp() {
               <button className="button button--quiet" disabled={busy} onClick={() => void exportGlossary()}>Export configuration</button>
             </div>
             <p className="field-note">Import is processed locally. Only active terms are supplied to OpenAI while a live session is running.</p>
+
+            {/* The viewer. The card previously reported "138 built-in terms" and nothing
+                else, so there was no way to check whether a term was already covered,
+                what its built-in Chinese rendering was, or whether an override had taken
+                effect. Search covers both columns: an operator checking a supplier's
+                term usually has the Chinese in front of them. */}
+            <div className="glossary-browser">
+              <label className="field">
+                <span>Search the glossary</span>
+                <input
+                  type="search"
+                  value={glossaryQuery}
+                  placeholder="boss, 壁厚, EVT…"
+                  onChange={(event) => setGlossaryQuery(event.target.value)}
+                />
+              </label>
+              {effectiveGlossary ? (
+                <>
+                  <ul className="glossary-list">
+                    {glossaryMatches.visible.map((term) => (
+                      <li key={`${term.source}-${term.en}`}>
+                        <span className="glossary-list__en">{term.en}</span>
+                        <span className="glossary-list__zh" lang="zh-Hans">
+                          {term.doNotTranslate ? 'kept in English' : term.zh}
+                        </span>
+                        {term.source === 'custom' && (
+                          <span className="glossary-list__tag">YOURS</span>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                  <p className="glossary-count">
+                    {glossaryMatches.matchCount === 0
+                      ? 'No terms match. Add it below and it will apply to the next session.'
+                      : `${glossaryMatches.matchCount} match${glossaryMatches.matchCount === 1 ? '' : 'es'}${
+                          glossaryMatches.truncated > 0
+                            ? ` · showing the first ${glossaryMatches.visible.length}, narrow the search to see the rest`
+                            : ''
+                        }`}
+                  </p>
+                </>
+              ) : (
+                <p className="glossary-count">Loading the glossary…</p>
+              )}
+            </div>
+
             <details className="glossary-advanced">
-              <summary>Advanced · Custom terms and protected tokens</summary>
+              <summary>Edit your own terms, phrases and context</summary>
               <div className="glossary-advanced__body">
-                <div className="field">
-                  <label htmlFor="custom-glossary-terms">Custom bilingual overrides</label>
-                  <textarea
-                    id="custom-glossary-terms"
-                    rows={7}
-                    disabled={active}
-                    value={glossaryText}
-                    onChange={(event) => setGlossaryText(event.target.value)}
-                    placeholder={'boss = 凸台\nwall thickness = 壁厚'}
-                    aria-describedby="custom-glossary-terms-note"
-                  />
-                  <span id="custom-glossary-terms-note" className="field-note">One pair per line. Custom rows take priority over the built-in engineering glossary.</span>
+                {/* Category 1: one-to-one pairs, edited as rows rather than as a blob of
+                    "en = zh" lines that gave no feedback until the whole thing saved. */}
+                <p className="glossary-editor__label">Your term pairs</p>
+                <div className="glossary-editor">
+                  {termDrafts.map((draft, index) => (
+                    <div className="glossary-editor__row" key={draft.id}>
+                      <input
+                        type="text"
+                        disabled={active}
+                        value={draft.en}
+                        aria-label={`English term ${index + 1}`}
+                        placeholder="boss"
+                        onChange={(event) =>
+                          updateDraft(draft.id, { en: event.target.value })
+                        }
+                      />
+                      <input
+                        type="text"
+                        lang="zh-Hans"
+                        disabled={active || draft.doNotTranslate}
+                        value={draft.doNotTranslate ? '' : draft.zh}
+                        aria-label={`Chinese term ${index + 1}`}
+                        placeholder={draft.doNotTranslate ? 'kept in English' : '凸台'}
+                        onChange={(event) =>
+                          updateDraft(draft.id, { zh: event.target.value })
+                        }
+                      />
+                      {/* Category 2: never translate this phrase. It was only reachable
+                          before by importing a file that set the flag. */}
+                      <label className="toggle toggle--compact">
+                        <input
+                          type="checkbox"
+                          disabled={active}
+                          checked={draft.doNotTranslate}
+                          onChange={(event) =>
+                            updateDraft(draft.id, {
+                              doNotTranslate: event.target.checked,
+                            })
+                          }
+                        />
+                        <span>Keep in English</span>
+                      </label>
+                      <button
+                        className="text-button"
+                        disabled={active || termDrafts.length === 1}
+                        aria-label={`Remove term ${index + 1}`}
+                        onClick={() => removeDraft(draft.id)}
+                      >
+                        <Trash2 size={15} strokeWidth={2.25} aria-hidden="true" />
+                      </button>
+                    </div>
+                  ))}
                 </div>
+                <p className="field-note">
+                  A new row appears as you fill the last one. Your rows take priority over
+                  the built-in glossary.
+                </p>
+
                 <div className="field">
-                  <label htmlFor="custom-protected-tokens">Additional protected tokens</label>
+                  <label htmlFor="custom-protected-tokens">Codes to leave untouched</label>
                   <input
                     id="custom-protected-tokens"
                     type="text"
@@ -1646,9 +1790,39 @@ export function ControlApp() {
                     placeholder="Project Falcon, ABC-123, Gate 4"
                     aria-describedby="custom-protected-tokens-note"
                   />
-                  <span id="custom-protected-tokens-note" className="field-note">Separate with commas. These tokens remain literal in both languages.</span>
+                  <span id="custom-protected-tokens-note" className="field-note">Separate with commas. These stay literal in both languages.</span>
                 </div>
-                <button className="button button--secondary" disabled={active || busy} onClick={() => void saveGlossaryOverrides()}>Save custom overrides</button>
+
+                {/* Category 3, new: who and what is being discussed. Not translation
+                    pairs - this is what stops a supplier's name being guessed at
+                    phonetically, the most common way a bilingual engineering transcript
+                    goes wrong. */}
+                <div className="field">
+                  <label htmlFor="glossary-context">Meeting context</label>
+                  <textarea
+                    id="glossary-context"
+                    rows={4}
+                    disabled={active}
+                    value={contextText}
+                    onChange={(event) => setContextText(event.target.value)}
+                    placeholder={'Lily Chen, quality lead at the Suzhou plant\nFalcon 2 tooling programme'}
+                    aria-describedby="glossary-context-note"
+                  />
+                  <span id="glossary-context-note" className="field-note">
+                    One per line: people, projects, sites. Names spelled here are
+                    transcribed rather than guessed at.
+                  </span>
+                </div>
+
+                <div className="button-row">
+                  <button
+                    className="button button--primary"
+                    disabled={active || busy}
+                    onClick={() => void saveGlossaryOverrides()}
+                  >
+                    Save changes
+                  </button>
+                </div>
               </div>
             </details>
           </article>

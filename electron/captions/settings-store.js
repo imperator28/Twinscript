@@ -49,8 +49,37 @@ function normalizeLayout(value) {
   return value === 'side-by-side' ? 'side-by-side' : 'stacked';
 }
 
+/**
+ * Meeting context notes: participant names, project and site names. Not translation
+ * pairs - they tell the model who and what is being discussed so a supplier's name is
+ * transcribed rather than guessed at phonetically.
+ *
+ * Bounded on both axes because these are interpolated into every request: a pasted
+ * document would otherwise silently become the prompt.
+ */
+const CONTEXT_NOTE_LIMIT = 40;
+const CONTEXT_NOTE_LENGTH = 120;
+
+function normalizeContextNotes(value) {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set();
+  const notes = [];
+  for (const entry of value) {
+    if (typeof entry !== 'string') continue;
+    const trimmed = entry.trim().slice(0, CONTEXT_NOTE_LENGTH);
+    if (!trimmed) continue;
+    const key = trimmed.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    notes.push(trimmed);
+    if (notes.length >= CONTEXT_NOTE_LIMIT) break;
+  }
+  return notes;
+}
+
 const DEFAULT_SETTINGS = Object.freeze({
-  settingsVersion: 10,
+  settingsVersion: 11,
+  glossaryContextNotes: [],
   layout: 'stacked',
   outputMode: 'overlays',
   primaryProfile: 'economy',
@@ -193,6 +222,19 @@ class SettingsStore {
         if (layout !== next.layout) migrated = true;
         next.layout = layout;
       }
+      // v11 adds meeting context notes: names, projects and sites that inform
+      // transcription without being translation pairs. Normalized on every read rather
+      // than only on the version step, because these come from a free-text field.
+      {
+        const notes = normalizeContextNotes(next.glossaryContextNotes);
+        if (
+          !Array.isArray(next.glossaryContextNotes) ||
+          notes.length !== next.glossaryContextNotes.length
+        ) {
+          migrated = true;
+        }
+        next.glossaryContextNotes = notes;
+      }
       // W2 replaces delayed presentation with immediate, complete-entry
       // history. A legacy pace value is discarded rather than reinterpreted.
       delete next.captionPaceMs;
@@ -238,6 +280,11 @@ class SettingsStore {
     }
     if (Object.hasOwn(cleanPatch, 'layout')) {
       next.layout = normalizeLayout(next.layout);
+    }
+    if (Object.hasOwn(cleanPatch, 'glossaryContextNotes')) {
+      // Bounded here as well as on read: this arrives from a free-text field, and
+      // whatever is stored is interpolated into every request.
+      next.glossaryContextNotes = normalizeContextNotes(next.glossaryContextNotes);
     }
     this.write(next);
     return next;

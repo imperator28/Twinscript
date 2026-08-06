@@ -3,6 +3,7 @@ const fsp = require('fs/promises');
 const path = require('path');
 const {
   createPortableConfiguration,
+  describeEffectiveGlossary,
   listGlossaryConfigurations,
   parseGlossaryContent,
 } = require('./glossary-config');
@@ -114,6 +115,14 @@ function registerCaptionIpc({
   handle('captions:glossary-configurations', () =>
     listGlossaryConfigurations(),
   );
+  // The effective glossary, so the card can show terms rather than only count them.
+  handle('captions:glossary-terms', () => {
+    const settings = settingsStore.get();
+    return describeEffectiveGlossary(
+      settings.glossaryConfigurationId,
+      settings.customGlossaryConfiguration,
+    );
+  });
   handle('captions:glossary-import', async () => {
     const result = await dialog.showOpenDialog(windows.controlWindow, {
       title: 'Import meeting glossary',

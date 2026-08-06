@@ -604,6 +604,53 @@ input[type="range"] { width: 100%; accent-color: var(--accent); }
 .glossary-tags span { padding: 5px var(--space-2); border-radius: var(--radius-pill); background: var(--surface-inset); color: var(--text-secondary); font-size: var(--size-3xs); font-weight: var(--weight-semibold); }
 .glossary-count { margin: var(--space-3) 0 0; color: var(--text-secondary); font-size: var(--size-2xs); font-variant-numeric: tabular-nums; }
 .glossary-count strong { color: var(--success-text); }
+/* The viewer. A fixed-height scroller so a 300-row glossary cannot push the rest of the
+   settings page off screen, and so the list's height does not jump on every keystroke
+   in the search box. */
+.glossary-browser { margin-top: var(--space-4); }
+.glossary-list {
+  display: grid;
+  gap: 1px;
+  max-height: 260px;
+  overflow-y: auto;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--border-subtle);
+  list-style: none;
+  overscroll-behavior: contain;
+}
+.glossary-list li {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  align-items: baseline;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  background: var(--surface);
+  font-size: var(--size-sm);
+}
+.glossary-list__en { font-weight: var(--weight-semibold); }
+.glossary-list__zh { color: var(--text-secondary); }
+/* Marks a row the operator owns, and therefore one the editor below can change.
+   Built-in rows are shipped data and are shadowed by a custom row, not edited. */
+.glossary-list__tag { padding: 2px 6px; border-radius: var(--radius-pill); background: var(--success-surface); color: var(--success-text); font-size: 9px; font-weight: var(--weight-heavy); letter-spacing: var(--track-label); }
+.glossary-editor { display: grid; gap: var(--space-2); }
+.glossary-editor__label { margin: var(--space-4) 0 var(--space-2); font-size: var(--size-sm); font-weight: var(--weight-semibold); }
+.glossary-editor__row {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto auto;
+  align-items: center;
+  gap: var(--space-2);
+}
+.glossary-editor__row input[type='text'] { min-height: 38px; }
+.glossary-editor__row .toggle { min-height: 38px; white-space: nowrap; }
+.glossary-editor__row .text-button { min-height: 38px; padding: 0 var(--space-2); color: var(--text-secondary); }
+.glossary-editor__row .text-button:hover:not(:disabled) { background: var(--danger-surface); color: var(--danger-text); }
+@media (max-width: 1180px) {
+  .glossary-editor__row { grid-template-columns: 1fr 1fr; }
+  .glossary-list li { grid-template-columns: 1fr 1fr; }
+}
 .glossary-advanced { margin-top: var(--space-3); border-top: 1px solid var(--border-subtle); }
 .glossary-advanced summary { min-height: var(--target); padding: var(--space-3) 0 0; cursor: pointer; color: var(--text); font-size: var(--size-sm); font-weight: var(--weight-bold); }
 .glossary-advanced__body { padding-top: 2px; }

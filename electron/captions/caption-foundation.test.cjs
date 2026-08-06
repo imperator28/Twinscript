@@ -580,7 +580,7 @@ test('legacy caption settings migrate to product-safe runtime defaults', () => {
     }),
   );
   const settings = new SettingsStore({ getPath: () => userData }).get();
-  assert.equal(settings.settingsVersion, 10);
+  assert.equal(settings.settingsVersion, 11);
   assert.equal(settings.vadEnabled, false);
   assert.equal(Object.hasOwn(settings, 'captionPaceMs'), false);
   assert.equal(settings.shadowEnabled, false);
@@ -597,7 +597,7 @@ test('legacy caption settings migrate to product-safe runtime defaults', () => {
   const persisted = JSON.parse(
     fs.readFileSync(path.join(userData, 'caption-settings.json'), 'utf8'),
   );
-  assert.equal(persisted.settingsVersion, 10);
+  assert.equal(persisted.settingsVersion, 11);
   assert.equal(persisted.shadowEnabled, false);
   assert.equal(persisted.recordEvaluation, false);
   assert.equal(persisted.autoSaveTranscript, true);
@@ -909,7 +909,7 @@ test('v7 glossary and theme settings migrate without losing custom terms', () =>
     }),
   );
   const settings = new SettingsStore({ getPath: () => userData }).get();
-  assert.equal(settings.settingsVersion, 10);
+  assert.equal(settings.settingsVersion, 11);
   assert.equal(settings.glossaryConfigurationId, 'universal-engineering');
   assert.equal(settings.customGlossaryConfiguration.terms[0].en, 'project falcon');
   assert.equal(settings.glossary[0].en, 'project falcon');
@@ -1376,4 +1376,55 @@ test('a meeting-record readiness failure leaves no active live session', async (
   });
   assert.equal(manager.active, false);
   assert.equal(manager.sessions.size, 0);
+});
+
+test('meeting context notes are bounded and de-duplicated', () => {
+  // These are interpolated into every request, so a pasted document must not silently
+  // become the prompt. Bounded on read as well as on write because the field is free
+  // text and an older settings file may predate any limit.
+  const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'context-notes-'));
+  const store = new SettingsStore({ getPath: () => userData });
+
+  const saved = store.set({
+    glossaryContextNotes: [
+      '  Lily Chen  ',
+      'lily chen',
+      '',
+      '   ',
+      42,
+      'x'.repeat(500),
+      ...Array.from({ length: 60 }, (_, i) => `Person ${i}`),
+    ],
+  });
+
+  assert.equal(saved.glossaryContextNotes[0], 'Lily Chen', 'trimmed');
+  assert.ok(
+    !saved.glossaryContextNotes.includes('lily chen'),
+    'a name repeated with different capitalisation is one piece of context',
+  );
+  assert.ok(
+    saved.glossaryContextNotes.every((note) => note.length <= 120),
+    'each note is length-capped',
+  );
+  assert.ok(saved.glossaryContextNotes.length <= 40, 'the list is capped');
+  assert.ok(
+    saved.glossaryContextNotes.every((note) => typeof note === 'string' && note.trim()),
+    'non-strings and blanks are dropped rather than stored',
+  );
+
+  // Survives a reload, still normalized.
+  const reloaded = new SettingsStore({ getPath: () => userData }).get();
+  assert.deepEqual(reloaded.glossaryContextNotes, saved.glossaryContextNotes);
+});
+
+test('a settings file with no context notes reads as an empty list', () => {
+  // Not undefined: every consumer treats this as an array.
+  const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'context-absent-'));
+  fs.mkdirSync(path.join(userData, 'captions'), { recursive: true });
+  fs.writeFileSync(
+    path.join(userData, 'captions', 'settings.json'),
+    JSON.stringify({ settingsVersion: 10 }),
+  );
+  const settings = new SettingsStore({ getPath: () => userData }).get();
+  assert.deepEqual(settings.glossaryContextNotes, []);
 });

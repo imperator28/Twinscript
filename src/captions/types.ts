@@ -257,6 +257,12 @@ export interface CaptionSettings {
   budgetUsd: number;
   glossaryConfigurationId: string;
   customGlossaryConfiguration: GlossaryConfiguration | null;
+  /**
+   * People, projects and sites being discussed. Not translation pairs: these tell the
+   * model who is in the room so a supplier's name is transcribed rather than guessed at
+   * phonetically. Bounded by the settings store, since they reach every request.
+   */
+  glossaryContextNotes: string[];
   glossary: GlossaryTerm[];
   protectedTokens: string[];
   glossaryStoredCount: number;

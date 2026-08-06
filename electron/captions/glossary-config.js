@@ -477,6 +477,37 @@ function compileGlossarySelection(configurationId, customRaw) {
   };
 }
 
+/**
+ * The glossary as it will actually be applied, with each row marked by where it came
+ * from.
+ *
+ * The Settings card could only ever report a count - "138 built-in terms" - so an
+ * operator had no way to see whether a term was already covered, what the built-in
+ * Chinese rendering of it was, or whether their own override had taken effect. Custom
+ * rows are marked so the editor knows which ones it may change: built-in rows are
+ * shipped data and are shadowed by a custom row of the same English term rather than
+ * edited in place.
+ */
+function describeEffectiveGlossary(configurationId, customRaw) {
+  const compiled = compileGlossarySelection(configurationId, customRaw);
+  const customKeys = new Set(
+    (compiled.customGlossaryConfiguration?.terms || []).map((term) =>
+      term.en.toLowerCase(),
+    ),
+  );
+  return {
+    configurationId: compiled.glossaryConfigurationId,
+    protectedTokens: compiled.protectedTokens,
+    storedCount: compiled.glossaryStoredCount,
+    terms: compiled.glossary.map((term) => ({
+      en: term.en,
+      zh: term.zh,
+      doNotTranslate: Boolean(term.doNotTranslate),
+      source: customKeys.has(term.en.toLowerCase()) ? 'custom' : 'builtin',
+    })),
+  };
+}
+
 function listGlossaryConfigurations() {
   return BUILTIN_GLOSSARY_CONFIGURATIONS.map((config) => ({
     id: config.id,
@@ -671,6 +702,7 @@ module.exports = {
   compileGlossarySelection,
   createPortableConfiguration,
   dedupeTerms,
+  describeEffectiveGlossary,
   getBuiltinConfiguration,
   listGlossaryConfigurations,
   mergeProtectedTokens,

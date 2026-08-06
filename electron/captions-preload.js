@@ -44,6 +44,7 @@ contextBridge.exposeInMainWorld('captions', {
   getSettings: () => invoke('captions:settings-get'),
   getGlossaryConfigurations: () =>
     invoke('captions:glossary-configurations'),
+  getGlossaryTerms: () => invoke('captions:glossary-terms'),
   importGlossary: () => invoke('captions:glossary-import'),
   exportGlossary: () => invoke('captions:glossary-export'),
   setSettings: (patch) => invoke('captions:settings-set', patch),

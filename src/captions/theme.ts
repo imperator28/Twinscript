@@ -48,6 +48,19 @@ export function applyTheme(root: HTMLElement, theme: ResolvedTheme): void {
 }
 
 /**
+ * Stamps the host platform so the stylesheet can reserve space for whatever chrome
+ * the OS draws above the content. Taken from the preload rather than the user agent:
+ * the main process already branches on platform to pick the title-bar style, and two
+ * independent answers to that question can disagree.
+ */
+export function applyPlatform(
+  root: HTMLElement,
+  platform: string | undefined,
+): void {
+  if (platform) root.dataset.platform = platform;
+}
+
+/**
  * Binds a preference to the document and keeps it in step with the OS while the
  * preference is `system`. Returns a teardown that removes the listener.
  */

@@ -170,6 +170,19 @@ describe('theme switching', () => {
   });
 });
 
+describe('window chrome', () => {
+  it('reserves the traffic-light inset for macOS only', () => {
+    // The 50px top inset clears macOS's `hiddenInset` traffic lights, which overlay
+    // the content. Windows and Linux draw a real title bar above the web view, so the
+    // same inset was 50px of dead space above the heading.
+    expect(CSS).toMatch(
+      /:root\[data-platform='darwin'\] \.control-shell \{[^}]*padding-top:\s*50px/,
+    );
+    const shell = CSS.match(/\.control-shell \{[^}]+\}/)?.[0] ?? '';
+    expect(shell).not.toMatch(/padding:\s*50px/);
+  });
+});
+
 describe('motion policy', () => {
   const reducedMotion = CSS.slice(CSS.indexOf('@media (prefers-reduced-motion: reduce)'));
 

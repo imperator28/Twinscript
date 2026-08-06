@@ -28,6 +28,11 @@ function subscribe(channel, callback) {
 }
 
 contextBridge.exposeInMainWorld('captions', {
+  // The main process already branches on platform to choose the window's title-bar
+  // style, so the renderer must not sniff the user agent to reach the same
+  // conclusion and risk disagreeing with it. It needs this only to know how much
+  // room the OS chrome takes above the content.
+  platform: process.platform,
   credentialStatus: () => invoke('captions:credential-status'),
   setCredential: (value) => invoke('captions:credential-set', { value }),
   deleteCredential: () => invoke('captions:credential-delete'),

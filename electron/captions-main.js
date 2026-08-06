@@ -117,6 +117,14 @@ function createControlWindow() {
     backgroundColor: '#F3F4F6',
     show: false,
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
+    // On Windows and Linux the application menu is drawn INSIDE the window, so
+    // File/Edit/View/Help cost a permanent row of the operator's screen. Nothing in
+    // it is reachable only from there - Show/Hide Caption Windows duplicates the
+    // Preview button, and the Help link now sits in the footer - so it is hidden
+    // rather than removed: Alt still reveals it, and every accelerator keeps working,
+    // which deleting the menu would break. On macOS the menu lives in the system bar
+    // and costs no window space, and removing its Edit roles would break Cmd+C/V.
+    autoHideMenuBar: process.platform !== 'darwin',
     webPreferences: {
       preload: path.join(__dirname, 'captions-preload.js'),
       contextIsolation: true,

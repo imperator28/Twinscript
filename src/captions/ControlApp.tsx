@@ -32,6 +32,7 @@ import {
 } from './meetingReviewCopy';
 import {
   THEME_STORAGE_KEY,
+  applyPlatform,
   bindTheme,
   readThemePreference,
   type ThemePreference,
@@ -321,6 +322,10 @@ export function ControlApp() {
   // Re-binds on change so that switching to System starts following the OS again, and
   // switching away stops - an explicit choice must not move when the system flips.
   useEffect(() => bindTheme(theme), [theme]);
+
+  useEffect(() => {
+    applyPlatform(document.documentElement, window.captions?.platform);
+  }, []);
 
   useEffect(() => {
     if (!repairedLaunch.current || tab !== 'settings' || !credential) return;
@@ -1624,7 +1629,19 @@ export function ControlApp() {
 
       <footer className="app-footer">
         <span>Estimated session cost <strong>${(metrics.totalUsd || 0).toFixed(3)}</strong> / ${(settings.budgetUsd || 0).toFixed(2)}</span>
-        <span>Temporary audio backup is encrypted; playable audio is created only after Keep.</span>
+        <span>
+          Temporary audio backup is encrypted; playable audio is created only after Keep.{' '}
+          {/* The only menu item with no in-app equivalent, so it moves here rather
+              than disappearing with the hidden menu bar. It also belongs next to the
+              sentence about how this app handles audio. */}
+          <a
+            href="https://developers.openai.com/api/docs/guides/your-data"
+            target="_blank"
+            rel="noreferrer"
+          >
+            OpenAI data controls
+          </a>
+        </span>
       </footer>
     </main>
   );

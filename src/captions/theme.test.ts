@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import {
   THEME_STORAGE_KEY,
+  applyPlatform,
   applyTheme,
   bindTheme,
   isThemePreference,
@@ -94,6 +95,24 @@ describe('applyTheme', () => {
     expect(root.style.colorScheme).toBe('dark');
     applyTheme(root, 'light');
     expect(root.style.colorScheme).toBe('light');
+  });
+});
+
+describe('applyPlatform', () => {
+  it('stamps the platform so the stylesheet can reserve OS chrome space', () => {
+    const root = document.createElement('html');
+    applyPlatform(root, 'darwin');
+    expect(root.dataset.platform).toBe('darwin');
+  });
+
+  it('leaves the attribute unset when the preload did not supply one', () => {
+    // Absent is meaningfully different from a guess: no attribute means the default
+    // inset applies, rather than macOS's 50px traffic-light clearance on Windows.
+    const root = document.createElement('html');
+    applyPlatform(root, undefined);
+    expect(root.dataset.platform).toBeUndefined();
+    applyPlatform(root, '');
+    expect(root.dataset.platform).toBeUndefined();
   });
 });
 

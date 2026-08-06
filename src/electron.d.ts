@@ -17,6 +17,12 @@ interface CaptionPreviewVisibility {
 }
 
 interface CaptionsAPI {
+  /**
+   * `process.platform` from the main process, which is the same value that chose the
+   * window's title-bar style. Used to reserve space for OS chrome above the content
+   * without the renderer sniffing the user agent and reaching a different answer.
+   */
+  platform?: string;
   credentialStatus(): Promise<Result<CredentialStatus>>;
   setCredential(value: string): Promise<Result<CredentialStatus>>;
   deleteCredential(): Promise<Result<CredentialStatus>>;

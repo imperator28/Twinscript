@@ -818,6 +818,41 @@ test('native offscreen output continues when the optional preview is hidden', as
   assert.equal(manager.cameraOutputWindow, null);
 });
 
+test('frame publishing is never gated on the Media Foundation companion', async () => {
+  // The regression this pins: publishing used to return early when the MF camera
+  // was not installed, and be torn down when the MF host failed. The shipping
+  // camera is a DirectShow filter that reads the shared region itself, so gating
+  // on MF starved a working camera and showed a neutral slate in Teams.
+  const calls = [];
+  const cameraFramePublisher = {
+    start: async () => { calls.push('frames:start'); },
+    stop: async () => { calls.push('frames:stop'); },
+  };
+  const nativeCameraSupervisor = {
+    // The worst case for the old code: unsupported, not installed, needs repair.
+    refresh: async () => ({
+      state: 'repair-required', supported: false, installed: false,
+    }),
+    start: async () => {
+      calls.push('companion:start');
+      return { state: 'failed', supported: false, installed: false };
+    },
+    stop: async () => { calls.push('companion:stop'); },
+  };
+  const { manager } = fakeManager({ cameraFramePublisher, nativeCameraSupervisor });
+  manager.createAll();
+  manager.outputMode = 'virtual-camera';
+  manager.applySelectedOutput();
+  await manager.cameraOutputLifecycle;
+
+  assert.ok(calls.includes('frames:start'), 'frames publish regardless of MF health');
+  assert.ok(
+    !calls.includes('companion:start'),
+    'the MF host is not started: it would register a second, broken camera',
+  );
+  assert.ok(!calls.includes('frames:stop'), 'a failing MF host does not stop frames');
+});
+
 test('native companion follows output mode without coupling to the caption session', async () => {
   const calls = [];
   const cameraFramePublisher = {
@@ -842,17 +877,15 @@ test('native companion follows output mode without coupling to the caption sessi
   manager.outputMode = 'virtual-camera';
   manager.applySelectedOutput();
   await manager.cameraOutputLifecycle;
-  assert.deepEqual(calls, ['frames:start', 'companion:start']);
+  // The MF host is no longer started on the way in, so only frames appear here.
+  assert.deepEqual(calls, ['frames:start']);
 
   manager.outputMode = 'overlays';
   manager.applySelectedOutput();
   await manager.cameraOutputLifecycle;
-  assert.deepEqual(calls, [
-    'frames:start',
-    'companion:start',
-    'frames:stop',
-    'companion:stop',
-  ]);
+  // Stop still calls the supervisor, so a host left running by an older build or
+  // an explicit install action is cleaned up rather than orphaned.
+  assert.deepEqual(calls, ['frames:start', 'frames:stop', 'companion:stop']);
 });
 
 test('a rapid switch back to overlays cannot leave a stale companion running', async () => {

@@ -305,38 +305,30 @@ class CaptionWindowManager {
     const startPromise = this.cameraOutputLifecycle.catch(() => {}).then(async () => {
       if (generation !== this.cameraOutputGeneration) return;
       const window = this.createCameraOutputWindow();
-      if (this.nativeCameraSupervisor) {
-        const health = await this.nativeCameraSupervisor.refresh();
-        if (generation !== this.cameraOutputGeneration) return;
-        this.broadcastControl('captions:native-camera-health', health);
-        if (
-          !health.supported ||
-          !health.installed ||
-          health.state === 'repair-required'
-        ) {
-          this.cameraOutputStarted = false;
-          this.destroyCameraOutputWindow();
-          return;
-        }
-      }
+
+      // Frame publishing is NEVER gated on the Media Foundation supervisor.
+      //
+      // The camera is a DirectShow filter now. It is loaded directly into the
+      // consumer process and reads the shared region itself, so there is no
+      // companion process for anything to supervise. This code used to return
+      // early when the MF camera was not installed, and tear publishing down when
+      // the MF host failed - which starved the working DirectShow camera of frames
+      // and showed a neutral slate in every meeting client. The filter was fine;
+      // nothing was writing to the region.
+      //
+      // The supervisor is now advisory only: its health is still reported so the
+      // control panel can show it, but it can neither prevent publishing nor stop
+      // it, and its host process is not started - starting it would register a
+      // second, non-functional camera with a nearly identical name.
       await this.cameraFramePublisher.start(window);
       if (generation !== this.cameraOutputGeneration) {
         await this.cameraFramePublisher.stop();
         return;
       }
       if (this.nativeCameraSupervisor) {
-        const health = await this.nativeCameraSupervisor.start();
-        if (generation !== this.cameraOutputGeneration) {
-          await this.nativeCameraSupervisor.stop();
-          await this.cameraFramePublisher.stop();
-          return;
-        }
-        this.broadcastControl('captions:native-camera-health', health);
-        if (health.state === 'failed' || health.state === 'repair-required') {
-          this.cameraOutputStarted = false;
-          await this.cameraFramePublisher.stop();
-          this.destroyCameraOutputWindow();
-        }
+        const health = await this.nativeCameraSupervisor.refresh().catch(() => null);
+        if (generation !== this.cameraOutputGeneration) return;
+        if (health) this.broadcastControl('captions:native-camera-health', health);
       }
     }).catch(async (error) => {
       this.cameraOutputStarted = false;

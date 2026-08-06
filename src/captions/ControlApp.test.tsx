@@ -503,16 +503,88 @@ describe('meeting caption controls', () => {
     expect(screen.getByText('BACKUP PAUSED · DISK TOO SLOW')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: /Stop session/i }));
+    // The heading now asks the question the card exists to ask, instead of
+    // announcing "Meeting saved" while the decision hid in the body text.
     expect(
-      await screen.findByRole('heading', { name: 'Meeting saved' }),
+      await screen.findByRole('heading', { name: "Keep this meeting's audio?" }),
     ).toBeInTheDocument();
     expect(screen.getByText('C:\\Meetings\\session')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Keep audio backup' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Keep audio' }));
     await waitFor(() =>
       expect(window.captions.keepMeetingAudio).toHaveBeenCalledWith('session-123'),
     );
-    expect(screen.getByText(/Audio backup kept/)).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Audio kept' })).toBeInTheDocument();
+  });
+
+  it('requires a second click before deleting audio permanently', async () => {
+    // Deletion is irreversible with no undo, which is the one case that earns a
+    // confirmation. Inline rather than a modal so the flow is not broken, and the
+    // destructive action no longer wears the most muted style on the card.
+    window.captions.listPendingMeetingRecords = vi.fn(() =>
+      Promise.resolve({
+        ok: true as const,
+        data: [
+          {
+            recording: true,
+            sessionId: 'pending-1',
+            sessionDir: 'C:\\Meetings\\pending',
+            session: {
+              sessionId: 'pending-1',
+              audioRetention: 'pending' as const,
+              channelAvailability: { microphone: true, system: true },
+            },
+          },
+        ],
+      }),
+    ) as typeof window.captions.listPendingMeetingRecords;
+
+    render(<ControlApp />);
+    const arm = await screen.findByRole('button', { name: 'Delete audio' });
+
+    fireEvent.click(arm);
+    expect(window.captions.discardMeetingAudio).not.toHaveBeenCalled();
+
+    // Backing out must be possible, and must leave the decision unmade.
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(window.captions.discardMeetingAudio).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: 'Delete audio' })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete audio' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Delete permanently' }));
+    await waitFor(() =>
+      expect(window.captions.discardMeetingAudio).toHaveBeenCalledWith('pending-1'),
+    );
+  });
+
+  it('states the cost of keeping before the decision is made', async () => {
+    // Duration, caption count and disk size were all in the manifest and shown
+    // nowhere; the only size guidance was a generic footnote in Settings.
+    window.captions.listPendingMeetingRecords = vi.fn(() =>
+      Promise.resolve({
+        ok: true as const,
+        data: [
+          {
+            recording: true,
+            sessionId: 'sized-1',
+            session: {
+              sessionId: 'sized-1',
+              startedAt: 1_000_000,
+              endedAt: 1_000_000 + 30 * 60_000,
+              captionCount: 84,
+              audioRetention: 'pending' as const,
+              channelAvailability: { microphone: true, system: true },
+            },
+          },
+        ],
+      }),
+    ) as typeof window.captions.listPendingMeetingRecords;
+
+    render(<ControlApp />);
+    // 30 min x 2 tracks x 48 KB/s = 172.8 MB.
+    const facts = await screen.findByText(/30 minutes/);
+    expect(facts.textContent).toMatch(/84 captions/);
+    expect(facts.textContent).toMatch(/173 MB if kept/);
   });
 
   it('restores pending audio decisions and labels original and audience text', async () => {
@@ -537,12 +609,17 @@ describe('meeting caption controls', () => {
     render(<ControlApp />);
 
     expect(
-      await screen.findByRole('heading', { name: 'Recovered meeting' }),
+      await screen.findByRole('heading', {
+        name: 'Keep the audio from the meeting that was interrupted?',
+      }),
     ).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Start session/i })).toBeDisabled();
-    expect(
-      screen.getByText(/Choose whether to keep or permanently discard/i),
-    ).toBeVisible();
+    // Copy now says what is already safe and what each choice does, rather than
+    // "choose whether to keep or permanently discard the encrypted microphone and
+    // meeting audio backup" - eight words of implementation for a thing the operator
+    // thinks of as "the recording".
+    expect(screen.getByText(/The transcript is saved either way/i)).toBeVisible();
+    expect(screen.getByText(/deleting it cannot be undone/i)).toBeVisible();
 
     act(() => {
       captionListener?.({

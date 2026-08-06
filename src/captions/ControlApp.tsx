@@ -5,8 +5,10 @@ import {
   Clock,
   KeyRound,
   Mic,
+  Play,
   Radio,
   ShieldCheck,
+  Square,
   Video,
   VolumeX,
   X,
@@ -20,6 +22,11 @@ import {
 import { type ChannelHealth, deriveChannelHealth } from './captureHealth';
 import { captionThemeById, captionThemes } from './captionThemes';
 import { type ReadinessId, reviewReadiness } from './readiness';
+import {
+  reviewCopy as buildReviewCopy,
+  reviewFacts as buildReviewFacts,
+  reviewHeading as buildReviewHeading,
+} from './meetingReviewCopy';
 import type {
   CaptionEvent,
   GlossaryConfiguration,
@@ -103,6 +110,8 @@ const CHANNEL_ICONS = {
 
 // One icon per readiness step, naming the thing rather than the problem, so the row
 // is scannable before any of its text is read.
+const READINESS_DISMISSED_KEY = 'captions.readinessDismissed';
+
 const READINESS_ICONS: Record<ReadinessId, typeof KeyRound> = {
   credential: KeyRound,
   microphone: Mic,
@@ -185,6 +194,15 @@ export function ControlApp() {
   });
   const [nativeCameraHealth, setNativeCameraHealth] =
     useState<NativeCameraHealth | null>(null);
+  // Persisted: an operator who chose to run without a microphone, or to capture the
+  // stage in OBS rather than install the camera, should not be asked again on every
+  // launch. Only advisories are ever dismissed - see reviewReadiness.
+  const [advisoriesDismissed, setAdvisoriesDismissed] = useState(
+    () => window.localStorage.getItem(READINESS_DISMISSED_KEY) === '1',
+  );
+  // Second step of the inline delete confirmation. Reset whenever a different
+  // meeting comes up for review, so a pending confirm cannot carry across.
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
   const audio = useRef(new AudioCaptureController());
   const microphonePreview = useRef(new MicrophonePreviewController());
   const apiKeyInput = useRef<HTMLInputElement>(null);
@@ -281,6 +299,12 @@ export function ControlApp() {
       void audio.current.stop();
     };
   }, []);
+
+  // A confirm armed for one meeting must never survive into another: the second
+  // click would delete audio the operator had not been asked about.
+  useEffect(() => {
+    setConfirmDiscard(false);
+  }, [meetingReview?.sessionId]);
 
   useEffect(() => {
     if (!repairedLaunch.current || tab !== 'settings' || !credential) return;
@@ -518,12 +542,13 @@ export function ControlApp() {
     setMeetingReview(result.data);
   };
 
+  // Confirmation lives in the card as a two-step Delete audio -> Delete permanently,
+  // not here. This used to raise window.confirm as well, which in Electron is a
+  // blocking, unstyled native dialog - and once the inline step existed it became a
+  // second prompt for the same decision. Two confirmations for one action is how
+  // operators learn to click through both.
   const discardMeetingAudio = async () => {
     if (!meetingReview?.sessionId) return;
-    const confirmed = window.confirm(
-      'Permanently discard both the microphone and meeting audio backup? This cannot be undone.',
-    );
-    if (!confirmed) return;
     setBusy(true);
     const result = await window.captions.discardMeetingAudio(
       meetingReview.sessionId,
@@ -815,12 +840,17 @@ export function ControlApp() {
   // One place decides what is missing and how much it matters, so the checklist the
   // operator reads and the Start button they press cannot disagree.
   const readiness = reviewReadiness({
+    advisoriesDismissed: advisoriesDismissed,
     credentialAvailable: Boolean(credential?.available),
     microphoneAvailable: devices.inputs.length > 0,
     outputMode: settings.outputMode,
     cameraInstalled: nativeCameraHealth ? nativeCameraHealth.installed : null,
     cameraSupported: nativeCameraHealth ? nativeCameraHealth.supported : null,
   });
+
+  const reviewHeading = buildReviewHeading(meetingReview?.session, reviewOrigin);
+  const reviewCopy = buildReviewCopy(meetingReview?.session, reviewOrigin);
+  const reviewFacts = buildReviewFacts(meetingReview?.session);
 
   const resolveReadiness = (id: ReadinessId) => {
     if (id === 'credential') {
@@ -855,7 +885,13 @@ export function ControlApp() {
           disabled={sessionActionDisabled}
           onClick={() => void (active ? stop() : start())}
         >
-          <i aria-hidden="true" />
+          {/* An icon naming the action, replacing a grey status dot that made a
+              ready button look inactive. */}
+          {active ? (
+            <Square size={13} strokeWidth={2.5} fill="currentColor" aria-hidden="true" />
+          ) : (
+            <Play size={14} strokeWidth={2.5} fill="currentColor" aria-hidden="true" />
+          )}
           <strong>{sessionActionLabel}</strong>
           {active && (
             <>
@@ -902,12 +938,30 @@ export function ControlApp() {
               pressing it cannot work. */}
           {!active && !readiness.allClear && (
             <article className="card readiness" aria-labelledby="readiness-heading">
-              <p className="eyebrow">BEFORE YOU START</p>
-              <h2 id="readiness-heading">
-                {readiness.canStart
-                  ? 'Ready, with one thing worth doing'
-                  : 'One step left before captions can run'}
-              </h2>
+              <div className="section-heading">
+                <div>
+                  <p className="eyebrow">BEFORE YOU START</p>
+                  <h2 id="readiness-heading">
+                    {readiness.canStart
+                      ? 'Ready, with one thing worth doing'
+                      : 'One step left before captions can run'}
+                  </h2>
+                </div>
+                {/* Offered only when everything left is advisory. A checklist you can
+                    dismiss must never be the only explanation for a disabled Start
+                    button, so a blocker cannot be skipped past. */}
+                {readiness.canDismiss && (
+                  <button
+                    className="text-button"
+                    onClick={() => {
+                      setAdvisoriesDismissed(true);
+                      window.localStorage.setItem(READINESS_DISMISSED_KEY, '1');
+                    }}
+                  >
+                    Not now
+                  </button>
+                )}
+              </div>
               <ol className="readiness__list">
                 {readiness.outstanding.map((step) => {
                   const StepIcon = READINESS_ICONS[step.id];
@@ -943,63 +997,90 @@ export function ControlApp() {
             </article>
           )}
           {meetingReview?.recording && (
-            <article className="card meeting-review" aria-live="polite">
-              <div>
+            <article className="card meeting-review">
+              <div className="meeting-review__body">
                 <p className="eyebrow">
-                  {reviewOrigin === 'recovered' ? 'RECOVERY REQUIRED' : 'MEETING RECORD'}
+                  {reviewOrigin === 'recovered' ? 'UNFINISHED MEETING' : 'AFTER THE MEETING'}
                 </p>
-                <h2>
-                  {reviewOrigin === 'recovered' ? 'Recovered meeting' : 'Meeting saved'}
-                </h2>
-                <p className="supporting-copy">
-                  {meetingReview.session?.audioRetention === 'pending'
-                    ? 'The transcript is saved. Choose whether to keep or permanently discard the encrypted microphone and meeting audio backup.'
-                    : meetingReview.session?.audioRetention === 'kept'
-                      ? 'Audio backup kept as separate microphone and meeting WAV files.'
-                      : meetingReview.session?.audioRetention === 'discarded'
-                        ? 'Encrypted microphone and meeting audio backup discarded.'
-                        : 'The transcript is saved. Audio backup was unavailable for this meeting.'}
-                </p>
+                {/* The heading now asks the question the card exists to ask. It used
+                    to read "Meeting saved" - answering something nobody wondered
+                    about while the actual decision hid in the body text. */}
+                <h2>{reviewHeading}</h2>
+                <p className="supporting-copy" aria-live="polite">{reviewCopy}</p>
+                {pendingDecision && reviewFacts && (
+                  // Deciding needs facts, and they were only ever in Settings as a
+                  // generic "two one-hour tracks can use ~346 MB".
+                  <p className="meeting-review__facts">{reviewFacts}</p>
+                )}
                 {meetingReview.sessionDir && (
                   <p className="meeting-review__path">{meetingReview.sessionDir}</p>
                 )}
               </div>
-              <div className="button-row">
+              <div className="meeting-review__actions">
                 {pendingDecision && (
-                  <>
+                  <div className="button-row">
                     <button
                       className="button button--primary"
                       disabled={busy}
                       onClick={() => void keepMeetingAudio()}
                     >
-                      Keep audio backup
+                      Keep audio
                     </button>
-                    <button
-                      className="button button--quiet"
-                      disabled={busy}
-                      onClick={() => void discardMeetingAudio()}
-                    >
-                      Discard audio
-                    </button>
-                  </>
+                    {/* Two steps, inline rather than a modal. Deleting is permanent
+                        with no undo, which is the one case that earns a confirmation -
+                        but a dialog would break the flow, and this was previously the
+                        most muted control on the card despite being the destructive
+                        one. */}
+                    {confirmDiscard ? (
+                      <>
+                        <button
+                          className="button button--danger"
+                          disabled={busy}
+                          onClick={() => {
+                            setConfirmDiscard(false);
+                            void discardMeetingAudio();
+                          }}
+                        >
+                          Delete permanently
+                        </button>
+                        <button
+                          className="button button--quiet"
+                          disabled={busy}
+                          onClick={() => setConfirmDiscard(false)}
+                        >
+                          Cancel
+                        </button>
+                      </>
+                    ) : (
+                      <button
+                        className="button button--danger-quiet"
+                        disabled={busy}
+                        onClick={() => setConfirmDiscard(true)}
+                      >
+                        Delete audio
+                      </button>
+                    )}
+                  </div>
                 )}
                 {meetingReview.sessionId && (
-                  <>
+                  // Navigation, not the decision. Kept visually subordinate so it
+                  // stops competing with Keep and Delete in one flat row of four.
+                  <div className="button-row meeting-review__secondary">
                     <button
-                      className="button button--secondary"
+                      className="text-button"
                       disabled={busy}
                       onClick={() => void window.captions.exportMeetingRecord(meetingReview.sessionId!)}
                     >
                       Save a copy…
                     </button>
                     <button
-                      className="button button--quiet"
+                      className="text-button"
                       disabled={busy}
                       onClick={() => void window.captions.revealMeetingRecord(meetingReview.sessionId!)}
                     >
                       Show in folder
                     </button>
-                  </>
+                  </div>
                 )}
               </div>
             </article>

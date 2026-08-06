@@ -32,6 +32,12 @@ export interface ReadinessStep {
 }
 
 export interface ReadinessInput {
+  /**
+   * The operator chose "Not now". Advisory steps stop being listed; blocking ones
+   * never can be, because dismissing a blocker would leave Start disabled with
+   * nothing on screen explaining why.
+   */
+  advisoriesDismissed?: boolean;
   /** A usable API key is present in secure storage. */
   credentialAvailable: boolean;
   /** At least one input device is enumerable, which requires granted permission. */
@@ -53,8 +59,13 @@ export interface ReadinessReview {
   outstanding: ReadinessStep[];
   /** True when nothing outstanding is blocking. Drives whether Start is enabled. */
   canStart: boolean;
-  /** True when every step is done, so the checklist can disappear entirely. */
+  /** True when nothing remains to show, so the checklist can disappear entirely. */
   allClear: boolean;
+  /**
+   * Whether to offer "Not now". Only when everything left is advisory: a checklist
+   * you can dismiss must never be the only explanation for a disabled Start button.
+   */
+  canDismiss: boolean;
 }
 
 export function reviewReadiness(input: ReadinessInput): ReadinessReview {
@@ -83,6 +94,10 @@ export function reviewReadiness(input: ReadinessInput): ReadinessReview {
   // path at all, and listing it would be noise the operator has to learn to ignore.
   if (input.outputMode === 'virtual-camera') {
     if (input.cameraSupported === false) {
+      // macOS and any non-Windows host land here. There is no install to perform -
+      // a virtual camera on macOS needs a notarized system extension, which this app
+      // does not ship - so the step exists to be findable, never to be outstanding.
+      // The checklist must be completable on every platform.
       steps.push({
         id: 'camera',
         title: 'Use OBS for the camera feed',
@@ -108,11 +123,19 @@ export function reviewReadiness(input: ReadinessInput): ReadinessReview {
     }
   }
 
-  const outstanding = steps.filter((step) => !step.done);
+  const unfinished = steps.filter((step) => !step.done);
+  const blocked = unfinished.some((step) => step.severity === 'blocking');
+  // A dismissal hides advisories only. Blocking steps survive it, so the checklist
+  // cannot be dismissed into a state where Start is disabled for no visible reason.
+  const outstanding = input.advisoriesDismissed
+    ? unfinished.filter((step) => step.severity === 'blocking')
+    : unfinished;
+
   return {
     steps,
     outstanding,
-    canStart: !outstanding.some((step) => step.severity === 'blocking'),
+    canStart: !blocked,
     allClear: outstanding.length === 0,
+    canDismiss: outstanding.length > 0 && !blocked,
   };
 }

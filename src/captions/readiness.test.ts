@@ -99,6 +99,75 @@ describe('reviewReadiness', () => {
     ]);
   });
 
+  describe('dismissal', () => {
+    it('offers "Not now" when everything left is advisory', () => {
+      const review = reviewReadiness({ ...ready, microphoneAvailable: false });
+      expect(review.canDismiss).toBe(true);
+    });
+
+    it('refuses to offer dismissal while a blocker remains', () => {
+      // Dismissing a blocker would leave Start disabled with nothing on screen
+      // explaining why, which is worse than the nagging checklist.
+      const review = reviewReadiness({ ...ready, credentialAvailable: false });
+      expect(review.canDismiss).toBe(false);
+    });
+
+    it('never offers dismissal when there is nothing to dismiss', () => {
+      expect(reviewReadiness(ready).canDismiss).toBe(false);
+    });
+
+    it('hides advisories once dismissed', () => {
+      const review = reviewReadiness({
+        ...ready,
+        microphoneAvailable: false,
+        outputMode: 'virtual-camera',
+        cameraInstalled: false,
+        advisoriesDismissed: true,
+      });
+      expect(review.outstanding).toEqual([]);
+      expect(review.allClear).toBe(true);
+      expect(review.canStart).toBe(true);
+    });
+
+    it('keeps a blocker visible even after dismissal', () => {
+      const review = reviewReadiness({
+        ...ready,
+        credentialAvailable: false,
+        microphoneAvailable: false,
+        advisoriesDismissed: true,
+      });
+      expect(review.outstanding.map((step) => step.id)).toEqual(['credential']);
+      expect(review.allClear).toBe(false);
+      expect(review.canStart).toBe(false);
+    });
+  });
+
+  describe('platforms without a hostable virtual camera', () => {
+    // macOS: a virtual camera needs a notarized system extension this app does not
+    // ship. The checklist must still be completable there.
+    const mac: ReadinessInput = {
+      ...ready,
+      outputMode: 'virtual-camera',
+      cameraSupported: false,
+      cameraInstalled: false,
+    };
+
+    it('can reach all clear with no camera install available', () => {
+      expect(reviewReadiness(mac).allClear).toBe(true);
+      expect(reviewReadiness(mac).canStart).toBe(true);
+    });
+
+    it('never presents an install action that cannot succeed', () => {
+      const camera = reviewReadiness(mac).steps.find((step) => step.id === 'camera');
+      expect(camera?.action).toBeNull();
+      expect(camera?.done).toBe(true);
+    });
+
+    it('does not offer dismissal, because nothing is outstanding to dismiss', () => {
+      expect(reviewReadiness(mac).canDismiss).toBe(false);
+    });
+  });
+
   it('gives every step an imperative title and a reason', () => {
     const review = reviewReadiness({
       ...ready,

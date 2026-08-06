@@ -1,5 +1,17 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import {
+  AlertTriangle,
+  Check,
+  Clock,
+  KeyRound,
+  Mic,
+  Radio,
+  ShieldCheck,
+  Video,
+  VolumeX,
+  X,
+} from 'lucide-react';
+import {
   AudioCaptureController,
   MicrophonePreviewController,
   enumerateAudioDevices,
@@ -69,21 +81,47 @@ function formatElapsed(milliseconds = 0) {
 }
 
 function Level({ value = 0 }: { value?: number }) {
-  const width = `${Math.max(2, Math.min(100, value * 900))}%`;
-  return <span className="level"><i style={{ width }} /></span>;
+  // scaleX rather than width: this updates roughly 20 times a second while a meter
+  // is live, and `width` forces layout on every one of those frames.
+  const fill = Math.max(0.02, Math.min(1, value * 9));
+  return (
+    <span className="level">
+      <i style={{ transform: `scaleX(${fill})` }} />
+    </span>
+  );
 }
+
+// Status is carried by an icon as well as a colour. A ring of green/amber/red pills
+// leaves a red-green colourblind operator unable to tell a live channel from a dead
+// one, and the label alone was a state name rather than a reading.
+const CHANNEL_ICONS = {
+  live: Radio,
+  waiting: Clock,
+  silent: VolumeX,
+  unavailable: AlertTriangle,
+} as const;
+
+// One icon per readiness step, naming the thing rather than the problem, so the row
+// is scannable before any of its text is read.
+const READINESS_ICONS: Record<ReadinessId, typeof KeyRound> = {
+  credential: KeyRound,
+  microphone: Mic,
+  camera: Video,
+};
 
 // A persistent per-channel badge. A dismissible notice is not enough: an
 // operator must be able to look at the panel mid-meeting and see that the
 // meeting channel is carrying nothing.
 function ChannelBadge({ health }: { health: ChannelHealth }) {
   if (health.state === 'idle') return null;
+  const Icon = CHANNEL_ICONS[health.state as keyof typeof CHANNEL_ICONS] ?? Clock;
   return (
     <span
       className={`channel-badge is-${health.state}`}
       title={health.detail}
       role={health.state === 'live' || health.state === 'waiting' ? undefined : 'alert'}
     >
+      <Icon size={11} strokeWidth={2.5} aria-hidden="true" />
       {health.label}
     </span>
   );
@@ -843,7 +881,17 @@ export function ControlApp() {
         ))}
       </nav>
 
-      {notice && <div className="notice" role="status">{notice}<button onClick={() => setNotice('')} aria-label="Dismiss">×</button></div>}
+      {notice && (
+        <div className="notice" role="status">
+          <AlertTriangle size={16} strokeWidth={2.25} aria-hidden="true" />
+          <span>{notice}</span>
+          {/* A real icon rather than the × character, which rendered at whatever
+              weight the system font happened to give it. */}
+          <button onClick={() => setNotice('')} aria-label="Dismiss">
+            <X size={18} strokeWidth={2.25} aria-hidden="true" />
+          </button>
+        </div>
+      )}
 
       {tab === 'session' && (
         <section className="panel-stack">
@@ -861,11 +909,16 @@ export function ControlApp() {
                   : 'One step left before captions can run'}
               </h2>
               <ol className="readiness__list">
-                {readiness.outstanding.map((step) => (
+                {readiness.outstanding.map((step) => {
+                  const StepIcon = READINESS_ICONS[step.id];
+                  return (
                   <li
                     className={`readiness__step is-${step.severity}`}
                     key={step.id}
                   >
+                    <span className="readiness__icon" aria-hidden="true">
+                      <StepIcon size={18} strokeWidth={2} />
+                    </span>
                     <div>
                       <strong>{step.title}</strong>
                       <p>{step.detail}</p>
@@ -884,7 +937,8 @@ export function ControlApp() {
                       </button>
                     )}
                   </li>
-                ))}
+                  );
+                })}
               </ol>
             </article>
           )}
@@ -980,19 +1034,31 @@ export function ControlApp() {
               </div>
               {!active && previewing && !previewSystemReady && (
                 <p className="capture-warning" role="alert">
-                  System audio is not being captured, so remote speech will not be
-                  transcribed separately.
+                  <AlertTriangle size={16} strokeWidth={2.25} aria-hidden="true" />
+                  <span>
+                    System audio is not being captured, so remote speech will not be
+                    transcribed separately.
+                  </span>
                 </p>
               )}
               {captureWarning && (
-                <p className="capture-warning" role="alert">{captureWarning}</p>
+                <p className="capture-warning" role="alert">
+                  <AlertTriangle size={16} strokeWidth={2.25} aria-hidden="true" />
+                  <span>{captureWarning}</span>
+                </p>
               )}
               {active && (
                 <p
                   className={`backup-status ${backupFailed ? 'is-failed' : backupDegraded ? 'is-degraded' : ''}`}
                   role={backupFailed || backupDegraded ? 'alert' : 'status'}
                 >
-                  <i aria-hidden="true" />
+                  {/* A shield reads as "your audio is being protected"; a warning
+                      triangle reads as "it is not". The dot said neither. */}
+                  {backupFailed || backupDegraded ? (
+                    <AlertTriangle size={13} strokeWidth={2.5} aria-hidden="true" />
+                  ) : (
+                    <ShieldCheck size={13} strokeWidth={2.5} aria-hidden="true" />
+                  )}
                   {backupLabel}
                 </p>
               )}
@@ -1376,6 +1442,11 @@ export function ControlApp() {
                 <span
                   className={`native-camera-state is-${nativeCameraHealth?.state || 'checking'}`}
                 >
+                  {nativeCameraHealth?.installed ? (
+                    <Check size={11} strokeWidth={3} aria-hidden="true" />
+                  ) : (
+                    <Video size={11} strokeWidth={2.5} aria-hidden="true" />
+                  )}
                   {(nativeCameraHealth?.state || 'checking').replace('-', ' ')}
                 </span>
               </div>

@@ -379,6 +379,29 @@ describe('meeting caption controls', () => {
     ).toBeInTheDocument();
   });
 
+  it('does not convey channel status by colour alone', async () => {
+    // Four pills in green/amber/red with a state name on them left a red-green
+    // colourblind operator unable to tell a live channel from a dead one.
+    audioMocks.start.mockResolvedValue({
+      microphone: true,
+      system: false,
+      warning: 'Meeting audio is not being captured: check the output device.',
+    });
+    render(<ControlApp />);
+    await screen.findByRole('button', { name: /Start session/i });
+    fireEvent.click(screen.getByRole('button', { name: /Start session/i }));
+    await screen.findByRole('button', { name: /Stop session/i });
+
+    const badges = document.querySelectorAll('.channel-badge');
+    expect(badges.length).toBeGreaterThan(0);
+    for (const badge of badges) {
+      expect(
+        badge.querySelector('svg'),
+        `${badge.textContent} relies on colour alone`,
+      ).not.toBeNull();
+    }
+  });
+
   it('hides the readiness checklist once nothing is outstanding', async () => {
     render(<ControlApp />);
     await screen.findByRole('button', { name: /Start session/i });
@@ -638,8 +661,12 @@ describe('meeting caption controls', () => {
     fireEvent.click(screen.getByRole('button', { name: /Start session/i }));
 
     const warning = await screen.findByText(/Meeting audio is not being captured/);
-    expect(warning).toHaveAttribute('role', 'alert');
-    expect(warning.textContent).not.toMatch(/Screen Recording/);
+    // Asserted on the enclosing live region rather than the text node's own element:
+    // the warning carries a leading icon, so the text sits in a child of the element
+    // that holds role="alert". What matters is that the text is announced.
+    const announced = warning.closest('[role="alert"]');
+    expect(announced).not.toBeNull();
+    expect(announced!.textContent).not.toMatch(/Screen Recording/);
     // The session keeps running on the microphone alone.
     expect(screen.getByRole('button', { name: /Stop session/i })).toBeEnabled();
     expect(channelBadge('Meeting / system')).toBe('UNAVAILABLE');

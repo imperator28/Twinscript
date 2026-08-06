@@ -201,6 +201,53 @@ button { cursor: pointer; }
 button:disabled { cursor: not-allowed; opacity: .48; }
 :focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 2px; }
 
+/* ---------------------------------------------------------------------------
+   Motion.
+
+   What animates is decided by how often the operator sees it, not by what would
+   look good in isolation.
+
+   Animated - seen once per launch or once per meeting, and appearing with no
+   transition reads as broken: panels arriving, a notice, an alert, the readiness
+   checklist, the post-meeting review.
+
+   Deliberately NOT animated:
+   - Transcript rows. During a meeting these arrive every few seconds. An entrance
+     on each one is motion the operator has to learn to ignore while trying to read
+     the thing that is moving.
+   - The audio level meters, which update ~20x a second. Already a linear transform.
+   - Caption text on the audience surfaces, which has its own tuned crossfade.
+   --------------------------------------------------------------------------- */
+@keyframes surface-enter {
+  from { opacity: 0; transform: translateY(6px); }
+}
+
+/* Panels stagger in on mount, which also gives the tab switch its transition for
+   free: switching tabs remounts the children, so the new panel assembles itself.
+   The delay is capped at six items - 8 settings cards at 40ms each would leave the
+   last one arriving 320ms late, which reads as lag rather than polish. */
+.panel-stack > *,
+.session-grid > *,
+.settings-layout > * {
+  animation: surface-enter var(--dur-enter) var(--ease-out) backwards;
+}
+.settings-layout > :nth-child(2) { animation-delay: 30ms; }
+.settings-layout > :nth-child(3) { animation-delay: 60ms; }
+.settings-layout > :nth-child(4) { animation-delay: 90ms; }
+.settings-layout > :nth-child(5) { animation-delay: 120ms; }
+.settings-layout > :nth-child(n + 6) { animation-delay: 150ms; }
+.session-grid > :nth-child(2) { animation-delay: 40ms; }
+
+/* Episodic blocks: they appear in response to something happening, so the
+   entrance is the signal that something happened. */
+.notice,
+.capture-warning,
+.credential-recovery,
+.backup-status,
+.meeting-review {
+  animation: surface-enter var(--dur-enter) var(--ease-out) backwards;
+}
+
 .control-shell {
   height: 100%;
   min-height: 0;
@@ -272,7 +319,8 @@ input[type="range"] { width: 100%; accent-color: var(--accent); }
 .native-camera-note .button { flex: 0 0 auto; }
 .native-camera-note.is-streaming { border-color: var(--success-border); background: var(--success-surface); color: var(--success-text); }
 .native-camera-note.is-failed { border-color: var(--danger-border); background: var(--danger-surface); color: var(--danger-text); }
-.native-camera-state { flex: 0 0 auto; padding: 5px 9px; border: 1px solid var(--border); border-radius: var(--radius-pill); background: var(--surface-muted); color: var(--text-secondary); font-size: var(--size-3xs); font-weight: var(--weight-heavy); letter-spacing: var(--track-label); text-transform: uppercase; }
+.native-camera-state { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 5px; padding: 5px 9px; border: 1px solid var(--border); border-radius: var(--radius-pill); background: var(--surface-muted); color: var(--text-secondary); font-size: var(--size-3xs); font-weight: var(--weight-heavy); letter-spacing: var(--track-label); text-transform: uppercase; }
+.native-camera-state svg { flex: 0 0 auto; }
 .native-camera-state.is-streaming { border-color: var(--success-border); background: var(--success-surface); color: var(--success-text); }
 .native-camera-state.is-failed { border-color: var(--danger-border); background: var(--danger-surface); color: var(--danger-text); }
 .native-camera-detail { margin: var(--space-3) 0; color: var(--text-secondary); font-size: var(--size-sm); line-height: var(--leading-body); }
@@ -328,7 +376,11 @@ input[type="range"] { width: 100%; accent-color: var(--accent); }
 .level i { display: block; width: 100%; height: 100%; border-radius: inherit; background: var(--success); transform-origin: left center; transition: transform var(--dur-press) linear; }
 .audio-row { min-height: 34px; color: var(--text-secondary); font-size: var(--size-xs); }
 .audio-row .level { width: auto; flex: 1; }
-.channel-badge { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 5px; min-width: 92px; padding: var(--space-1) 9px; border: 1px solid var(--border); border-radius: var(--radius-pill); background: var(--surface-muted); color: var(--text); font-size: var(--size-3xs); font-weight: var(--weight-bold); letter-spacing: var(--track-label); justify-content: center; }
+/* A channel flipping between live, silent and unavailable happens mid-meeting, so
+   the change is carried by colour alone - no movement to draw the eye away from the
+   conversation. Not animating it at all made a badge look like a static label
+   rather than a reading that had just changed. */
+.channel-badge { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 5px; min-width: 92px; padding: var(--space-1) 9px; border: 1px solid var(--border); border-radius: var(--radius-pill); background: var(--surface-muted); color: var(--text); font-size: var(--size-3xs); font-weight: var(--weight-bold); letter-spacing: var(--track-label); justify-content: center; transition: background-color var(--dur-enter) var(--ease-out), border-color var(--dur-enter) var(--ease-out), color var(--dur-enter) var(--ease-out); }
 .channel-badge svg { flex: 0 0 auto; }
 .channel-badge.is-live { border-color: var(--success-border); background: var(--success-surface); color: var(--success-text); }
 .channel-badge.is-waiting { border-color: var(--border); background: var(--surface-muted); color: var(--text-secondary); }
@@ -336,7 +388,9 @@ input[type="range"] { width: 100%; accent-color: var(--accent); }
 .channel-badge.is-unavailable { border-color: var(--danger-border); background: var(--danger-surface); color: var(--danger-text); }
 .capture-warning { display: flex; align-items: flex-start; gap: var(--space-2); margin: var(--space-3) 0 0; padding: 11px var(--space-3); border: 1px solid var(--danger-border); border-radius: var(--radius); background: var(--danger-surface); color: var(--danger-text); font-size: var(--size-sm); line-height: var(--leading-body); }
 .capture-warning svg { flex: 0 0 auto; margin-top: 2px; }
-.notice { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); margin-bottom: var(--space-4); padding: var(--space-3); border: 1px solid var(--warning-border); border-radius: var(--radius); background: var(--warning-surface); color: var(--warning-text); font-size: var(--size-sm); }
+.notice { display: flex; align-items: center; gap: var(--space-3); margin-bottom: var(--space-4); padding: var(--space-3); border: 1px solid var(--warning-border); border-radius: var(--radius); background: var(--warning-surface); color: var(--warning-text); font-size: var(--size-sm); }
+.notice > svg { flex: 0 0 auto; }
+.notice > span { flex: 1; }
 .notice button { display: grid; place-items: center; width: var(--target); height: var(--target); border: 0; border-radius: var(--radius); background: transparent; color: inherit; }
 .notice button:hover { background: color-mix(in srgb, currentColor 12%, transparent); }
 .transcript-list { display: grid; }
@@ -374,24 +428,17 @@ input[type="range"] { width: 100%; accent-color: var(--accent); }
   margin: var(--space-3) 0 0;
   padding: 9px 10px;
 }
-.backup-status i {
-  background: var(--success);
-  border-radius: 50%;
-  height: 7px;
-  width: 7px;
-}
+.backup-status svg { flex: 0 0 auto; }
 .backup-status.is-degraded {
   background: var(--warning-surface);
   border-color: var(--warning-border);
   color: var(--warning-text);
 }
-.backup-status.is-degraded i { background: var(--warning-border); }
 .backup-status.is-failed {
   background: var(--danger-surface);
   border-color: var(--danger-border);
   color: var(--danger-text);
 }
-.backup-status.is-failed i { background: var(--danger); }
 .meeting-review {
   align-items: flex-start;
   border-color: var(--success-border);
@@ -459,6 +506,11 @@ input[type="range"] { width: 100%; accent-color: var(--accent); }
 /* The single blocker reads as the blocker. Advisory rows stay quiet so they do not
    compete with it - the operator can start a session with those unresolved. */
 .readiness__step.is-blocking { border-left-color: var(--accent); background: var(--accent-quiet); }
+/* Fixed-size icon slot so the three rows' text starts on the same vertical line
+   whatever glyph sits beside it. */
+.readiness__icon { display: grid; flex: 0 0 auto; place-items: center; width: 34px; height: 34px; border-radius: var(--radius-sm); background: var(--surface); color: var(--text-secondary); }
+.readiness__step.is-blocking .readiness__icon { background: var(--surface); color: var(--accent); }
+.readiness__step > div { flex: 1; min-width: 0; }
 .readiness__step strong { display: block; font-size: var(--size-body); font-weight: var(--weight-bold); }
 .readiness__step p { margin: var(--space-1) 0 0; color: var(--text-secondary); font-size: var(--size-sm); line-height: var(--leading-tight); }
 .readiness__step .button { flex: 0 0 auto; }
@@ -641,9 +693,21 @@ input[type="range"] { width: 100%; accent-color: var(--accent); }
    crossfades that carry meaning - a caption promoting from provisional to final
    became an instant swap with nothing to indicate the change. Movement is what
    gets removed here; fades are kept and shortened. */
+@keyframes surface-fade {
+  from { opacity: 0; }
+}
+
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; }
+  *, *::before, *::after { scroll-behavior: auto !important; }
   :root { --dur-enter: 120ms; --dur-exit: 100ms; }
+  /* Same entrances, without the translate. A plain crossfade still tells the
+     operator that something arrived; the vestibular part is the movement. */
+  .panel-stack > *, .session-grid > *, .settings-layout > *,
+  .notice, .capture-warning, .credential-recovery, .backup-status, .meeting-review {
+    animation-name: surface-fade;
+  }
+  /* And without the stagger, which is decorative. */
+  .settings-layout > *, .session-grid > * { animation-delay: 0ms; }
   /* No scale-on-press, no slide-in, no translate. */
   .button:active:not(:disabled), .text-button:active:not(:disabled),
   .segmented button:active:not(:disabled), .tab-bar button:active:not(:disabled),

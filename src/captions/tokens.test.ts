@@ -123,3 +123,52 @@ describe('token hygiene', () => {
     expect(CSS).not.toMatch(/--text-tertiary/);
   });
 });
+
+describe('motion policy', () => {
+  const reducedMotion = CSS.slice(CSS.indexOf('@media (prefers-reduced-motion: reduce)'));
+
+  it('does not blanket-disable transitions under reduced motion', () => {
+    // A `transition-duration: .01ms !important` on `*` also removes the colour and
+    // opacity crossfades that carry meaning - a caption promoting from provisional
+    // to final became an instant swap with nothing to mark the change. Reduced
+    // motion means removing movement, not removing feedback.
+    expect(reducedMotion).not.toMatch(/transition-duration:\s*\.01ms/);
+  });
+
+  it('offers a fade alternative rather than nothing under reduced motion', () => {
+    expect(reducedMotion).toMatch(/animation-name:\s*surface-fade/);
+    expect(CSS).toMatch(/@keyframes surface-fade/);
+  });
+
+  it('removes press-scaling under reduced motion', () => {
+    expect(reducedMotion).toMatch(/transform:\s*none/);
+  });
+
+  it('animates the level meter with transform, never width', () => {
+    // The meter updates ~20x a second while a channel is live. Animating `width`
+    // forces layout on every one of those frames.
+    const rule = CSS.match(/\.level i \{[^}]+\}/)?.[0] ?? '';
+    expect(rule).toMatch(/transition:\s*transform/);
+    expect(rule).not.toMatch(/transition:[^;]*\bwidth\b/);
+  });
+
+  it('does not animate transcript rows, which arrive continuously mid-meeting', () => {
+    // An entrance on each row is motion the operator has to ignore while reading
+    // the thing that is moving. Deliberate omission, so it is asserted.
+    const animated = CSS.match(/^([^{]*)\{\s*\n\s*animation: surface-enter/gm) ?? [];
+    for (const selectorBlock of animated) {
+      expect(selectorBlock).not.toMatch(/transcript/);
+    }
+    expect(CSS).not.toMatch(/\.transcript-entry[^{]*\{[^}]*animation:/);
+  });
+
+  it('caps the stagger so the last panel is not left visibly late', () => {
+    // Eight settings cards at 40ms each would put the last one 320ms out, which
+    // reads as lag rather than polish.
+    const delays = [...CSS.matchAll(/animation-delay:\s*(\d+)ms/g)].map((m) =>
+      Number(m[1]),
+    );
+    expect(delays.length).toBeGreaterThan(0);
+    expect(Math.max(...delays)).toBeLessThanOrEqual(200);
+  });
+});

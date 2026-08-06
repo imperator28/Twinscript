@@ -236,9 +236,42 @@ describe('live session stripe', () => {
     expect(stripe).toMatch(/transition:[\s\S]*border-radius/);
   });
 
-  it('does not signal budget pressure by colour alone', () => {
-    // The bar changes hue, but the figures beside it change too.
-    expect(CSS).toMatch(/\.session-stripe__budget\.is-over \.session-stripe__stat strong/);
+  it('keeps the live bar at the idle pill height', () => {
+    // Starting a session changes the dock's width and colour but never its height, so the
+    // page below does not shift under the operator.
+    const live = CSS.match(/\.session-stripe\.is-live \{[^}]+\}/)?.[0] ?? '';
+    expect(live).toMatch(/min-height:\s*var\(--dock-height\)/);
+  });
+
+  it('centres the action independently of the flanking figures', () => {
+    // `1fr auto 1fr`: a flex row would drift Stop sideways as the elapsed time crossed
+    // 9:59 to 10:00.
+    const live = CSS.match(/\.session-stripe\.is-live \{[^}]+\}/)?.[0] ?? '';
+    expect(live).toMatch(/grid-template-columns:\s*1fr auto 1fr/);
+  });
+
+  it('draws the live bar as one solid colour', () => {
+    const live = CSS.match(/\.session-stripe\.is-live \{[^}]+\}/)?.[0] ?? '';
+    expect(live).toMatch(/background:\s*var\(--danger\)/);
+    // No separate meter element competing with the bar it sits on.
+    expect(CSS).not.toMatch(/session-stripe__meter/);
+  });
+
+  it('never restyles the bar fill per state, which would break one theme', () => {
+    // The two themes put opposite labels on this bar - white in light, near-black in dark -
+    // so darkening the fill measured 10:1 in light and 3.48:1 in dark. Over-budget is
+    // signalled by a ring and an icon instead, neither of which is text.
+    const over = CSS.match(/\.session-stripe\.is-live\.is-over \{[^}]+\}/)?.[0] ?? '';
+    expect(over).not.toMatch(/background/);
+    expect(over).toMatch(/box-shadow/);
+  });
+
+  it('reads the bar foreground from the theme-aware on-danger token', () => {
+    // White on the dark theme's lighter red measures 3.39:1 and fails; --text-on-danger
+    // resolves to near-black there.
+    const live = CSS.match(/\.session-stripe\.is-live \{[^}]+\}/)?.[0] ?? '';
+    expect(live).toMatch(/color:\s*var\(--text-on-danger\)/);
+    expect(CSS).not.toMatch(/\.session-stripe[^{]*\{[^}]*color:\s*#fff/);
   });
 
   it('keeps the shape change under reduced motion but drops the slide', () => {

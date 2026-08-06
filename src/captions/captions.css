@@ -352,8 +352,12 @@ h2 { margin-bottom: var(--space-4); font-size: var(--size-title); line-height: v
   z-index: 40;
   display: flex;
   justify-content: center;
+  /* Room for the live bar to reach the window edges without touching them. */
+  padding-inline: var(--space-8);
   pointer-events: none;
 }
+/* The live bar spans the dock, so its wrapper has to stop being auto-width. */
+.session-dock.is-live { display: block; }
 .session-dock > * { pointer-events: auto; }
 /* Content fades out beneath the pill instead of the pill wearing a ring.
    The ring was `0 0 0 4px var(--surface-sunken)` - a hard 4px halo in the page's own
@@ -383,70 +387,89 @@ h2 { margin-bottom: var(--space-4); font-size: var(--size-title); line-height: v
    and `border-radius` on one element gives a continuous widen, whereas swapping two
    different elements would cross-fade and read as a replacement. */
 .session-stripe {
-  display: flex;
+  display: grid;
+  /* `1fr auto 1fr` keeps Stop optically centred however wide the flanking figures grow.
+     A flex row would drift it as the elapsed time crossed 9:59 to 10:00. */
+  grid-template-columns: auto;
   align-items: center;
-  gap: var(--space-2);
+  justify-items: center;
+  width: auto;
   padding: 0;
-  border: 1px solid transparent;
   border-radius: var(--radius-pill);
   background: transparent;
-  transition: padding var(--dur-enter) var(--ease-out),
+  transition: width var(--dur-enter) var(--ease-out),
+    padding var(--dur-enter) var(--ease-out),
     background-color var(--dur-enter) var(--ease-out),
-    border-color var(--dur-enter) var(--ease-out),
     border-radius var(--dur-enter) var(--ease-out),
     box-shadow var(--dur-enter) var(--ease-out);
 }
 .session-stripe.is-live {
-  /* A rounded rectangle rather than a pill: at this width a full pill radius reads as a
-     lozenge and wastes the corners. */
-  border-radius: 18px;
-  border-color: var(--border);
-  padding: 6px 6px 6px 6px;
-  background: var(--surface);
+  grid-template-columns: 1fr auto 1fr;
+  /* Spans the window, capped to the content measure so the readings do not end up at
+     opposite edges of an ultrawide display where neither is glanceable. Centred within
+     the dock, which is `display: block` while live. */
+  width: min(100%, 1180px);
+  margin-inline: auto;
+  /* One solid bar at the same height as the idle pill, so starting a session changes the
+     dock's width and colour but never its height - the page below does not shift. */
+  min-height: var(--dock-height);
+  padding: 0 var(--space-2) 0 var(--space-5);
+  background: var(--danger);
+  color: var(--text-on-danger);
   box-shadow: var(--shadow-raised);
 }
-.session-stripe > * { flex: 0 0 auto; }
-/* Each item slides in from the left edge it grew out of, so the stripe reads as
-   expanding rather than as items appearing on top of it. */
-.session-stripe.is-live > *:not(.session-pill) {
+/* Over budget the bar keeps its colour and gains a ring.
+   Darkening the fill was measured and rejected: the two themes put opposite labels on this
+   bar - white in light, near-black in dark - so a darker red lifts light-theme contrast to
+   10:1 while dropping dark-theme to 3.48:1, below the minimum. A ring is a non-text
+   boundary, so it signals without touching the label's contrast at all, and the bar stays
+   one solid colour. The figures also gain a warning icon. */
+.session-stripe.is-live.is-over {
+  box-shadow: var(--shadow-raised), 0 0 0 2px var(--warning-border);
+}
+.session-stripe__side { display: flex; align-items: center; gap: var(--space-3); justify-self: start; }
+.session-stripe__side--end { justify-self: end; padding-right: var(--space-3); }
+/* Each item fades in from the edge it grew out of, so the bar reads as expanding rather
+   than as items appearing on top of it. */
+.session-stripe.is-live > * {
   animation: stripe-item-enter var(--dur-enter) var(--ease-out) backwards;
 }
-.session-stripe.is-live > *:nth-child(2) { animation-delay: 40ms; }
-.session-stripe.is-live > *:nth-child(3) { animation-delay: 70ms; }
-.session-stripe.is-live > *:nth-child(4) { animation-delay: 100ms; }
+.session-stripe.is-live > *:nth-child(2) { animation-delay: 50ms; }
+.session-stripe.is-live > *:nth-child(3) { animation-delay: 80ms; }
 @keyframes stripe-item-enter {
-  from { opacity: 0; transform: translateX(-8px); }
+  from { opacity: 0; transform: scale(.96); }
 }
 
 /* A labelled reading, not a bare number: "12:04" alone is ambiguous between elapsed and
-   remaining. */
-.session-stripe__stat { display: grid; gap: 1px; padding: 0 var(--space-2); line-height: 1.15; }
-.session-stripe__stat span { color: var(--text-secondary); font-size: 9px; font-weight: var(--weight-heavy); letter-spacing: var(--track-label); text-transform: uppercase; }
-.session-stripe__stat strong { font-size: var(--size-sm); font-weight: var(--weight-semibold); font-variant-numeric: tabular-nums; }
-.session-stripe__stat em { color: var(--text-secondary); font-style: normal; font-weight: var(--weight-regular); }
-.session-stripe__budget { display: flex; align-items: center; gap: var(--space-2); padding-right: var(--space-2); }
-.session-stripe__meter { display: block; width: 74px; height: 5px; overflow: hidden; border-radius: var(--radius-pill); background: var(--surface-inset); }
-.session-stripe__meter i { display: block; width: 100%; height: 100%; border-radius: inherit; background: var(--success); transform-origin: left center; transition: transform var(--dur-enter) var(--ease-out), background-color var(--dur-enter) var(--ease-out); }
-/* Colour AND the figures change, so approaching the cap is not signalled by hue alone. */
-.session-stripe__budget.is-near .session-stripe__meter i { background: var(--warning-border); }
-.session-stripe__budget.is-over .session-stripe__meter i { background: var(--danger); }
-.session-stripe__budget.is-over .session-stripe__stat strong { color: var(--danger-text); }
+   remaining. Both flanks sit on the red bar, so they take the on-danger colour and carry
+   their own opacity for hierarchy instead of a second hue. */
+.session-stripe__stat { display: grid; gap: 1px; line-height: 1.15; color: var(--text-on-danger); }
+.session-stripe__stat span { font-size: 9px; font-weight: var(--weight-heavy); letter-spacing: var(--track-label); text-transform: uppercase; opacity: .72; }
+.session-stripe__stat strong { display: inline-flex; align-items: center; gap: 5px; font-size: var(--size-body); font-weight: var(--weight-semibold); font-variant-numeric: tabular-nums; }
+.session-stripe__stat em { font-style: normal; font-weight: var(--weight-regular); opacity: .72; }
 .session-stripe__budget-add {
   display: inline-flex;
   align-items: center;
   gap: 2px;
-  min-height: 40px;
+  min-height: 36px;
   padding: 0 var(--space-3);
-  border: 1px solid var(--border-strong);
+  /* Outlined in the bar's own foreground rather than filled: a second filled control
+     beside Stop would compete with it. */
+  border: 1px solid color-mix(in srgb, var(--text-on-danger) 45%, transparent);
   border-radius: var(--radius-pill);
-  background: var(--surface-muted);
-  color: var(--text);
+  background: transparent;
+  color: var(--text-on-danger);
   font-size: var(--size-sm);
   font-weight: var(--weight-semibold);
   font-variant-numeric: tabular-nums;
-  transition: transform var(--dur-press) var(--ease-out), background-color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
+  transition: transform var(--dur-press) var(--ease-out),
+    background-color var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out);
 }
-.session-stripe__budget-add:hover:not(:disabled) { border-color: var(--accent); background: var(--accent-quiet); }
+.session-stripe__budget-add:hover:not(:disabled) {
+  border-color: var(--text-on-danger);
+  background: color-mix(in srgb, var(--text-on-danger) 14%, transparent);
+}
 .session-stripe__budget-add:active:not(:disabled) { transform: scale(.96); }
 
 .session-dock .session-pill {
@@ -454,12 +477,20 @@ h2 { margin-bottom: var(--space-4); font-size: var(--size-title); line-height: v
   padding: 0 var(--space-6);
   box-shadow: var(--shadow-raised);
 }
-/* Inside the stripe the pill loses its own shadow - the stripe carries it now - and
-   shrinks, because it is one control among several rather than the whole dock. */
+/* On the red bar the pill is no longer its own surface: it drops the fill, the shadow and
+   the ring, and reads as the bar's central action. Hover and press still answer, so it
+   does not become a label. */
 .session-stripe.is-live .session-pill {
   min-height: 40px;
   padding: 0 var(--space-4);
+  background: transparent;
+  color: var(--text-on-danger);
   box-shadow: none;
+  border-color: color-mix(in srgb, var(--text-on-danger) 45%, transparent);
+}
+.session-stripe.is-live .session-pill:hover:not(:disabled) {
+  border-color: var(--text-on-danger);
+  background: color-mix(in srgb, var(--text-on-danger) 14%, transparent);
 }
 .session-pill svg { flex: 0 0 auto; }
 .session-pill strong { font: inherit; white-space: nowrap; }

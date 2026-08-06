@@ -336,11 +336,11 @@ describe('meeting caption controls', () => {
     expect(screen.getByText('02:48')).toBeVisible();
     // Spend against budget, the other thing an operator watches mid-meeting. It used to
     // be readable only in the footer, and the cap was editable only two tabs away.
-    expect(screen.getByText('$0.42')).toBeVisible();
+    expect(screen.getByText('Spend')).toBeVisible();
     expect(screen.getByText(/\/ \$5\.00/)).toBeVisible();
-    expect(
-      screen.getByRole('progressbar', { name: 'Session spend against budget' }),
-    ).toHaveAttribute('aria-valuenow', '8');
+    // The bar is one solid colour, so the amounts carry the reading. Labelled for screen
+    // readers as a sentence rather than as two adjacent numbers.
+    expect(screen.getByLabelText('Spent $0.42 of $5.00')).toBeVisible();
 
     fireEvent.click(stopAction);
     await waitFor(() => expect(window.captions.stopSession).toHaveBeenCalledOnce());
@@ -363,14 +363,26 @@ describe('meeting caption controls', () => {
     render(<ControlApp />);
     await screen.findByRole('button', { name: /Start session/i });
     act(() => statusListener?.({ state: 'running' }));
-    // Over the cap: the figures say so as well as the bar, so it is not signalled by hue
-    // alone, and the bar cannot render past full.
     act(() => metricsListener?.({ elapsedMs: 1000, totalUsd: 6.5 }));
 
-    expect(await screen.findByText('$6.50')).toBeVisible();
-    expect(
-      screen.getByRole('progressbar', { name: 'Session spend against budget' }),
-    ).toHaveAttribute('aria-valuenow', '100');
+    expect(await screen.findByLabelText('Spent $6.50 of $5.00')).toBeVisible();
+    // A warning icon appears, so exceeding the cap is not signalled by the bar's shade
+    // alone - the bar is one solid colour by design.
+    const stripe = document.querySelector('.session-stripe');
+    expect(stripe).toHaveClass('is-over');
+    expect(stripe?.querySelector('.session-stripe__stat svg')).not.toBeNull();
+  });
+
+  it('shows no warning icon while within budget', async () => {
+    render(<ControlApp />);
+    await screen.findByRole('button', { name: /Start session/i });
+    act(() => statusListener?.({ state: 'running' }));
+    act(() => metricsListener?.({ elapsedMs: 1000, totalUsd: 0.1 }));
+
+    await screen.findByLabelText('Spent $0.10 of $5.00');
+    const stripe = document.querySelector('.session-stripe');
+    expect(stripe).not.toHaveClass('is-over');
+    expect(stripe?.querySelector('.session-stripe__stat svg')).toBeNull();
   });
 
   it('offers the camera install from the readiness checklist and from Settings', async () => {

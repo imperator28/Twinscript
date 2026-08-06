@@ -1059,7 +1059,40 @@ export function ControlApp() {
           the stripe rather than the stripe itself: the budget control has to be its own
           button, and a button cannot contain another button. */}
       <div className={`session-dock ${active ? 'is-live' : ''}`}>
-        <div className={`session-stripe ${active ? 'is-live' : ''}`}>
+        {/* Live, this is one solid bar at the same height as the idle pill, with the
+            readings on the flanks and Stop in the middle. The grid is `1fr auto 1fr` so
+            Stop stays optically centred no matter how wide the figures beside it grow -
+            a flex row would drift it as the elapsed time crossed from 9:59 to 10:00. */}
+        <div className={`session-stripe ${active ? 'is-live' : ''} ${active && budgetRatio >= 1 ? 'is-over' : ''}`}>
+          {active && (
+            <div className="session-stripe__side">
+              <div className="session-stripe__stat">
+                <span>Spend</span>
+                <strong aria-label={`Spent $${sessionCost.toFixed(2)} of $${sessionBudget.toFixed(2)}`}>
+                  {/* An icon appears over budget, so the state is not carried by the
+                      bar's shade alone. */}
+                  {budgetRatio >= 1 && (
+                    <AlertTriangle size={13} strokeWidth={2.75} aria-hidden="true" />
+                  )}
+                  ${sessionCost.toFixed(2)}
+                  <em> / ${sessionBudget.toFixed(2)}</em>
+                </strong>
+              </div>
+              {/* Raising the cap is the one setting an operator needs mid-meeting, and it
+                  was two tabs away in a number field. A fixed step keeps it a single
+                  press with no typing while a meeting is running. */}
+              <button
+                type="button"
+                className="session-stripe__budget-add"
+                disabled={busy}
+                onClick={() => void saveSettings({ budgetUsd: sessionBudget + 2 })}
+              >
+                <Plus size={14} strokeWidth={2.75} aria-hidden="true" />
+                $2
+              </button>
+            </div>
+          )}
+
           <button
             type="button"
             className={`session-pill session-action ${active ? 'is-live' : ''}`}
@@ -1077,47 +1110,12 @@ export function ControlApp() {
           </button>
 
           {active && (
-            <>
+            <div className="session-stripe__side session-stripe__side--end">
               <div className="session-stripe__stat">
                 <span>Elapsed</span>
                 <strong>{formatElapsed(metrics.elapsedMs)}</strong>
               </div>
-              {/* Spend against budget, as a bar rather than two numbers to compare: the
-                  question mid-meeting is "how close am I", not "what are the figures". */}
-              <div
-                className={`session-stripe__budget ${budgetRatio >= 1 ? 'is-over' : budgetRatio >= 0.8 ? 'is-near' : ''}`}
-              >
-                <div className="session-stripe__stat">
-                  <span>Spend</span>
-                  <strong>
-                    ${sessionCost.toFixed(2)}
-                    <em> / ${sessionBudget.toFixed(2)}</em>
-                  </strong>
-                </div>
-                <span
-                  className="session-stripe__meter"
-                  role="progressbar"
-                  aria-label="Session spend against budget"
-                  aria-valuemin={0}
-                  aria-valuemax={100}
-                  aria-valuenow={Math.round(Math.min(1, budgetRatio) * 100)}
-                >
-                  <i style={{ transform: `scaleX(${Math.min(1, budgetRatio)})` }} />
-                </span>
-              </div>
-              {/* Raising the cap is the one setting an operator needs mid-meeting, and it
-                  was two tabs away in a number field. A fixed step keeps it a single
-                  press with no typing while a meeting is running. */}
-              <button
-                type="button"
-                className="session-stripe__budget-add"
-                disabled={busy}
-                onClick={() => void saveSettings({ budgetUsd: sessionBudget + 2 })}
-              >
-                <Plus size={14} strokeWidth={2.75} aria-hidden="true" />
-                $2
-              </button>
-            </>
+            </div>
           )}
         </div>
       </div>

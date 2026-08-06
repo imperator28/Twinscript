@@ -313,7 +313,7 @@ describe('meeting caption controls', () => {
     };
   });
 
-  it('integrates Start and Stop with elapsed time into the header pill', async () => {
+  it('expands the docked action into a live status stripe', async () => {
     render(<ControlApp />);
 
     const startAction = await screen.findByRole('button', {
@@ -321,16 +321,56 @@ describe('meeting caption controls', () => {
     });
     expect(startAction).toHaveClass('session-pill');
     expect(screen.queryByText('Ready for a live meeting')).not.toBeInTheDocument();
+    // Idle, the dock is only the button.
+    expect(screen.queryByText('Elapsed')).not.toBeInTheDocument();
 
     act(() => statusListener?.({ state: 'running' }));
-    act(() => metricsListener?.({ elapsedMs: 168_000 }));
+    act(() => metricsListener?.({ elapsedMs: 168_000, totalUsd: 0.42 }));
 
-    const stopAction = await screen.findByRole('button', {
-      name: /Stop session.*02:48/i,
-    });
+    const stopAction = await screen.findByRole('button', { name: /Stop session/i });
     expect(stopAction).toHaveClass('is-live');
+
+    // Elapsed time moved out of the button and into a labelled reading: "02:48" on its
+    // own is ambiguous between elapsed and remaining.
+    expect(screen.getByText('Elapsed')).toBeVisible();
+    expect(screen.getByText('02:48')).toBeVisible();
+    // Spend against budget, the other thing an operator watches mid-meeting. It used to
+    // be readable only in the footer, and the cap was editable only two tabs away.
+    expect(screen.getByText('$0.42')).toBeVisible();
+    expect(screen.getByText(/\/ \$5\.00/)).toBeVisible();
+    expect(
+      screen.getByRole('progressbar', { name: 'Session spend against budget' }),
+    ).toHaveAttribute('aria-valuenow', '8');
+
     fireEvent.click(stopAction);
     await waitFor(() => expect(window.captions.stopSession).toHaveBeenCalledOnce());
+  });
+
+  it('raises the budget by a fixed step without leaving the meeting', async () => {
+    render(<ControlApp />);
+    await screen.findByRole('button', { name: /Start session/i });
+    act(() => statusListener?.({ state: 'running' }));
+    act(() => metricsListener?.({ elapsedMs: 1000, totalUsd: 4.8 }));
+
+    // A single press, no typing: this is used while a meeting is running.
+    fireEvent.click(await screen.findByRole('button', { name: '$2' }));
+    await waitFor(() =>
+      expect(window.captions.setSettings).toHaveBeenCalledWith({ budgetUsd: 7 }),
+    );
+  });
+
+  it('warns before the budget runs out, not only by colour', async () => {
+    render(<ControlApp />);
+    await screen.findByRole('button', { name: /Start session/i });
+    act(() => statusListener?.({ state: 'running' }));
+    // Over the cap: the figures say so as well as the bar, so it is not signalled by hue
+    // alone, and the bar cannot render past full.
+    act(() => metricsListener?.({ elapsedMs: 1000, totalUsd: 6.5 }));
+
+    expect(await screen.findByText('$6.50')).toBeVisible();
+    expect(
+      screen.getByRole('progressbar', { name: 'Session spend against budget' }),
+    ).toHaveAttribute('aria-valuenow', '100');
   });
 
   it('offers the camera install from the readiness checklist and from Settings', async () => {

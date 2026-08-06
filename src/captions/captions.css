@@ -376,10 +376,90 @@ h2 { margin-bottom: var(--space-4); font-size: var(--size-title); line-height: v
 }
 /* Above the scrim. */
 .session-dock > * { position: relative; }
+
+/* The dock's shell. Idle it is just the pill; live it becomes a status stripe carrying
+   what an operator watches mid-meeting.
+   The container animates rather than the contents: transitioning `background`, `padding`
+   and `border-radius` on one element gives a continuous widen, whereas swapping two
+   different elements would cross-fade and read as a replacement. */
+.session-stripe {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  transition: padding var(--dur-enter) var(--ease-out),
+    background-color var(--dur-enter) var(--ease-out),
+    border-color var(--dur-enter) var(--ease-out),
+    border-radius var(--dur-enter) var(--ease-out),
+    box-shadow var(--dur-enter) var(--ease-out);
+}
+.session-stripe.is-live {
+  /* A rounded rectangle rather than a pill: at this width a full pill radius reads as a
+     lozenge and wastes the corners. */
+  border-radius: 18px;
+  border-color: var(--border);
+  padding: 6px 6px 6px 6px;
+  background: var(--surface);
+  box-shadow: var(--shadow-raised);
+}
+.session-stripe > * { flex: 0 0 auto; }
+/* Each item slides in from the left edge it grew out of, so the stripe reads as
+   expanding rather than as items appearing on top of it. */
+.session-stripe.is-live > *:not(.session-pill) {
+  animation: stripe-item-enter var(--dur-enter) var(--ease-out) backwards;
+}
+.session-stripe.is-live > *:nth-child(2) { animation-delay: 40ms; }
+.session-stripe.is-live > *:nth-child(3) { animation-delay: 70ms; }
+.session-stripe.is-live > *:nth-child(4) { animation-delay: 100ms; }
+@keyframes stripe-item-enter {
+  from { opacity: 0; transform: translateX(-8px); }
+}
+
+/* A labelled reading, not a bare number: "12:04" alone is ambiguous between elapsed and
+   remaining. */
+.session-stripe__stat { display: grid; gap: 1px; padding: 0 var(--space-2); line-height: 1.15; }
+.session-stripe__stat span { color: var(--text-secondary); font-size: 9px; font-weight: var(--weight-heavy); letter-spacing: var(--track-label); text-transform: uppercase; }
+.session-stripe__stat strong { font-size: var(--size-sm); font-weight: var(--weight-semibold); font-variant-numeric: tabular-nums; }
+.session-stripe__stat em { color: var(--text-secondary); font-style: normal; font-weight: var(--weight-regular); }
+.session-stripe__budget { display: flex; align-items: center; gap: var(--space-2); padding-right: var(--space-2); }
+.session-stripe__meter { display: block; width: 74px; height: 5px; overflow: hidden; border-radius: var(--radius-pill); background: var(--surface-inset); }
+.session-stripe__meter i { display: block; width: 100%; height: 100%; border-radius: inherit; background: var(--success); transform-origin: left center; transition: transform var(--dur-enter) var(--ease-out), background-color var(--dur-enter) var(--ease-out); }
+/* Colour AND the figures change, so approaching the cap is not signalled by hue alone. */
+.session-stripe__budget.is-near .session-stripe__meter i { background: var(--warning-border); }
+.session-stripe__budget.is-over .session-stripe__meter i { background: var(--danger); }
+.session-stripe__budget.is-over .session-stripe__stat strong { color: var(--danger-text); }
+.session-stripe__budget-add {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  min-height: 40px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-pill);
+  background: var(--surface-muted);
+  color: var(--text);
+  font-size: var(--size-sm);
+  font-weight: var(--weight-semibold);
+  font-variant-numeric: tabular-nums;
+  transition: transform var(--dur-press) var(--ease-out), background-color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
+}
+.session-stripe__budget-add:hover:not(:disabled) { border-color: var(--accent); background: var(--accent-quiet); }
+.session-stripe__budget-add:active:not(:disabled) { transform: scale(.96); }
+
 .session-dock .session-pill {
   min-height: var(--dock-height);
   padding: 0 var(--space-6);
   box-shadow: var(--shadow-raised);
+}
+/* Inside the stripe the pill loses its own shadow - the stripe carries it now - and
+   shrinks, because it is one control among several rather than the whole dock. */
+.session-stripe.is-live .session-pill {
+  min-height: 40px;
+  padding: 0 var(--space-4);
+  box-shadow: none;
 }
 .session-pill svg { flex: 0 0 auto; }
 .session-pill strong { font: inherit; white-space: nowrap; }
@@ -416,19 +496,21 @@ h2 { margin-bottom: var(--space-4); font-size: var(--size-title); line-height: v
    controls, Audience view has a dozen - and stretching left a half-empty card that read
    as a rendering fault. */
 .session-grid { align-items: start; }
-/* Settings: paired heights. Eight cards of unrelated length in two columns looked
-   ragged; each ROW now shares a height, which is what reads as deliberate. The trailing
-   note or button row is pushed to the bottom so the extra space lands in one place
-   instead of as a gap in the middle. */
+/* Settings: paired heights. Eight cards of unrelated length in two columns looked ragged;
+   each ROW now shares a height, which is what reads as deliberate.
+   Deliberately NOT flex columns. Making the card a flex container to push its last child
+   to the bottom also stops its children's margins from collapsing, which silently
+   enlarged every vertical gap inside every settings card - a heading's 16px and a
+   paragraph's 12px became 28px instead of 16px, and the rhythm no longer matched the
+   session cards. Slack sitting at the bottom of a shorter card is normal for a card grid;
+   inconsistent internal spacing is not. */
 .settings-layout { align-items: stretch; }
-.settings-layout > .card { display: flex; flex-direction: column; }
-.settings-layout > .card > :last-child { margin-bottom: 0; }
-.settings-layout > .card > .field-note:last-child,
-.settings-layout > .card > .button-row:last-child,
-.settings-layout > .card > details:last-child { margin-top: auto; }
 /* A note explaining the buttons above it needs room to read as a caption rather than as
    a wrapped third line of the button row. */
 .button-row + .field-note, .button-row + .supporting-copy { margin-top: var(--space-3); }
+/* The save action closes the editor, so it needs separation from the last section's
+   inputs rather than sitting flush against them. */
+.glossary-advanced__body > .button-row { margin-top: var(--space-5); }
 .card, .empty-state { border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); padding: var(--space-6); box-shadow: var(--shadow-card); }
 /* The heading's own margin is zeroed so the flex row aligns on its centre; the row
    carries the gap instead, matching the h2 value above. */
@@ -1104,6 +1186,12 @@ a:hover { text-decoration-color: currentColor; }
   }
   /* And without the stagger, which is decorative. */
   .settings-layout > *, .session-grid > * { animation-delay: 0ms; }
+  /* The stripe still changes shape - that is the state change, not decoration - but its
+     contents arrive without sliding, and all at once. */
+  .session-stripe.is-live > *:not(.session-pill) {
+    animation-name: surface-fade;
+    animation-delay: 0ms;
+  }
   /* No scale-on-press, no slide-in, no translate. */
   .button:active:not(:disabled), .text-button:active:not(:disabled),
   .segmented button:active:not(:disabled), .tab-bar button:active:not(:disabled),

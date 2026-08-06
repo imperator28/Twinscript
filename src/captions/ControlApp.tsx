@@ -9,6 +9,7 @@ import {
   Monitor,
   Moon,
   Play,
+  Plus,
   Radio,
   ShieldCheck,
   Square,
@@ -990,12 +991,19 @@ export function ControlApp() {
   );
   const selectedTheme = captionThemeById(settings.captionTheme);
 
+  // "Stop session", not "Stop". The stripe has room for it, and the accessible name has
+  // to say what it stops - "Stop" alone next to a budget control is ambiguous.
   const sessionActionLabel =
     operation === 'stopping'
       ? 'Stopping…'
       : active
         ? 'Stop session'
         : 'Start session';
+  const sessionCost = metrics.totalUsd || 0;
+  const sessionBudget = settings.budgetUsd || 0;
+  // Guarded: a zero budget would divide to Infinity and paint a full bar on a session
+  // that has spent nothing.
+  const budgetRatio = sessionBudget > 0 ? sessionCost / sessionBudget : 0;
   // One place decides what is missing and how much it matters, so the checklist the
   // operator reads and the Start button they press cannot disagree.
   const readiness = reviewReadiness({
@@ -1043,31 +1051,75 @@ export function ControlApp() {
       {/* The primary action, docked bottom-centre so it is reachable without scrolling
           back to a header that has scrolled away. It is fixed chrome, so the shell
           reserves its height as bottom padding rather than letting it cover the last
-          card - see `--dock-height` in the stylesheet. */}
-      <div className="session-dock">
-        <button
-          type="button"
-          className={`session-pill session-action ${active ? 'is-live' : ''}`}
-          disabled={sessionActionDisabled}
-          onClick={() => void (active ? stop() : start())}
-        >
-          {/* An icon naming the action, replacing a grey status dot that made a
-              ready button look inactive. */}
-          {active ? (
-            <Square size={13} strokeWidth={2.5} fill="currentColor" aria-hidden="true" />
-          ) : (
-            <Play size={14} strokeWidth={2.5} fill="currentColor" aria-hidden="true" />
-          )}
-          <strong>{sessionActionLabel}</strong>
+          card - see `--dock-height` in the stylesheet.
+
+          Idle it is a pill. Live it widens into a status stripe carrying the things an
+          operator watches mid-meeting - elapsed time and spend against budget - so those
+          are readable without leaving the meeting to find them. Stop is a button INSIDE
+          the stripe rather than the stripe itself: the budget control has to be its own
+          button, and a button cannot contain another button. */}
+      <div className={`session-dock ${active ? 'is-live' : ''}`}>
+        <div className={`session-stripe ${active ? 'is-live' : ''}`}>
+          <button
+            type="button"
+            className={`session-pill session-action ${active ? 'is-live' : ''}`}
+            disabled={sessionActionDisabled}
+            onClick={() => void (active ? stop() : start())}
+          >
+            {/* An icon naming the action, replacing a grey status dot that made a
+                ready button look inactive. */}
+            {active ? (
+              <Square size={13} strokeWidth={2.5} fill="currentColor" aria-hidden="true" />
+            ) : (
+              <Play size={14} strokeWidth={2.5} fill="currentColor" aria-hidden="true" />
+            )}
+            <strong>{sessionActionLabel}</strong>
+          </button>
+
           {active && (
             <>
-              <span className="session-pill__separator" aria-hidden="true">|</span>
-              <span className="session-pill__timer">
-                {formatElapsed(metrics.elapsedMs)}
-              </span>
+              <div className="session-stripe__stat">
+                <span>Elapsed</span>
+                <strong>{formatElapsed(metrics.elapsedMs)}</strong>
+              </div>
+              {/* Spend against budget, as a bar rather than two numbers to compare: the
+                  question mid-meeting is "how close am I", not "what are the figures". */}
+              <div
+                className={`session-stripe__budget ${budgetRatio >= 1 ? 'is-over' : budgetRatio >= 0.8 ? 'is-near' : ''}`}
+              >
+                <div className="session-stripe__stat">
+                  <span>Spend</span>
+                  <strong>
+                    ${sessionCost.toFixed(2)}
+                    <em> / ${sessionBudget.toFixed(2)}</em>
+                  </strong>
+                </div>
+                <span
+                  className="session-stripe__meter"
+                  role="progressbar"
+                  aria-label="Session spend against budget"
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={Math.round(Math.min(1, budgetRatio) * 100)}
+                >
+                  <i style={{ transform: `scaleX(${Math.min(1, budgetRatio)})` }} />
+                </span>
+              </div>
+              {/* Raising the cap is the one setting an operator needs mid-meeting, and it
+                  was two tabs away in a number field. A fixed step keeps it a single
+                  press with no typing while a meeting is running. */}
+              <button
+                type="button"
+                className="session-stripe__budget-add"
+                disabled={busy}
+                onClick={() => void saveSettings({ budgetUsd: sessionBudget + 2 })}
+              >
+                <Plus size={14} strokeWidth={2.75} aria-hidden="true" />
+                $2
+              </button>
             </>
           )}
-        </button>
+        </div>
       </div>
 
       <nav className="tab-bar" aria-label="Primary">
@@ -1704,7 +1756,7 @@ export function ControlApp() {
                 {settings.protectedTokens.length} protected tokens
               </p>
             </div>
-            <div className="button-row glossary-actions">
+            <div className="button-row">
               <button className="button button--secondary" disabled={active || busy} onClick={() => void importGlossary()}>Import glossary</button>
               <button className="button button--quiet" disabled={busy} onClick={() => void exportGlossary()}>Export configuration</button>
             </div>
@@ -1975,7 +2027,14 @@ export function ControlApp() {
       )}
 
       <footer className="app-footer">
-        <span>Estimated session cost <strong>${(metrics.totalUsd || 0).toFixed(3)}</strong> / ${(settings.budgetUsd || 0).toFixed(2)}</span>
+        {/* Only while idle. During a session the stripe carries spend against budget, and
+            two places showing the same figure is how they come to disagree. */}
+        {!active && (
+          <span>
+            Estimated session cost <strong>${sessionCost.toFixed(3)}</strong> / $
+            {sessionBudget.toFixed(2)}
+          </span>
+        )}
         <span>
           Temporary audio backup is encrypted; playable audio is created only after Keep.{' '}
           {/* The only menu item with no in-app equivalent, so it moves here rather

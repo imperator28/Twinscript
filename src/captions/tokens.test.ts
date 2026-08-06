@@ -204,6 +204,49 @@ describe('docked primary action', () => {
   });
 });
 
+describe('card internals', () => {
+  it('does not make settings cards flex containers', () => {
+    // Pushing a card's last child to the bottom needs `display: flex`, which also stops
+    // its children's margins from collapsing - a heading's 16px and a paragraph's 12px
+    // became 28px, enlarging every gap inside every settings card and breaking the rhythm
+    // against the session cards. Slack at the bottom of a shorter card is normal; wrong
+    // internal spacing is not.
+    expect(CSS).not.toMatch(/\.settings-layout > \.card \{[^}]*display:\s*flex/);
+    expect(CSS).not.toMatch(/\.settings-layout > \.card > [^{]*\{[^}]*margin-top:\s*auto/);
+  });
+
+  it('separates a caption from the button row above it', () => {
+    expect(CSS).toMatch(/\.button-row \+ \.field-note[^{]*\{[^}]*margin-top/);
+  });
+
+  it('keeps settings cards in a row at a shared height', () => {
+    expect(CSS).toMatch(/\.settings-layout \{ align-items: stretch/);
+    // Session keeps natural heights: its two cards differ enormously and stretching left
+    // one visibly half empty.
+    expect(CSS).toMatch(/\.session-grid \{ align-items: start/);
+  });
+});
+
+describe('live session stripe', () => {
+  it('animates the container so the dock widens rather than swapping', () => {
+    // Cross-fading two different elements reads as a replacement; transitioning one
+    // element's padding and radius reads as expansion.
+    const stripe = CSS.match(/\.session-stripe \{[^}]+\}/)?.[0] ?? '';
+    expect(stripe).toMatch(/transition:[^;]*padding/);
+    expect(stripe).toMatch(/transition:[\s\S]*border-radius/);
+  });
+
+  it('does not signal budget pressure by colour alone', () => {
+    // The bar changes hue, but the figures beside it change too.
+    expect(CSS).toMatch(/\.session-stripe__budget\.is-over \.session-stripe__stat strong/);
+  });
+
+  it('keeps the shape change under reduced motion but drops the slide', () => {
+    const reduced = CSS.slice(CSS.indexOf('@media (prefers-reduced-motion: reduce)'));
+    expect(reduced).toMatch(/\.session-stripe\.is-live[^{]*\{[^}]*animation-name:\s*surface-fade/);
+  });
+});
+
 describe('window chrome', () => {
   it('reserves the traffic-light inset for macOS only', () => {
     // The 50px top inset clears macOS's `hiddenInset` traffic lights, which overlay

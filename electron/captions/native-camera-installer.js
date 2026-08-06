@@ -45,28 +45,45 @@ class NativeCameraInstaller {
     }
   }
 
-  async install() {
+  // Install, repair and remove all act on the DirectShow filter, which is the
+  // camera that ships. They previously drove install-native-camera.ps1, which
+  // installs the Media Foundation source - a camera that enumerates everywhere and
+  // renders a black feed in every meeting client. Repairing to a broken camera is
+  // worse than offering no repair at all.
+  //
+  // Install and repair are the same operation: registering the filter is
+  // idempotent, and re-registering is the correct response to a moved file, an app
+  // update, or a half-removed earlier install.
+  #register() {
     this.#assertSupported();
-    return this.#run('install-native-camera.ps1', [
-      '-SourceDirectory',
-      this.sourceDirectory,
-    ]);
+    return this.#run(
+      'register-dshow-camera.ps1',
+      [
+        '-Action',
+        'Install',
+        // Explicit: in a packaged app the script sits beside the DLL in
+        // resources/native-camera, where its dev-relative default cannot resolve.
+        '-ReleaseDir',
+        this.sourceDirectory,
+      ],
+      { requiresFilter: true },
+    );
+  }
+
+  async install() {
+    return this.#register();
   }
 
   async repair() {
-    this.#assertSupported();
-    return this.#run('install-native-camera.ps1', [
-      '-SourceDirectory',
-      this.sourceDirectory,
-    ]);
+    return this.#register();
   }
 
   async remove() {
     this.#assertSupported();
-    return this.#run('uninstall-native-camera.ps1');
+    return this.#run('register-dshow-camera.ps1', ['-Action', 'Remove']);
   }
 
-  #run(scriptName, extraArgs = []) {
+  #run(scriptName, extraArgs = [], { requiresFilter = false } = {}) {
     const scriptPath = path.win32.join(this.scriptDirectory, scriptName);
     if (!this.existsSync(scriptPath)) {
       return Promise.reject(
@@ -76,15 +93,21 @@ class NativeCameraInstaller {
         ),
       );
     }
-    for (const sourceName of ['vcam-host.exe', 'twinscript-vcam-source.dll']) {
-      if (
-        extraArgs.length > 0 &&
-        !this.existsSync(path.win32.join(this.sourceDirectory, sourceName))
-      ) {
+    // Only the DirectShow filter is required, and only for install. This used to
+    // demand vcam-host.exe and twinscript-vcam-source.dll - the Media Foundation
+    // artifacts, which the shipping camera does not use. Gating install on files
+    // no longer part of the product is how the UI came to refuse to install a
+    // camera whose own DLL was present and fine.
+    if (requiresFilter) {
+      const filterPath = path.win32.join(
+        this.sourceDirectory,
+        'twinscript-dshow-camera.dll',
+      );
+      if (!this.existsSync(filterPath)) {
         return Promise.reject(
           operationError(
             'native_camera_resources_missing',
-            `Native camera resource is missing: ${sourceName}`,
+            'Native camera resource is missing: twinscript-dshow-camera.dll',
           ),
         );
       }

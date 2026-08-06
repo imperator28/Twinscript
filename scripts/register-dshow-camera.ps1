@@ -27,7 +27,16 @@ param(
 $ErrorActionPreference = 'Continue'
 
 if (-not $ReleaseDir) {
-  $ReleaseDir = Join-Path (Split-Path -Parent $PSScriptRoot) 'native\camera-companion\build\Release'
+  # Development layout first, then the packaged layout where this script sits beside
+  # the DLL in resources\native-camera. Without the fallback a packaged install
+  # would look for the filter in a path that only exists in a source checkout.
+  $devDir = Join-Path (Split-Path -Parent $PSScriptRoot) 'native\camera-companion\build\Release'
+  $ReleaseDir =
+    if (Test-Path -LiteralPath (Join-Path $devDir 'twinscript-dshow-camera.dll')) {
+      $devDir
+    } else {
+      $PSScriptRoot
+    }
 }
 $builtDll = Join-Path $ReleaseDir 'twinscript-dshow-camera.dll'
 

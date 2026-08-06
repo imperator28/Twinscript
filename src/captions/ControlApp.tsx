@@ -338,29 +338,27 @@ export function ControlApp() {
     setNativeCameraHealth(result.data);
   };
 
+  // Render the camera card unless we positively KNOW the platform cannot host it.
+  // Gating on `supported === true` hid every action whenever a health report was
+  // missing or had failed, which is how the panel came to have no way to install or
+  // repair the camera. Absence of a report is not evidence of absence of support,
+  // and user-agent sniffing is not either.
+  const cameraCardVisible = nativeCameraHealth?.supported !== false;
+
   const nativeCameraMessage = (() => {
-    if (!nativeCameraHealth?.supported) {
-      return 'Use OBS Virtual Camera on this system.';
+    // No report yet is a distinct state from "not supported". Conflating them told
+    // Windows users to install OBS while the camera sat there working.
+    if (!nativeCameraHealth) return 'Checking the virtual camera…';
+    if (!nativeCameraHealth.supported) {
+      return 'This system cannot host the virtual camera. Capture the Twinscript Camera Stage window in OBS instead.';
     }
+    // The registration check supplies its own text for every failure it can name,
+    // so it is preferred over anything guessed from the state alone.
+    if (nativeCameraHealth.message) return nativeCameraHealth.message;
     if (!nativeCameraHealth.installed) {
-      return 'Windows 11 native camera is not installed.';
+      return 'The virtual camera is not installed yet. Install it once; Windows will ask for approval.';
     }
-    if (nativeCameraHealth.state === 'repair-required') {
-      return nativeCameraHealth.message || 'The installed camera must be repaired for this app version.';
-    }
-    if (nativeCameraHealth.state === 'streaming') {
-      return 'Twinscript camera is running and ready to select in your meeting app.';
-    }
-    if (nativeCameraHealth.state === 'starting') {
-      return 'Starting the Twinscript cameraâ€¦';
-    }
-    if (nativeCameraHealth.state === 'restarting') {
-      return nativeCameraHealth.message || 'Camera stopped unexpectedly; restarting once.';
-    }
-    if (nativeCameraHealth.state === 'failed') {
-      return nativeCameraHealth.message || 'Native camera needs attention. Captions remain active.';
-    }
-    return 'Native camera is installed. Select Virtual camera to start it.';
+    return 'Twinscript is listed as a camera in your meeting app. Select Virtual camera here, then pick Twinscript there.';
   })();
 
   const start = async () => {
@@ -1252,9 +1250,14 @@ export function ControlApp() {
             </p>
           </article>
 
-          {nativeCameraHealth?.supported && (
+          {/* Rendered whenever the platform could host the camera, NOT only when a
+              health report has arrived saying so. Gating the whole card on
+              `health.supported` meant that a missing or failed health report hid
+              every action, leaving no way to install or repair the camera from the
+              UI at all — which is exactly what happened. */}
+          {cameraCardVisible && (
             <article className="card native-camera-card">
-              <p className="eyebrow">WINDOWS 11 CAMERA</p>
+              <p className="eyebrow">WINDOWS VIRTUAL CAMERA</p>
               <div className="section-heading">
                 <div>
                   <h2>Native virtual camera</h2>
@@ -1262,46 +1265,36 @@ export function ControlApp() {
                     Runs outside the caption process. If it stops, transcription and on-screen captions continue.
                   </p>
                 </div>
-                <span className={`native-camera-state is-${nativeCameraHealth.state}`}>
-                  {nativeCameraHealth.state.replace('-', ' ')}
+                <span
+                  className={`native-camera-state is-${nativeCameraHealth?.state || 'checking'}`}
+                >
+                  {(nativeCameraHealth?.state || 'checking').replace('-', ' ')}
                 </span>
               </div>
               <p className="native-camera-detail">{nativeCameraMessage}</p>
               <div className="button-row">
-                {!nativeCameraHealth.installed ? (
+                {/* Install is ALWAYS available, and is the same action as repair:
+                    registering the filter is idempotent. Reinstalling is legitimate
+                    at any time — after an app update, or when the registered file has
+                    gone missing — so hiding it behind `!installed` left the operator
+                    with a broken camera and no button. */}
+                <button
+                  className="button button--primary"
+                  disabled={busy}
+                  onClick={() => void runNativeCameraAction('install')}
+                >
+                  {nativeCameraHealth?.installed
+                    ? 'Reinstall camera'
+                    : 'Install camera'}
+                </button>
+                {nativeCameraHealth?.installed && (
                   <button
-                    className="button button--primary"
+                    className="button button--quiet"
                     disabled={busy}
-                    onClick={() => void runNativeCameraAction('install')}
+                    onClick={() => void runNativeCameraAction('remove')}
                   >
-                    Install native camera
+                    Remove camera
                   </button>
-                ) : (
-                  <>
-                    {nativeCameraHealth.state === 'failed' && (
-                      <button
-                        className="button button--primary"
-                        disabled={busy}
-                        onClick={() => void runNativeCameraAction('retry')}
-                      >
-                        Retry camera
-                      </button>
-                    )}
-                    <button
-                      className="button button--secondary"
-                      disabled={busy}
-                      onClick={() => void runNativeCameraAction('repair')}
-                    >
-                      Repair camera
-                    </button>
-                    <button
-                      className="button button--quiet"
-                      disabled={busy}
-                      onClick={() => void runNativeCameraAction('remove')}
-                    >
-                      Remove camera
-                    </button>
-                  </>
                 )}
               </div>
               <p className="field-note">

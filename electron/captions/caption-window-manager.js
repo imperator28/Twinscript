@@ -320,15 +320,20 @@ class CaptionWindowManager {
       // control panel can show it, but it can neither prevent publishing nor stop
       // it, and its host process is not started - starting it would register a
       // second, non-functional camera with a nearly identical name.
+      // Health is reported FIRST and unconditionally, before any early return can
+      // skip it. The control panel only subscribes to health, so a state it never
+      // receives leaves it rendering the "no supported camera" fallback and hiding
+      // the install actions entirely - which is how the camera panel came to have
+      // nowhere to repair from.
+      if (this.nativeCameraSupervisor) {
+        const health = await this.nativeCameraSupervisor.refresh().catch(() => null);
+        if (health) this.broadcastControl('captions:native-camera-health', health);
+      }
+
       await this.cameraFramePublisher.start(window);
       if (generation !== this.cameraOutputGeneration) {
         await this.cameraFramePublisher.stop();
         return;
-      }
-      if (this.nativeCameraSupervisor) {
-        const health = await this.nativeCameraSupervisor.refresh().catch(() => null);
-        if (generation !== this.cameraOutputGeneration) return;
-        if (health) this.broadcastControl('captions:native-camera-health', health);
       }
     }).catch(async (error) => {
       this.cameraOutputStarted = false;

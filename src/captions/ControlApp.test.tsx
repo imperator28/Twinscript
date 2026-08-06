@@ -320,7 +320,7 @@ describe('meeting caption controls', () => {
     const install = await screen.findByRole('button', {
       name: 'Install native camera',
     });
-    expect(screen.getByText(/Windows 11 native camera is not installed/i)).toBeInTheDocument();
+    expect(screen.getByText(/not installed yet/i)).toBeInTheDocument();
     fireEvent.click(install);
     await waitFor(() =>
       expect(window.captions.installNativeCamera).toHaveBeenCalledOnce(),
@@ -328,20 +328,37 @@ describe('meeting caption controls', () => {
 
     act(() => {
       nativeCameraHealthListener?.({
-        state: 'streaming',
+        state: 'installed',
         supported: true,
         installed: true,
         message: null,
       });
     });
-    expect(screen.getByText(/Twinscript camera is running/i)).toBeInTheDocument();
+    expect(screen.getByText(/listed as a camera in your meeting app/i)).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
     expect(
       await screen.findByRole('heading', { name: 'Native virtual camera' }),
     ).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Repair camera' })).toBeInTheDocument();
+    // Reinstall is offered even when installed: registering the filter is
+    // idempotent and is the fix for a moved file or an app update.
+    expect(screen.getByRole('button', { name: 'Reinstall camera' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Remove camera' })).toBeInTheDocument();
+  });
+
+  it('always offers a way to install the camera, even with no health report', async () => {
+    // The reported defect: the whole card was gated on health.supported, so a
+    // missing or failed health report hid every action and left no way to install
+    // or repair the camera from the UI at all.
+    render(<ControlApp />);
+    await screen.findByRole('button', { name: /Start session/i });
+    fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+
+    expect(
+      await screen.findByRole('heading', { name: 'Native virtual camera' }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Install camera|Reinstall camera/ }))
+      .toBeInTheDocument();
   });
 
   it('offers explicit meeting-record preferences and a native folder choice', async () => {

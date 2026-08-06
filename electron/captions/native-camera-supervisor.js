@@ -4,6 +4,10 @@ const os = require('node:os');
 const path = require('node:path');
 const { randomUUID } = require('node:crypto');
 const { spawn: spawnChild, spawnSync } = require('node:child_process');
+const {
+  describeDshowCamera,
+  inspectDshowCamera,
+} = require('./dshow-camera-registration.js');
 
 const PRODUCT_DIRECTORY = 'Twinscript';
 
@@ -96,6 +100,9 @@ class NativeCameraSupervisor {
     this.spawn = options.spawn || spawnChild;
     this.createPipeServer = options.createPipeServer || ((listener) => net.createServer(listener));
     this.isInstalled = options.isInstalled || (() => registeredMachineCamera(this));
+    // Injectable so health can be tested without a registry.
+    this.inspectDshowCamera =
+      options.inspectDshowCamera || (() => inspectDshowCamera({ platform }));
     this.randomId = options.randomId || randomUUID;
     this.restartDelayMs = options.restartDelayMs ?? 250;
     this.stopTimeoutMs = options.stopTimeoutMs ?? 2000;
@@ -152,21 +159,23 @@ class NativeCameraSupervisor {
         reason: this.support.reason,
       });
     }
-    const installation = await Promise.resolve(this.isInstalled());
-    if (installation === 'repair-required') {
-      return this.#publish({
-        state: 'repair-required',
-        installed: true,
-        reason: 'installed-version-mismatch',
-        message: 'The installed camera does not match this app version. Choose Repair camera.',
-        code: 'installed-version-mismatch',
-      });
-    }
-    const installed = Boolean(installation);
+    // Health describes the DirectShow filter, which is the camera that ships and
+    // the one a meeting client actually opens.
+    //
+    // It used to compare the installed Media Foundation host and media source
+    // against the packaged copies and report "The installed camera does not match
+    // this app version. Choose Repair camera." whenever those bytes moved. That was
+    // wrong twice over: the MF camera is not the shipping camera, and Repair
+    // installs the one that renders a black feed in every meeting client. Rebuilding
+    // the app was enough to trigger it.
+    const inspection = this.inspectDshowCamera();
     return this.#publish({
-      state: installed ? (this.child ? this.health.state : 'stopped') : 'not-installed',
-      installed,
-      reason: installed ? null : 'not-installed',
+      state: inspection.installed ? 'installed' : 'not-installed',
+      installed: inspection.installed,
+      reason: inspection.reason,
+      filterPath: inspection.filterPath,
+      message: describeDshowCamera(inspection),
+      code: inspection.reason,
     });
   }
 

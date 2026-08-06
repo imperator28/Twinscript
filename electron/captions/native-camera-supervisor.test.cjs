@@ -31,7 +31,7 @@ class FakeSocket extends EventEmitter {
   }
 }
 
-function harness({ installed = true } = {}) {
+function harness({ installed = true, dshow } = {}) {
   const spawns = [];
   const servers = [];
   const health = [];
@@ -43,6 +43,14 @@ function harness({ installed = true } = {}) {
     sourcePath: 'C:\\ProgramData\\Twinscript\\bin\\twinscript-vcam-source.dll',
     regionPath: 'C:\\ProgramData\\Twinscript\\runtime\\camera-frame-v1.bin',
     isInstalled: () => installed,
+    // Health now describes the DirectShow filter - the camera that ships - rather
+    // than comparing Media Foundation binaries byte-for-byte.
+    inspectDshowCamera: () =>
+      dshow || {
+        installed: true,
+        filterPath: 'C:\\ProgramData\\Twinscript\\bin\\twinscript-dshow-camera-1.dll',
+        reason: null,
+      },
     randomId: () => 'fixed-test',
     restartDelayMs: 0,
     stopTimeoutMs: 20,
@@ -113,7 +121,10 @@ test('reports unsupported and not-installed states without spawning', async () =
   });
   assert.equal((await unsupported.start()).state, 'unsupported');
 
-  const { supervisor, spawns } = harness({ installed: false });
+  // Not installed now means the DirectShow filter is not registered.
+  const { supervisor, spawns } = harness({
+    dshow: { installed: false, filterPath: null, reason: 'not-installed' },
+  });
   assert.equal((await supervisor.start()).state, 'not-installed');
   assert.equal(spawns.length, 0);
 });
@@ -177,12 +188,33 @@ test('a spawn error clears the poisoned child and allows manual retry', async ()
   assert.equal(spawns.length, 3);
 });
 
-test('an installed binary mismatch requires repair before launch', async () => {
-  const { supervisor, spawns } = harness({ installed: 'repair-required' });
+test('a Media Foundation binary mismatch no longer demands a repair', async () => {
+  // This test previously asserted the opposite. Comparing the installed MF host and
+  // media source against the packaged copies reported "The installed camera does not
+  // match this app version. Choose Repair camera." whenever those bytes moved -
+  // which merely rebuilding the app was enough to do. It was wrong twice over: the
+  // MF camera is not the shipping camera, and Repair installs the one that renders a
+  // black feed in every meeting client.
+  const { supervisor } = harness({ installed: 'repair-required' });
   const status = await supervisor.start();
-  assert.equal(status.state, 'repair-required');
-  assert.equal(status.installed, true);
-  assert.equal(spawns.length, 0);
+  assert.notEqual(status.state, 'repair-required');
+  assert.equal(status.installed, true, 'the DirectShow filter is what counts');
+  assert.equal(status.reason, null);
+});
+
+test('a registered filter whose file is gone is reported, not called healthy', async () => {
+  // Enumerates and then fails to load, so it must never read as installed.
+  const { supervisor } = harness({
+    dshow: {
+      installed: false,
+      filterPath: 'C:\\gone\\twinscript-dshow-camera.dll',
+      reason: 'filter-file-missing',
+    },
+  });
+  const status = await supervisor.start();
+  assert.equal(status.installed, false);
+  assert.equal(status.reason, 'filter-file-missing');
+  assert.match(status.message, /file is missing/);
 });
 
 test('installed status compares packaged and ProgramData binaries byte-for-byte', () => {

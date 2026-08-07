@@ -204,6 +204,22 @@ describe('docked primary action', () => {
   });
 });
 
+describe('destructive button pair', () => {
+  it('pairs a solid variant with an outlined one', () => {
+    // Weighted by consequence: the reset that can discard a glossary is the solid one.
+    expect(CSS).toMatch(/\.button--danger \{[^}]*background:\s*var\(--danger\)/);
+    expect(CSS).toMatch(/\.button--danger-quiet \{[^}]*border-color:\s*var\(--danger\)/);
+  });
+
+  it('gives the outlined variant a real surface, not transparency', () => {
+    // Transparent picked up whatever sat behind it, so on a muted panel the "white" button
+    // was grey and the pair stopped reading as one solid and one outlined.
+    const quiet = CSS.match(/\.button--danger-quiet \{[^}]+\}/)?.[0] ?? '';
+    expect(quiet).toMatch(/background:\s*var\(--surface\)/);
+    expect(quiet).not.toMatch(/background:\s*transparent/);
+  });
+});
+
 describe('card internals', () => {
   it('does not make settings cards flex containers', () => {
     // Pushing a card's last child to the bottom needs `display: flex`, which also stops

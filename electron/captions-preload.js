@@ -48,6 +48,7 @@ contextBridge.exposeInMainWorld('captions', {
   importGlossary: () => invoke('captions:glossary-import'),
   exportGlossary: () => invoke('captions:glossary-export'),
   setSettings: (patch) => invoke('captions:settings-set', patch),
+  resetSettings: () => invoke('captions:settings-reset'),
   chooseMeetingRecordsDirectory: () =>
     invoke('captions:meeting-records-directory-choose'),
   openMeetingRecordsFolder: () => invoke('captions:meeting-records-open'),

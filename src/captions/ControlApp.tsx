@@ -56,6 +56,12 @@ import {
   resetLocalPreferences,
 } from './localPreferences';
 import {
+  DELAY_OPTIONS,
+  delayIndex,
+  delayOption,
+  delayProfileAt,
+} from './captionDelay';
+import {
   THEME_STORAGE_KEY,
   applyPlatform,
   bindTheme,
@@ -230,7 +236,9 @@ export function ControlApp() {
   // invisibly while the operator believed they had answered everything.
   const [backlog, setBacklog] = useState<MeetingRecordReview[]>([]);
   const [confirmDiscardAll, setConfirmDiscardAll] = useState(false);
-  const [confirmReset, setConfirmReset] = useState(false);
+  // One armed reset at a time. Two independent flags could both be set, showing two
+  // confirmation rows for two different scopes.
+  const [pendingReset, setPendingReset] = useState<null | 'appearance' | 'all'>(null);
   const [recordsUsage, setRecordsUsage] = useState<{
     bytes: number;
     sessionCount: number;
@@ -837,6 +845,24 @@ export function ControlApp() {
   const sectionSetter = (section: 'pairs' | 'literal') =>
     section === 'pairs' ? setPairDrafts : setLiteralDrafts;
 
+  const resetEverySetting = async () => {
+    setBusy(true);
+    const result = await window.captions.resetSettings();
+    setBusy(false);
+    setPendingReset(null);
+    if (!result.ok) {
+      setNotice(result.error.message);
+      return;
+    }
+    const next = result.data as unknown as CaptionSettings;
+    setSettingsState(next);
+    // The glossary editors hold their own copies of what was stored, so they have to be
+    // repopulated or they would keep offering to save the terms that were just cleared.
+    syncGlossaryEditors(next);
+    refreshGlossaryTerms();
+    setNotice('All settings reset. Your API key and saved meetings are unchanged.');
+  };
+
   const updateDraft = (
     section: 'pairs' | 'literal',
     id: string,
@@ -1044,6 +1070,7 @@ export function ControlApp() {
   // Counted from `steps`, not `outstanding`: `outstanding` already has the dismissal
   // applied, so while dismissed it reads zero and the Settings card could not tell whether
   // restoring the checklist would reveal anything or nothing.
+  const delaySelection = delayOption(settings.delayProfile);
   const checklistItemCount = readiness.steps.filter((step) => !step.done).length;
   const checklistHasItems = checklistItemCount > 0;
 
@@ -1787,52 +1814,77 @@ export function ControlApp() {
                 </button>
               </div>
             )}
-            {/* Scoped deliberately, and the scope is stated rather than implied. A control
-                called "Reset" next to a glossary and an API key has to say what it will not
-                touch, or nobody can safely press it. Two steps because clearing a
-                preference cannot be undone - the same inline pattern as deleting audio. */}
+            {/* Two scopes, side by side, weighted by consequence: the appearance reset is
+                outlined, the full reset is solid, so the one that can discard a glossary is
+                the one that looks like it.
+
+                One `pendingReset` rather than a flag each. Two flags could both be true, and
+                the card would then show two confirmation rows for two different resets. */}
             <div className="button-row">
-              {confirmReset ? (
+              {pendingReset ? (
                 <>
                   <button
                     className="button button--danger"
                     disabled={busy}
                     onClick={() => {
+                      if (pendingReset === 'all') {
+                        void resetEverySetting();
+                        return;
+                      }
                       const cleared = resetLocalPreferences(window.localStorage);
                       setAdvisoriesDismissed(false);
                       setTheme('system');
-                      setConfirmReset(false);
+                      setPendingReset(null);
                       setNotice(
                         cleared.length
-                          ? 'Display preferences reset. Your key, glossary and meetings are unchanged.'
-                          : 'Nothing to reset: display preferences were already at their defaults.',
+                          ? 'Appearance reset. Your key, glossary and meetings are unchanged.'
+                          : 'Nothing to reset: appearance was already at its defaults.',
                       );
                     }}
                   >
-                    Reset preferences
+                    {pendingReset === 'all'
+                      ? 'Yes, reset everything'
+                      : 'Yes, reset appearance'}
                   </button>
                   <button
                     className="button button--quiet"
                     disabled={busy}
-                    onClick={() => setConfirmReset(false)}
+                    onClick={() => setPendingReset(null)}
                   >
                     Cancel
                   </button>
                 </>
               ) : (
-                <button
-                  className="button button--danger-quiet"
-                  disabled={busy}
-                  onClick={() => setConfirmReset(true)}
-                >
-                  <RotateCcw size={15} strokeWidth={2.25} aria-hidden="true" />
-                  Reset display preferences
-                </button>
+                <>
+                  <button
+                    className="button button--danger-quiet"
+                    disabled={busy}
+                    onClick={() => setPendingReset('appearance')}
+                  >
+                    <RotateCcw size={15} strokeWidth={2.25} aria-hidden="true" />
+                    Reset appearance
+                  </button>
+                  <button
+                    className="button button--danger"
+                    disabled={busy}
+                    onClick={() => setPendingReset('all')}
+                  >
+                    <RotateCcw size={15} strokeWidth={2.25} aria-hidden="true" />
+                    Reset all settings
+                  </button>
+                </>
               )}
             </div>
+            {/* The note answers whichever question is live, so the consequence is on screen
+                at the moment of the decision rather than above it. */}
             <p className="field-note">
-              Reset clears only this window's appearance and checklist state. Your API key,
-              glossary, budget, saved meetings and installed camera are untouched.
+              {pendingReset === 'all'
+                ? 'This discards your custom glossary terms, protected codes and meeting context, and returns quality, budget, caption theme and record settings to their defaults.'
+                : pendingReset === 'appearance'
+                  ? "This clears this window's theme and checklist state. Nothing else changes."
+                  : 'Appearance covers theme and checklist state. All settings also returns quality, budget, caption theme, records policy and your custom glossary to their defaults.'}
+              {' '}
+              Your API key and saved meetings are never touched.
             </p>
           </article>
 
@@ -1873,7 +1925,38 @@ export function ControlApp() {
                 beside Visible history, so nothing here concerns text any more. */}
             <p className="eyebrow">CAPTION DISPLAY</p><h2>Caption timing</h2>
             <label className="toggle"><input type="checkbox" checked={settings.provisionalTranslation} onChange={(event) => void saveSettings({ provisionalTranslation: event.target.checked })} /><span>Show early captions while speech is processing</span></label>
-            <label className="field"><span>Caption responsiveness</span><select value={settings.delayProfile} onChange={(event) => void saveSettings({ delayProfile: event.target.value as CaptionSettings['delayProfile'] })}><option value="minimal">Fastest</option><option value="low">Fast</option><option value="default">Stable</option></select></label>
+            {/* A slider with the cost written down, not a dropdown of adjectives. As a
+                "Fastest / Fast / Stable" select it named no consequence, so the rational
+                choice was always Fastest - and the words most often corrected afterwards
+                are part numbers, dimensions and names, which is most of what this app is
+                listening to. */}
+            <label className="field pace-control">
+              <span className="pace-control__heading">
+                <span>Caption responsiveness</span>
+                <output>{delaySelection.label}</output>
+              </span>
+              <input
+                type="range"
+                min="0"
+                max={DELAY_OPTIONS.length - 1}
+                step="1"
+                value={delayIndex(settings.delayProfile)}
+                aria-label="Caption responsiveness"
+                aria-valuetext={`${delaySelection.label}. ${delaySelection.detail}`}
+                onChange={(event) =>
+                  void saveSettings({
+                    delayProfile: delayProfileAt(
+                      Number(event.target.value),
+                    ) as CaptionSettings['delayProfile'],
+                  })
+                }
+              />
+              <span className="pace-control__scale" aria-hidden="true">
+                <span>Sooner</span>
+                <span>Fewer corrections</span>
+              </span>
+              <span className="pace-control__note">{delaySelection.detail}</span>
+            </label>
             {/* Caption size lived here, one tab away from Visible history - its
                 sibling control, affecting the same pixels. Both now sit in the
                 Audience view card, beside the preview that shows what they do. */}

@@ -226,6 +226,7 @@ describe('meeting caption controls', () => {
       startSession: vi.fn(() => ok({})),
       stopSession: vi.fn(() => ok({})),
       setSettings: vi.fn((patch) => ok({ ...settings, ...patch })),
+      resetSettings: vi.fn(() => ok({ ...settings })),
       setScreeningPrompt: (prompt) => ok(prompt),
       rateEvaluation: (rating) =>
         ok({
@@ -651,15 +652,15 @@ describe('meeting caption controls', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
 
     fireEvent.click(
-      await screen.findByRole('button', { name: 'Reset display preferences' }),
+      await screen.findByRole('button', { name: 'Reset appearance' }),
     );
     // One click does not do it: clearing a preference cannot be undone.
     expect(window.localStorage.getItem('captions.theme')).toBe('dark');
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
     expect(window.localStorage.getItem('captions.theme')).toBe('dark');
 
-    fireEvent.click(screen.getByRole('button', { name: 'Reset display preferences' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Reset preferences' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Reset appearance' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Yes, reset appearance' }));
 
     expect(window.localStorage.getItem('captions.theme')).toBeNull();
     expect(window.localStorage.getItem('captions.readinessDismissed')).toBeNull();
@@ -676,10 +677,99 @@ describe('meeting caption controls', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
 
     fireEvent.click(
-      await screen.findByRole('button', { name: 'Reset display preferences' }),
+      await screen.findByRole('button', { name: 'Reset appearance' }),
     );
-    fireEvent.click(screen.getByRole('button', { name: 'Reset preferences' }));
-    expect(await screen.findByText(/already at their defaults/)).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: 'Yes, reset appearance' }));
+    expect(await screen.findByText(/already at its defaults/)).toBeVisible();
+  });
+
+  it('separates resetting appearance from resetting everything', async () => {
+    // Two scopes, two buttons, two confirmations. One button quietly capable of discarding
+    // a glossary is the thing to avoid.
+    render(<ControlApp />);
+    await screen.findByRole('button', { name: /Start session/i });
+    fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Reset all settings' }));
+    // Names what will be lost before it can happen.
+    expect(screen.getByText(/discards your custom glossary terms/)).toBeVisible();
+    expect(window.captions.resetSettings).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Yes, reset everything' }));
+    await waitFor(() => expect(window.captions.resetSettings).toHaveBeenCalledOnce());
+    expect(await screen.findByText(/API key and saved meetings are unchanged/)).toBeVisible();
+  });
+
+  it('repopulates the glossary editors after resetting everything', async () => {
+    // They hold their own copies of what was stored, so without this they would keep
+    // offering to save the terms that were just cleared.
+    window.captions.getSettings = () =>
+      Promise.resolve({
+        ok: true as const,
+        data: {
+          ...settings,
+          customGlossaryConfiguration: {
+            schemaVersion: 1,
+            id: 'custom-overrides',
+            name: 'Custom overrides',
+            description: '',
+            regions: [],
+            domains: [],
+            protectedTokens: ['ABC-123'],
+            terms: [{ en: 'gasket', zh: '垫片', aliases: [], doNotTranslate: false, priority: 5 }],
+          },
+        },
+      });
+    window.captions.resetSettings = vi.fn(() =>
+      Promise.resolve({
+        ok: true as const,
+        data: { ...settings, customGlossaryConfiguration: null },
+      }),
+    ) as typeof window.captions.resetSettings;
+
+    render(<ControlApp />);
+    await screen.findByRole('button', { name: /Start session/i });
+    fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+    fireEvent.click(screen.getByText('Edit your own terms, phrases and context'));
+    expect(
+      (screen.getByRole('textbox', { name: 'English term 1' }) as HTMLInputElement).value,
+    ).toBe('gasket');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Reset all settings' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Yes, reset everything' }));
+
+    await waitFor(() =>
+      expect(
+        (screen.getByRole('textbox', { name: 'English term 1' }) as HTMLInputElement).value,
+      ).toBe(''),
+    );
+    expect(
+      (screen.getByRole('textbox', { name: 'Protected codes' }) as HTMLInputElement).value,
+    ).toBe('');
+  });
+
+  it('explains what caption responsiveness costs', async () => {
+    // As a "Fastest / Fast / Stable" dropdown it named no consequence, so the rational
+    // choice was always Fastest.
+    render(<ControlApp />);
+    await screen.findByRole('button', { name: /Start session/i });
+    fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+
+    const slider = await screen.findByRole('slider', { name: 'Caption responsiveness' });
+    // Default is the middle stop, not the fastest.
+    expect(slider).toHaveValue('1');
+    expect(screen.getByText(/Balanced/)).toBeVisible();
+    expect(screen.getByText(/fewer rewrites than Fastest/)).toBeVisible();
+
+    fireEvent.change(slider, { target: { value: '0' } });
+    await waitFor(() =>
+      expect(window.captions.setSettings).toHaveBeenCalledWith({ delayProfile: 'minimal' }),
+    );
+
+    fireEvent.change(slider, { target: { value: '2' } });
+    await waitFor(() =>
+      expect(window.captions.setSettings).toHaveBeenCalledWith({ delayProfile: 'default' }),
+    );
   });
 
   it('hides the readiness checklist once nothing is outstanding', async () => {

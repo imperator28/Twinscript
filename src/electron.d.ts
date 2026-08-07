@@ -52,6 +52,8 @@ interface CaptionsAPI {
     directory?: string;
     settings?: Record<string, unknown>;
   }>>;
+  /** Restores the settings file to defaults. Cannot reach the API key or saved meetings. */
+  resetSettings(): Promise<Result<Record<string, unknown>>>;
   /** Opens the records folder itself; reveal needs a sessionId and so could not. */
   openMeetingRecordsFolder(): Promise<Result<{ directory: string }>>;
   /** Measured disk use, so the card reports what is stored rather than an estimate. */

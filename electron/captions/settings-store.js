@@ -290,6 +290,19 @@ class SettingsStore {
     return next;
   }
 
+  /**
+   * Restore every stored setting to its shipped default.
+   *
+   * Scoped to this file only. The API key lives in the OS credential store and saved
+   * meetings live in the records directory, so neither is reachable from here - which is
+   * the property that makes a "reset all" safe to offer at all.
+   */
+  reset() {
+    const defaults = { ...DEFAULT_SETTINGS };
+    this.write(defaults);
+    return defaults;
+  }
+
   write(settings) {
     fs.mkdirSync(path.dirname(this.filePath), { recursive: true });
     fs.writeFileSync(this.filePath, JSON.stringify(settings, null, 2), {

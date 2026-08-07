@@ -708,8 +708,11 @@ input[type="range"] { width: 100%; accent-color: var(--accent); }
    the Keep button beside it. Permanent deletion used to wear `button--quiet` - the
    most muted style on the card. */
 .button--danger { background: var(--danger); color: var(--text-on-danger); }
-.button--danger-quiet { border-color: var(--danger-border); background: transparent; color: var(--danger-text); }
-.button--danger-quiet:hover:not(:disabled) { background: var(--danger-surface); }
+/* An outlined counterpart to the solid one: the card surface with a red stroke, not
+   transparency. Transparent picked up whatever sat behind it, so on a muted panel the
+   "white" button was grey and the pair no longer read as one solid and one outlined. */
+.button--danger-quiet { border-color: var(--danger); background: var(--surface); color: var(--danger-text); }
+.button--danger-quiet:hover:not(:disabled) { background: var(--danger-surface); border-color: var(--danger); }
 .segmented { display: grid; grid-template-columns: 1fr 1fr; padding: 3px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface-inset); }
 .segmented button { min-height: 39px; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--text-secondary); font-weight: var(--weight-semibold); }
 .segmented button.is-selected { background: var(--surface); color: var(--text); box-shadow: var(--shadow-card); }

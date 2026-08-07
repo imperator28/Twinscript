@@ -200,6 +200,20 @@ function registerCaptionIpc({
     windows.broadcast('captions:settings', payload);
     return payload;
   });
+  // Restores the settings file to defaults. Reaches nothing else by construction: the API
+  // key is in the OS credential store and saved meetings are in the records directory,
+  // neither of which this store can address.
+  handle('captions:settings-reset', () => {
+    const settings = settingsStore.reset();
+    // Same propagation as an ordinary change, so the overlays and camera stage pick up the
+    // restored layout and theme instead of keeping the old ones until relaunch.
+    if (typeof windows.applySettings === 'function') windows.applySettings(settings);
+    const payload = windows.settingsPayload
+      ? windows.settingsPayload(settings)
+      : settings;
+    windows.broadcast('captions:settings', payload);
+    return payload;
+  });
   handle('captions:meeting-records-directory-choose', async () => {
     const result = await dialog.showOpenDialog(windows.controlWindow, {
       title: 'Choose meeting records folder',

@@ -1,0 +1,96 @@
+import { describe, expect, it } from 'vitest';
+
+import {
+  DEFAULT_DELAY_PROFILE,
+  DELAY_OPTIONS,
+  delayIndex,
+  delayOption,
+  delayProfileAt,
+} from './captionDelay';
+
+describe('DELAY_OPTIONS', () => {
+  it('runs fastest to steadiest, so a slider reads left as sooner', () => {
+    expect(DELAY_OPTIONS.map((option) => option.profile)).toEqual([
+      'minimal',
+      'low',
+      'default',
+    ]);
+  });
+
+  it('states a consequence for every option, in both directions', () => {
+    // The old dropdown said "Fastest / Fast / Stable" and named no cost, which is a choice
+    // presented as free - so the answer was always Fastest.
+    for (const option of DELAY_OPTIONS) {
+      expect(option.detail.length).toBeGreaterThan(40);
+      expect(option.detail).toMatch(/rewrit|wait|corrected|live/i);
+    }
+  });
+
+  it('labels the behaviour rather than the setting', () => {
+    expect(DELAY_OPTIONS.map((option) => option.label)).toEqual([
+      'Fastest',
+      'Balanced',
+      'Most accurate',
+    ]);
+  });
+
+  it('uses the profile names the transcription API expects', () => {
+    // These go straight through to OpenAI's `delay` parameter; a renamed label must not
+    // change the wire value.
+    for (const option of DELAY_OPTIONS) {
+      expect(['minimal', 'low', 'default']).toContain(option.profile);
+    }
+  });
+});
+
+describe('delayIndex', () => {
+  it('maps each profile to its slider position', () => {
+    expect(delayIndex('minimal')).toBe(0);
+    expect(delayIndex('low')).toBe(1);
+    expect(delayIndex('default')).toBe(2);
+  });
+
+  it('falls back to the shipped default, not to position zero', () => {
+    // Position zero is Fastest, the option with the most visible downside. An unreadable
+    // stored value must not quietly move an operator onto it.
+    const fallback = delayIndex(DEFAULT_DELAY_PROFILE);
+    expect(delayIndex(undefined)).toBe(fallback);
+    expect(delayIndex(null)).toBe(fallback);
+    expect(delayIndex('turbo')).toBe(fallback);
+    expect(fallback).not.toBe(0);
+  });
+});
+
+describe('delayProfileAt', () => {
+  it('maps a slider position back to its profile', () => {
+    expect(delayProfileAt(0)).toBe('minimal');
+    expect(delayProfileAt(1)).toBe('low');
+    expect(delayProfileAt(2)).toBe('default');
+  });
+
+  it('clamps rather than returning undefined at the edges', () => {
+    expect(delayProfileAt(-5)).toBe('minimal');
+    expect(delayProfileAt(99)).toBe('default');
+  });
+
+  it('rounds a fractional position', () => {
+    expect(delayProfileAt(1.4)).toBe('low');
+    expect(delayProfileAt(1.6)).toBe('default');
+  });
+
+  it('round-trips with delayIndex', () => {
+    for (const option of DELAY_OPTIONS) {
+      expect(delayProfileAt(delayIndex(option.profile))).toBe(option.profile);
+    }
+  });
+});
+
+describe('delayOption', () => {
+  it('returns the option for display', () => {
+    expect(delayOption('default').label).toBe('Most accurate');
+  });
+
+  it('never returns undefined for an unknown value', () => {
+    expect(delayOption('nonsense').profile).toBe(DEFAULT_DELAY_PROFILE);
+  });
+});

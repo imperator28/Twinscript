@@ -1428,3 +1428,42 @@ test('a settings file with no context notes reads as an empty list', () => {
   const settings = new SettingsStore({ getPath: () => userData }).get();
   assert.deepEqual(settings.glossaryContextNotes, []);
 });
+
+test('settings reset restores defaults and cannot reach the key or the meetings', () => {
+  const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'settings-reset-'));
+  const store = new SettingsStore({ getPath: () => userData });
+
+  store.set({
+    budgetUsd: 42,
+    delayProfile: 'minimal',
+    captionTheme: 'steel',
+    glossaryContextNotes: ['Lily Chen'],
+    customGlossaryConfiguration: {
+      schemaVersion: 1,
+      id: 'custom-overrides',
+      name: 'Custom overrides',
+      description: '',
+      regions: [],
+      domains: [],
+      protectedTokens: ['ABC-123'],
+      terms: [{ en: 'gasket', zh: '垫片', priority: 5 }],
+    },
+  });
+
+  const reset = store.reset();
+  assert.equal(reset.budgetUsd, 5);
+  assert.equal(reset.delayProfile, 'low', 'responsiveness returns to the balanced default');
+  assert.equal(reset.customGlossaryConfiguration, null);
+  assert.deepEqual(reset.glossaryContextNotes, []);
+
+  // Persisted, not just returned: a reset that only lived in memory would come back on the
+  // next launch.
+  const reloaded = new SettingsStore({ getPath: () => userData }).get();
+  assert.equal(reloaded.budgetUsd, 5);
+  assert.equal(reloaded.customGlossaryConfiguration, null);
+
+  // The reset payload carries no credential and no path to saved meetings, which is the
+  // property that makes offering "reset all" safe.
+  assert.equal(reset.meetingRecordsDirectory, null);
+  assert.ok(!('apiKey' in reset) && !('credential' in reset));
+});

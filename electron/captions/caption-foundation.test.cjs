@@ -1503,3 +1503,40 @@ test('every supported delay profile is accepted, and nothing else is', () => {
     );
   }
 });
+
+test('the budget can be raised on a running session, not just for the next one', () => {
+  // The mid-meeting "+$2" control exists to lift a cap while the meeting is going. The cost
+  // meter took its budget at construction with no setter, so the control wrote the stored
+  // setting and the running session kept spending against the old cap - or stayed stopped.
+  const events = [];
+  const meter = new CostMeter({ budgetUsd: 5, onBudgetEvent: (e) => events.push(e.type) });
+
+  meter.addTextUsage(
+    { model: 'gpt-5.6-luna', inputTokens: 1_000_000, outputTokens: 1_000_000 },
+    'primary',
+  );
+  assert.ok(meter.totalUsd > 5, 'spent past the cap');
+  assert.equal(meter.canSpend(), false);
+
+  meter.setBudget(20);
+  assert.equal(meter.budgetUsd, 20);
+  assert.equal(meter.canSpend(), true, 'raising the cap resumes a stopped session');
+  assert.ok(meter.snapshot().ratio < 1);
+});
+
+test('lowering the budget below what is spent stops the session', () => {
+  // The latches are re-evaluated rather than cleared, so this direction works too.
+  const meter = new CostMeter({ budgetUsd: 50 });
+  meter.addTextUsage({ model: 'gpt-5.6-luna', inputTokens: 1_000_000 }, 'primary');
+  assert.equal(meter.canSpend(), true);
+  meter.setBudget(0.5);
+  assert.equal(meter.canSpend(), false);
+});
+
+test('a nonsensical budget is ignored rather than disabling the session', () => {
+  const meter = new CostMeter({ budgetUsd: 5 });
+  for (const bad of [0, -1, Number.NaN, null, 'ten']) {
+    meter.setBudget(bad);
+    assert.equal(meter.budgetUsd, 5, `${String(bad)} should be ignored`);
+  }
+});

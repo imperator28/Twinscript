@@ -777,6 +777,45 @@ describe('meeting caption controls', () => {
     });
   });
 
+  it('locks the settings a running session cannot pick up', async () => {
+    // Both are snapshotted at session start - the delay is sent once in the session.update
+    // that opens the transcription socket, and provisionalTranslation is read from the
+    // settings object captured in start(). Leaving them interactive meant dragging the
+    // slider mid-meeting changed the stored value and nothing observable, which reads as
+    // the setting having no effect at all.
+    render(<ControlApp />);
+    await screen.findByRole('button', { name: /Start session/i });
+    fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+
+    const slider = await screen.findByRole('slider', { name: 'Caption responsiveness' });
+    expect(slider).toBeEnabled();
+    expect(screen.getByText(/Applies when you start the next session/)).toBeVisible();
+
+    act(() => statusListener?.({ state: 'running' }));
+
+    expect(slider).toBeDisabled();
+    expect(
+      screen.getByLabelText('Show early captions while speech is processing'),
+    ).toBeDisabled();
+    expect(screen.getByText(/Stop and start to change it/)).toBeVisible();
+  });
+
+  it('keeps the budget control usable mid-session, unlike the snapshotted settings', async () => {
+    // The budget is the one thing that must change while a meeting runs, which is why the
+    // main process applies it to the live cost meter rather than only storing it.
+    render(<ControlApp />);
+    await screen.findByRole('button', { name: /Start session/i });
+    act(() => statusListener?.({ state: 'running' }));
+    act(() => metricsListener?.({ elapsedMs: 1000, totalUsd: 4.5 }));
+
+    const add = await screen.findByRole('button', { name: '$2' });
+    expect(add).toBeEnabled();
+    fireEvent.click(add);
+    await waitFor(() =>
+      expect(window.captions.setSettings).toHaveBeenCalledWith({ budgetUsd: 7 }),
+    );
+  });
+
   it('hides the readiness checklist once nothing is outstanding', async () => {
     render(<ControlApp />);
     await screen.findByRole('button', { name: /Start session/i });

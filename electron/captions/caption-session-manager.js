@@ -941,6 +941,27 @@ class CaptionSessionManager {
     });
   }
 
+  /**
+   * Apply a settings change to the session already running.
+   *
+   * Most settings are snapshotted at start() and cannot change mid-session - the
+   * transcription delay, for instance, is sent once in the session.update that opens the
+   * socket. The budget is the exception, because the whole point of the mid-meeting "+$2"
+   * control is to lift a cap while the meeting is still going. It previously only wrote the
+   * stored setting, so the running meter kept the old cap and a stopped session stayed
+   * stopped.
+   */
+  applyLiveSettings(patch = {}) {
+    if (!this.active || !this.cost) return null;
+    if (!Object.hasOwn(patch, 'budgetUsd')) return null;
+    this.settings = { ...this.settings, budgetUsd: patch.budgetUsd };
+    this.cost.setBudget(patch.budgetUsd);
+    // Pushed immediately so the live bar redraws against the new cap rather than waiting
+    // for the next transcription event, which may be a while on a quiet line.
+    this.emitMetrics();
+    return this.cost.snapshot();
+  }
+
   emitMetrics(extra = {}) {
     const next = {
       sessionId: this.sessionId,

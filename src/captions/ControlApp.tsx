@@ -1924,7 +1924,11 @@ export function ControlApp() {
             {/* Was "Timing and text". Caption size moved to the Audience view card
                 beside Visible history, so nothing here concerns text any more. */}
             <p className="eyebrow">CAPTION DISPLAY</p><h2>Caption timing</h2>
-            <label className="toggle"><input type="checkbox" checked={settings.provisionalTranslation} onChange={(event) => void saveSettings({ provisionalTranslation: event.target.checked })} /><span>Show early captions while speech is processing</span></label>
+            {/* Also snapshotted at session start - the session manager reads
+                `this.settings.provisionalTranslation`, and that object is captured in
+                start() and never refreshed. It was interactive mid-meeting and did
+                nothing. */}
+            <label className="toggle"><input type="checkbox" disabled={active} checked={settings.provisionalTranslation} onChange={(event) => void saveSettings({ provisionalTranslation: event.target.checked })} /><span>Show early captions while speech is processing</span></label>
             {/* A slider with the cost written down, not a dropdown of adjectives. As a
                 "Fastest / Fast / Stable" select it named no consequence, so the rational
                 choice was always Fastest - and the words most often corrected afterwards
@@ -1935,11 +1939,17 @@ export function ControlApp() {
                 <span>Caption responsiveness</span>
                 <output>{delaySelection.label}</output>
               </span>
+              {/* Disabled while live, like Quality level above it. The value is sent once,
+                  in the session.update that opens the transcription socket, and is never
+                  re-sent - so dragging this mid-meeting changed the stored setting and
+                  nothing else. A control that moves and does nothing is worse than one that
+                  is plainly unavailable. */}
               <input
                 type="range"
                 min="0"
                 max={DELAY_OPTIONS.length - 1}
                 step="1"
+                disabled={active}
                 value={delayIndex(settings.delayProfile)}
                 aria-label="Caption responsiveness"
                 aria-valuetext={`${delaySelection.label}. ${delaySelection.detail}`}
@@ -1955,7 +1965,12 @@ export function ControlApp() {
                 <span>Sooner</span>
                 <span>Fewer corrections</span>
               </span>
-              <span className="pace-control__note">{delaySelection.detail}</span>
+              <span className="pace-control__note">
+                {delaySelection.detail}
+                {active
+                  ? ' Locked while a session is running: the transcriber is told this once, when the session starts. Stop and start to change it.'
+                  : ' Applies when you start the next session.'}
+              </span>
             </label>
             {/* Caption size lived here, one tab away from Visible history - its
                 sibling control, affecting the same pixels. Both now sit in the

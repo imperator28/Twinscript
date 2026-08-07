@@ -63,6 +63,30 @@ class CostMeter {
     this.checkBudget();
   }
 
+  /**
+   * Raise or lower the cap on a running session.
+   *
+   * The budget was constructor-only, so the mid-meeting "+$2" control changed the stored
+   * setting and nothing else: the running meter kept the old cap and a session that had
+   * already stopped spending stayed stopped. Raising the cap is worthless if it cannot
+   * take effect until the next meeting.
+   *
+   * The warned/exhausted latches are re-evaluated rather than merely cleared. Clearing them
+   * unconditionally would re-warn at 75% of the new cap for spending already reported, and
+   * would let a LOWERED cap leave a session spending past its limit.
+   */
+  setBudget(budgetUsd) {
+    const next = Number(budgetUsd);
+    if (!Number.isFinite(next) || next <= 0) return this.snapshot();
+    this.budgetUsd = next;
+    const ratio = this.totalUsd / next;
+    // Latches follow the new ratio in both directions, so raising the cap genuinely
+    // resumes a stopped session and lowering it stops an over-budget one.
+    this.warned = ratio >= 0.75;
+    this.exhausted = ratio >= 1;
+    return this.snapshot();
+  }
+
   checkBudget() {
     const ratio = this.budgetUsd > 0 ? this.totalUsd / this.budgetUsd : 1;
     if (!this.warned && ratio >= 0.75) {

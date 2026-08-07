@@ -194,6 +194,12 @@ function registerCaptionIpc({
     } else if (patch.layout) {
       windows.applyLayout(patch.layout);
     }
+    // A running session snapshots its settings at start, so most changes reach it only on
+    // the next one. The budget is the exception: the mid-meeting control exists precisely
+    // to lift a cap while the meeting is still going.
+    if (typeof sessionManager?.applyLiveSettings === 'function') {
+      sessionManager.applyLiveSettings(patch || {});
+    }
     const payload = windows.settingsPayload
       ? windows.settingsPayload(settings)
       : settings;

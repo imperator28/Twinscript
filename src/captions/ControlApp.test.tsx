@@ -359,6 +359,41 @@ describe('meeting caption controls', () => {
     );
   });
 
+  it('keeps the budget control out of reach until the cap is close', async () => {
+    // Showing it for the whole meeting would put a second control on the bar for the many
+    // sessions that never approach the limit, and train the operator to ignore it by the
+    // time it matters. Collapsed it is disabled, so it is neither focusable nor announced.
+    render(<ControlApp />);
+    await screen.findByRole('button', { name: /Start session/i });
+    act(() => statusListener?.({ state: 'running' }));
+
+    act(() => metricsListener?.({ elapsedMs: 1000, totalUsd: 0.5 }));
+    await screen.findByLabelText('Spent $0.50 of $5.00');
+    expect(document.querySelector('.session-stripe')).not.toHaveClass('needs-budget');
+    expect(screen.getByRole('button', { name: '$2' })).toBeDisabled();
+
+    // 80% of the cap: close enough to matter.
+    act(() => metricsListener?.({ elapsedMs: 2000, totalUsd: 4 }));
+    await screen.findByLabelText('Spent $4.00 of $5.00');
+    expect(document.querySelector('.session-stripe')).toHaveClass('needs-budget');
+    expect(screen.getByRole('button', { name: '$2' })).toBeEnabled();
+  });
+
+  it('puts the readings inside the stop control, so the whole bar is one target', async () => {
+    render(<ControlApp />);
+    await screen.findByRole('button', { name: /Start session/i });
+    act(() => statusListener?.({ state: 'running' }));
+    act(() => metricsListener?.({ elapsedMs: 168_000, totalUsd: 0.42 }));
+
+    const stop = await screen.findByRole('button', { name: /Stop session/i });
+    // Not siblings beside a smaller button: a click anywhere on the red bar stops the
+    // session, including on the figures.
+    expect(stop.querySelector('.session-stripe__action')).not.toBeNull();
+    expect(stop.textContent).toMatch(/Spend/);
+    expect(stop.textContent).toMatch(/Elapsed/);
+    expect(stop.textContent).toMatch(/02:48/);
+  });
+
   it('warns before the budget runs out, not only by colour', async () => {
     render(<ControlApp />);
     await screen.findByRole('button', { name: /Start session/i });

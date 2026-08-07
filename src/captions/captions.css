@@ -404,19 +404,21 @@ h2 { margin-bottom: var(--space-4); font-size: var(--size-title); line-height: v
     box-shadow var(--dur-enter) var(--ease-out);
 }
 .session-stripe.is-live {
-  grid-template-columns: 1fr auto 1fr;
+  display: flex;
   /* Spans the window, capped to the content measure so the readings do not end up at
      opposite edges of an ultrawide display where neither is glanceable. Centred within
      the dock, which is `display: block` while live. */
   width: min(100%, 1180px);
   margin-inline: auto;
   /* One solid bar at the same height as the idle pill, so starting a session changes the
-     dock's width and colour but never its height - the page below does not shift. */
+     dock's width and colour but never its height - the page below does not shift.
+     The bar itself is transparent: the stop button inside it paints the red and fills the
+     remaining width, so the whole visible bar is one target. */
   min-height: var(--dock-height);
-  padding: 0 var(--space-2) 0 var(--space-5);
-  background: var(--danger);
-  color: var(--text-on-danger);
-  box-shadow: var(--shadow-raised);
+  gap: var(--space-2);
+  padding: 0;
+  background: transparent;
+  box-shadow: none;
 }
 /* Over budget the bar keeps its colour and gains a ring.
    Darkening the fill was measured and rejected: the two themes put opposite labels on this
@@ -424,52 +426,65 @@ h2 { margin-bottom: var(--space-4); font-size: var(--size-title); line-height: v
    10:1 while dropping dark-theme to 3.48:1, below the minimum. A ring is a non-text
    boundary, so it signals without touching the label's contrast at all, and the bar stays
    one solid colour. The figures also gain a warning icon. */
-.session-stripe.is-live.is-over {
+.session-stripe.is-live.is-over .session-pill {
   box-shadow: var(--shadow-raised), 0 0 0 2px var(--warning-border);
 }
-.session-stripe__side { display: flex; align-items: center; gap: var(--space-3); justify-self: start; }
-.session-stripe__side--end { justify-self: end; padding-right: var(--space-3); }
-/* Each item fades in from the edge it grew out of, so the bar reads as expanding rather
-   than as items appearing on top of it. */
-.session-stripe.is-live > * {
-  animation: stripe-item-enter var(--dur-enter) var(--ease-out) backwards;
-}
-.session-stripe.is-live > *:nth-child(2) { animation-delay: 50ms; }
-.session-stripe.is-live > *:nth-child(3) { animation-delay: 80ms; }
 @keyframes stripe-item-enter {
   from { opacity: 0; transform: scale(.96); }
 }
 
+/* The readings live INSIDE the stop button, on its flanks, with the action centred.
+   `flex: 1` on the two stats and `auto` in the middle keeps the action optically centred
+   however wide the figures grow - the elapsed time crossing 9:59 to 10:00 would otherwise
+   nudge it sideways. */
+.session-stripe__action { display: inline-flex; align-items: center; gap: var(--space-2); flex: 0 0 auto; }
+.session-stripe__stat--end { text-align: right; }
 /* A labelled reading, not a bare number: "12:04" alone is ambiguous between elapsed and
    remaining. Both flanks sit on the red bar, so they take the on-danger colour and carry
    their own opacity for hierarchy instead of a second hue. */
-.session-stripe__stat { display: grid; gap: 1px; line-height: 1.15; color: var(--text-on-danger); }
+.session-stripe__stat { display: grid; flex: 1; gap: 1px; line-height: 1.15; color: var(--text-on-danger); }
 .session-stripe__stat span { font-size: 9px; font-weight: var(--weight-heavy); letter-spacing: var(--track-label); text-transform: uppercase; opacity: .72; }
 .session-stripe__stat strong { display: inline-flex; align-items: center; gap: 5px; font-size: var(--size-body); font-weight: var(--weight-semibold); font-variant-numeric: tabular-nums; }
 .session-stripe__stat em { font-style: normal; font-weight: var(--weight-regular); opacity: .72; }
+/* Collapsed to nothing until the cap is in reach, then it opens from the left and the stop
+   control - which flexes - gives up exactly that width. The bar's total width never
+   changes.
+   Kept mounted rather than conditionally rendered so the open/close can transition at all;
+   `disabled` while collapsed keeps a zero-width control out of the tab order. */
 .session-stripe__budget-add {
+  flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 2px;
-  min-height: 36px;
-  padding: 0 var(--space-3);
-  /* Outlined in the bar's own foreground rather than filled: a second filled control
-     beside Stop would compete with it. */
-  border: 1px solid color-mix(in srgb, var(--text-on-danger) 45%, transparent);
+  overflow: hidden;
+  width: 0;
+  min-height: var(--dock-height);
+  padding: 0;
+  border: 0 solid transparent;
   border-radius: var(--radius-pill);
-  background: transparent;
-  color: var(--text-on-danger);
+  background: var(--surface);
+  color: var(--danger-text);
   font-size: var(--size-sm);
-  font-weight: var(--weight-semibold);
+  font-weight: var(--weight-bold);
   font-variant-numeric: tabular-nums;
-  transition: transform var(--dur-press) var(--ease-out),
+  white-space: nowrap;
+  opacity: 0;
+  transition: width var(--dur-enter) var(--ease-out),
+    padding var(--dur-enter) var(--ease-out),
+    opacity var(--dur-fast) var(--ease-out),
     background-color var(--dur-fast) var(--ease-out),
-    border-color var(--dur-fast) var(--ease-out);
+    transform var(--dur-press) var(--ease-out);
 }
-.session-stripe__budget-add:hover:not(:disabled) {
-  border-color: var(--text-on-danger);
-  background: color-mix(in srgb, var(--text-on-danger) 14%, transparent);
+.session-stripe.needs-budget .session-stripe__budget-add {
+  /* A fixed open width, because `auto` cannot be transitioned to. */
+  width: 92px;
+  padding: 0 var(--space-3);
+  border-width: 1px;
+  border-color: var(--danger-border);
+  opacity: 1;
 }
+.session-stripe__budget-add:hover:not(:disabled) { background: var(--danger-surface); }
 .session-stripe__budget-add:active:not(:disabled) { transform: scale(.96); }
 
 .session-dock .session-pill {
@@ -477,20 +492,23 @@ h2 { margin-bottom: var(--space-4); font-size: var(--size-title); line-height: v
   padding: 0 var(--space-6);
   box-shadow: var(--shadow-raised);
 }
-/* On the red bar the pill is no longer its own surface: it drops the fill, the shadow and
-   the ring, and reads as the bar's central action. Hover and press still answer, so it
-   does not become a label. */
+/* The whole red bar IS the stop control. It fills whatever width the budget button is not
+   using, so there is one target and no dead red space beside a smaller button. */
 .session-stripe.is-live .session-pill {
-  min-height: 40px;
-  padding: 0 var(--space-4);
-  background: transparent;
+  flex: 1;
+  justify-content: space-between;
+  gap: var(--space-4);
+  min-height: var(--dock-height);
+  padding: 0 var(--space-5);
+  background: var(--danger);
   color: var(--text-on-danger);
-  box-shadow: none;
-  border-color: color-mix(in srgb, var(--text-on-danger) 45%, transparent);
+  box-shadow: var(--shadow-raised);
 }
+/* Press is carried by scale, which the shared rule already provides. Hover tints toward
+   the label colour by a measured amount: the two themes put opposite labels on this bar,
+   so a fixed darken or lighten helps one and fails the other. 8% keeps both above 4.5:1. */
 .session-stripe.is-live .session-pill:hover:not(:disabled) {
-  border-color: var(--text-on-danger);
-  background: color-mix(in srgb, var(--text-on-danger) 14%, transparent);
+  background: color-mix(in srgb, var(--text-on-danger) 8%, var(--danger));
 }
 .session-pill svg { flex: 0 0 auto; }
 .session-pill strong { font: inherit; white-space: nowrap; }

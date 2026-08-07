@@ -243,16 +243,24 @@ describe('live session stripe', () => {
     expect(live).toMatch(/min-height:\s*var\(--dock-height\)/);
   });
 
+  const liveBar = () =>
+    CSS.match(/\.session-stripe\.is-live \.session-pill \{[^}]+\}/)?.[0] ?? '';
+
+  it('makes the whole bar the stop control', () => {
+    // `flex: 1` so it fills whatever the budget button is not using - one target, with no
+    // dead red space beside a smaller button in the middle.
+    expect(liveBar()).toMatch(/flex:\s*1/);
+  });
+
   it('centres the action independently of the flanking figures', () => {
-    // `1fr auto 1fr`: a flex row would drift Stop sideways as the elapsed time crossed
-    // 9:59 to 10:00.
-    const live = CSS.match(/\.session-stripe\.is-live \{[^}]+\}/)?.[0] ?? '';
-    expect(live).toMatch(/grid-template-columns:\s*1fr auto 1fr/);
+    // The two readings flex and the action does not, so it stays put as the elapsed time
+    // crosses 9:59 to 10:00.
+    expect(CSS).toMatch(/\.session-stripe__stat \{[^}]*flex:\s*1/);
+    expect(CSS).toMatch(/\.session-stripe__action \{[^}]*flex:\s*0 0 auto/);
   });
 
   it('draws the live bar as one solid colour', () => {
-    const live = CSS.match(/\.session-stripe\.is-live \{[^}]+\}/)?.[0] ?? '';
-    expect(live).toMatch(/background:\s*var\(--danger\)/);
+    expect(liveBar()).toMatch(/background:\s*var\(--danger\)/);
     // No separate meter element competing with the bar it sits on.
     expect(CSS).not.toMatch(/session-stripe__meter/);
   });
@@ -261,16 +269,33 @@ describe('live session stripe', () => {
     // The two themes put opposite labels on this bar - white in light, near-black in dark -
     // so darkening the fill measured 10:1 in light and 3.48:1 in dark. Over-budget is
     // signalled by a ring and an icon instead, neither of which is text.
-    const over = CSS.match(/\.session-stripe\.is-live\.is-over \{[^}]+\}/)?.[0] ?? '';
+    const over =
+      CSS.match(/\.session-stripe\.is-live\.is-over \.session-pill \{[^}]+\}/)?.[0] ?? '';
     expect(over).not.toMatch(/background/);
     expect(over).toMatch(/box-shadow/);
+  });
+
+  it('tints hover toward the label rather than darkening or lightening', () => {
+    // A fixed darken helps light and fails dark; a fixed lighten does the reverse. Tinting
+    // toward whatever the label is measures 6.26:1 light and 4.71:1 dark at 8%; 14% fails.
+    const hover =
+      CSS.match(/\.session-stripe\.is-live \.session-pill:hover[^{]*\{[^}]+\}/)?.[0] ?? '';
+    expect(hover).toMatch(/color-mix\(in srgb, var\(--text-on-danger\) 8%, var\(--danger\)\)/);
+  });
+
+  it('opens the budget control by squeezing the bar, not widening it', () => {
+    // Collapsed to zero width and animated open; the stop control flexes, so the bar's
+    // total width never changes.
+    const collapsed = CSS.match(/\.session-stripe__budget-add \{[^}]+\}/)?.[0] ?? '';
+    expect(collapsed).toMatch(/width:\s*0/);
+    expect(collapsed).toMatch(/transition:[^;]*width/);
+    expect(CSS).toMatch(/\.session-stripe\.needs-budget \.session-stripe__budget-add \{[^}]*width:\s*\d+px/);
   });
 
   it('reads the bar foreground from the theme-aware on-danger token', () => {
     // White on the dark theme's lighter red measures 3.39:1 and fails; --text-on-danger
     // resolves to near-black there.
-    const live = CSS.match(/\.session-stripe\.is-live \{[^}]+\}/)?.[0] ?? '';
-    expect(live).toMatch(/color:\s*var\(--text-on-danger\)/);
+    expect(liveBar()).toMatch(/color:\s*var\(--text-on-danger\)/);
     expect(CSS).not.toMatch(/\.session-stripe[^{]*\{[^}]*color:\s*#fff/);
   });
 

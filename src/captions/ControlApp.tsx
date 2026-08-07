@@ -1004,6 +1004,10 @@ export function ControlApp() {
   // Guarded: a zero budget would divide to Infinity and paint a full bar on a session
   // that has spent nothing.
   const budgetRatio = sessionBudget > 0 ? sessionCost / sessionBudget : 0;
+  // The budget control appears only when the cap is actually in reach. Showing it for the
+  // whole meeting would put a second control on the bar for the 90% of sessions that never
+  // approach the limit, and would train the operator to ignore it by the time it matters.
+  const budgetPressed = active && budgetRatio >= 0.8;
   // One place decides what is missing and how much it matters, so the checklist the
   // operator reads and the Start button they press cannot disagree.
   const readiness = reviewReadiness({
@@ -1059,38 +1063,35 @@ export function ControlApp() {
           the stripe rather than the stripe itself: the budget control has to be its own
           button, and a button cannot contain another button. */}
       <div className={`session-dock ${active ? 'is-live' : ''}`}>
-        {/* Live, this is one solid bar at the same height as the idle pill, with the
-            readings on the flanks and Stop in the middle. The grid is `1fr auto 1fr` so
-            Stop stays optically centred no matter how wide the figures beside it grow -
-            a flex row would drift it as the elapsed time crossed from 9:59 to 10:00. */}
-        <div className={`session-stripe ${active ? 'is-live' : ''} ${active && budgetRatio >= 1 ? 'is-over' : ''}`}>
+        {/* Live, the whole bar IS the stop control - the readings sit inside it rather
+            than beside a separate button, so there is one target and no dead red space.
+
+            +$2 is a sibling, not a child: a button cannot contain another button. It stays
+            mounted and collapsed to zero width so it can animate open, and is `disabled`
+            while collapsed so it is neither focusable nor announced. It appears only near
+            the cap, and because the bar's total width is fixed and the stop control
+            flexes, opening it squeezes the stop control rather than widening the bar. */}
+        <div
+          className={`session-stripe ${active ? 'is-live' : ''} ${
+            active && budgetRatio >= 1 ? 'is-over' : ''
+          } ${budgetPressed ? 'needs-budget' : ''}`}
+        >
           {active && (
-            <div className="session-stripe__side">
-              <div className="session-stripe__stat">
-                <span>Spend</span>
-                <strong aria-label={`Spent $${sessionCost.toFixed(2)} of $${sessionBudget.toFixed(2)}`}>
-                  {/* An icon appears over budget, so the state is not carried by the
-                      bar's shade alone. */}
-                  {budgetRatio >= 1 && (
-                    <AlertTriangle size={13} strokeWidth={2.75} aria-hidden="true" />
-                  )}
-                  ${sessionCost.toFixed(2)}
-                  <em> / ${sessionBudget.toFixed(2)}</em>
-                </strong>
-              </div>
-              {/* Raising the cap is the one setting an operator needs mid-meeting, and it
-                  was two tabs away in a number field. A fixed step keeps it a single
-                  press with no typing while a meeting is running. */}
-              <button
-                type="button"
-                className="session-stripe__budget-add"
-                disabled={busy}
-                onClick={() => void saveSettings({ budgetUsd: sessionBudget + 2 })}
-              >
-                <Plus size={14} strokeWidth={2.75} aria-hidden="true" />
-                $2
-              </button>
-            </div>
+            <button
+              type="button"
+              className="session-stripe__budget-add"
+              // Raising the cap is the one setting needed mid-meeting; it was otherwise a
+              // number field two tabs away. A fixed step keeps it one press, no typing.
+              // `disabled` alone, no aria-hidden: disabled already removes it from the tab
+              // order, and hiding it from the accessibility tree would make its name
+              // uncomputable while telling a screen-reader user nothing useful. "Dimmed
+              // until the cap is close" is an honest thing to announce.
+              disabled={busy || !budgetPressed}
+              onClick={() => void saveSettings({ budgetUsd: sessionBudget + 2 })}
+            >
+              <Plus size={14} strokeWidth={2.75} aria-hidden="true" />
+              $2
+            </button>
           )}
 
           <button
@@ -1099,24 +1100,40 @@ export function ControlApp() {
             disabled={sessionActionDisabled}
             onClick={() => void (active ? stop() : start())}
           >
-            {/* An icon naming the action, replacing a grey status dot that made a
-                ready button look inactive. */}
             {active ? (
-              <Square size={13} strokeWidth={2.5} fill="currentColor" aria-hidden="true" />
+              <>
+                <span className="session-stripe__stat">
+                  <span>Spend</span>
+                  <strong
+                    aria-label={`Spent $${sessionCost.toFixed(2)} of $${sessionBudget.toFixed(2)}`}
+                  >
+                    {/* Over budget the bar gains a ring; this icon means the state is not
+                        carried by a boundary the eye may not catch either. */}
+                    {budgetRatio >= 1 && (
+                      <AlertTriangle size={13} strokeWidth={2.75} aria-hidden="true" />
+                    )}
+                    ${sessionCost.toFixed(2)}
+                    <em> / ${sessionBudget.toFixed(2)}</em>
+                  </strong>
+                </span>
+                <span className="session-stripe__action">
+                  <Square size={13} strokeWidth={2.5} fill="currentColor" aria-hidden="true" />
+                  <strong>{sessionActionLabel}</strong>
+                </span>
+                <span className="session-stripe__stat session-stripe__stat--end">
+                  <span>Elapsed</span>
+                  <strong>{formatElapsed(metrics.elapsedMs)}</strong>
+                </span>
+              </>
             ) : (
-              <Play size={14} strokeWidth={2.5} fill="currentColor" aria-hidden="true" />
+              <>
+                {/* An icon naming the action, replacing a grey status dot that made a
+                    ready button look inactive. */}
+                <Play size={14} strokeWidth={2.5} fill="currentColor" aria-hidden="true" />
+                <strong>{sessionActionLabel}</strong>
+              </>
             )}
-            <strong>{sessionActionLabel}</strong>
           </button>
-
-          {active && (
-            <div className="session-stripe__side session-stripe__side--end">
-              <div className="session-stripe__stat">
-                <span>Elapsed</span>
-                <strong>{formatElapsed(metrics.elapsedMs)}</strong>
-              </div>
-            </div>
-          )}
         </div>
       </div>
 

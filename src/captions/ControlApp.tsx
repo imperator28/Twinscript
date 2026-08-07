@@ -5,6 +5,7 @@ import {
   Clock,
   FolderOpen,
   KeyRound,
+  ListChecks,
   Mic,
   Monitor,
   Moon,
@@ -657,7 +658,10 @@ export function ControlApp() {
    * few ignored meetings wants one answer, not five identical prompts.
    */
   const decideAllAudio = async (decision: 'keep' | 'discard') => {
-    for (const entry of undecided) {
+    // Every undecided recording, including the one the main card is asking about. Running
+    // over the backlog rows alone left that meeting pending after the operator had just
+    // answered for "all" of them.
+    for (const entry of allUndecided) {
       if (entry.sessionId) await applyAudioDecision(decision, entry.sessionId);
     }
     setConfirmDiscardAll(false);
@@ -984,11 +988,25 @@ export function ControlApp() {
     meetingReview.session?.audioRetention === 'pending';
   // Everything still awaiting an answer, excluding whichever record the main card is
   // already asking about, so a meeting is never presented twice in one prompt.
-  const undecided = backlog.filter(
+  // Two different lists, and conflating them was a bug.
+  //
+  // `undecidedOthers` drives the rendered rows and excludes whichever meeting the main
+  // card is already asking about, so it is never shown twice.
+  //
+  // `allUndecided` drives the bulk actions and their labels, and includes it. "Delete all"
+  // previously ran over the rows only, so it deleted the backlog and silently left the
+  // meeting on screen still pending - the operator answered the prompt and the prompt
+  // stayed.
+  const undecidedOthers = backlog.filter(
     (entry) =>
       entry.session?.audioRetention === 'pending' &&
       entry.sessionId !== meetingReview?.sessionId,
   );
+  const undecided = undecidedOthers;
+  const allUndecided = [
+    ...(pendingDecision && meetingReview ? [meetingReview] : []),
+    ...undecidedOthers,
+  ];
   const selectedTheme = captionThemeById(settings.captionTheme);
 
   // "Stop session", not "Stop". The stripe has room for it, and the accessible name has
@@ -1345,7 +1363,7 @@ export function ControlApp() {
                         disabled={busy}
                         onClick={() => void decideAllAudio('keep')}
                       >
-                        Keep all {undecided.length}
+                        Keep all {allUndecided.length}
                       </button>
                       {/* Bulk deletion is the most destructive control in the app, so
                           it arms before it fires, like the single-meeting one. */}
@@ -1356,7 +1374,7 @@ export function ControlApp() {
                             disabled={busy}
                             onClick={() => void decideAllAudio('discard')}
                           >
-                            Delete all {undecided.length} permanently
+                            Delete all {allUndecided.length} permanently
                           </button>
                           <button
                             className="button button--quiet"
@@ -1715,6 +1733,38 @@ export function ControlApp() {
                 </button>
               ))}
             </div>
+          </article>
+
+          {/* "Not now" persists, so without this the checklist could be dismissed once and
+              never seen again - including by the next person to use the machine, and
+              including after a reinstall of the camera changed what the advice should say.
+              A dismissible thing needs a way back. */}
+          <article className="card">
+            <p className="eyebrow">GETTING STARTED</p><h2>Setup checklist</h2>
+            <p className="supporting-copy">
+              {advisoriesDismissed
+                ? 'The before-you-start checklist is hidden. Bring it back to re-check the microphone and virtual camera.'
+                : 'Shown on the Session tab whenever something needed for a meeting is missing.'}
+            </p>
+            <div className="button-row">
+              <button
+                className={`button ${advisoriesDismissed ? 'button--primary' : 'button--secondary'}`}
+                disabled={busy}
+                onClick={() => {
+                  setAdvisoriesDismissed(false);
+                  window.localStorage.removeItem(READINESS_DISMISSED_KEY);
+                  // Straight to where it appears, rather than announcing a change on a tab
+                  // that cannot show it.
+                  setTab('session');
+                }}
+              >
+                <ListChecks size={15} strokeWidth={2.25} aria-hidden="true" />
+                {advisoriesDismissed ? 'Show the checklist again' : 'Go to the checklist'}
+              </button>
+            </div>
+            <p className="field-note">
+              Nothing is reset: your key, glossary and camera stay exactly as they are.
+            </p>
           </article>
 
           <article className="card">

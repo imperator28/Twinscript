@@ -105,6 +105,10 @@ function channelBadge(rowLabel: string) {
 describe('meeting caption controls', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Several tests write persisted UI preferences (theme, checklist dismissal). Without
+    // this they leak into whatever runs next, and a test that fails part-way leaves a flag
+    // set that makes a later, unrelated test fail in a way that does not reproduce alone.
+    window.localStorage.clear();
     audioMocks.start.mockResolvedValue({ microphone: true, system: true });
     statusListener = undefined;
     metricsListener = undefined;
@@ -564,6 +568,31 @@ describe('meeting caption controls', () => {
     }
   });
 
+  it('offers a way back to the checklist after it has been dismissed', async () => {
+    // "Not now" persists, so without this it could be dismissed once and never seen again
+    // - including by the next person on the machine, and including after something changed
+    // what the advice should say. A dismissible thing needs a way back.
+    // Something has to be outstanding, or the checklist is hidden because it is satisfied
+    // rather than because it was dismissed - the test would pass either way.
+    const { enumerateAudioDevices } = await import('./audioCapture');
+    vi.mocked(enumerateAudioDevices).mockResolvedValueOnce({ inputs: [], outputs: [] });
+
+    window.localStorage.setItem('captions.readinessDismissed', '1');
+    render(<ControlApp />);
+    await screen.findByRole('button', { name: /Start session/i });
+    expect(screen.queryByText('BEFORE YOU START')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Show the checklist again' }),
+    );
+
+    // Lands on the tab that can actually show it, rather than reporting a change on one
+    // that cannot.
+    expect(window.localStorage.getItem('captions.readinessDismissed')).toBeNull();
+    expect(await screen.findByText('BEFORE YOU START')).toBeVisible();
+  });
+
   it('hides the readiness checklist once nothing is outstanding', async () => {
     render(<ControlApp />);
     await screen.findByRole('button', { name: /Start session/i });
@@ -755,13 +784,62 @@ describe('meeting caption controls', () => {
     // The first is asked about by the main card; the other two are listed with it,
     // not queued for future launches.
     expect(await screen.findByText(/2 earlier meetings also undecided/i)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Keep all 2' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Keep all 3' })).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Keep all 2' }));
+    // Three, not two: the count covers the meeting the card itself is asking about as well
+    // as the rows beneath it.
+    fireEvent.click(screen.getByRole('button', { name: 'Keep all 3' }));
     await waitFor(() =>
       expect(window.captions.keepMeetingAudio).toHaveBeenCalledWith('older'),
     );
     expect(window.captions.keepMeetingAudio).toHaveBeenCalledWith('oldest');
+    // The bug this covers: "all" ran over the backlog rows only, so the meeting on screen
+    // stayed pending and the prompt survived the operator answering it.
+    expect(window.captions.keepMeetingAudio).toHaveBeenCalledWith('newest');
+  });
+
+  it('a bulk decision leaves nothing pending', async () => {
+    const pending = (id: string, startedAt: number) => ({
+      recording: true,
+      sessionId: id,
+      session: {
+        sessionId: id,
+        startedAt,
+        audioRetention: 'pending' as const,
+        channelAvailability: { microphone: true, system: true },
+      },
+    });
+    window.captions.listPendingMeetingRecords = vi.fn(() =>
+      Promise.resolve({
+        ok: true as const,
+        data: [pending('front', 2_000), pending('back', 1_000)],
+      }),
+    ) as typeof window.captions.listPendingMeetingRecords;
+    // Each decision returns the record in its settled state, as the real IPC does.
+    window.captions.discardMeetingAudio = vi.fn((sessionId: string) =>
+      Promise.resolve({
+        ok: true as const,
+        data: {
+          recording: true,
+          sessionId,
+          session: {
+            sessionId,
+            audioRetention: 'discarded' as const,
+            channelAvailability: { microphone: true, system: true },
+          },
+        },
+      }),
+    ) as typeof window.captions.discardMeetingAudio;
+
+    render(<ControlApp />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete all' }));
+    fireEvent.click(screen.getByRole('button', { name: /Delete all 2 permanently/ }));
+
+    // The prompt resolves rather than reappearing for whichever meeting was skipped.
+    expect(
+      await screen.findByRole('heading', { name: 'Audio deleted' }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/also undecided/)).not.toBeInTheDocument();
   });
 
   it('arms before deleting the whole backlog', async () => {
@@ -788,7 +866,8 @@ describe('meeting caption controls', () => {
     // Bulk deletion is the most destructive control in the app; one click must not do it.
     expect(window.captions.discardMeetingAudio).not.toHaveBeenCalled();
 
-    fireEvent.click(screen.getByRole('button', { name: /Delete all 1 permanently/ }));
+    // Two: the backlog row plus the meeting the card itself is asking about.
+    fireEvent.click(screen.getByRole('button', { name: /Delete all 2 permanently/ }));
     await waitFor(() =>
       expect(window.captions.discardMeetingAudio).toHaveBeenCalledWith('b'),
     );

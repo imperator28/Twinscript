@@ -1037,6 +1037,12 @@ export function ControlApp() {
     cameraSupported: nativeCameraHealth ? nativeCameraHealth.supported : null,
   });
 
+  // Counted from `steps`, not `outstanding`: `outstanding` already has the dismissal
+  // applied, so while dismissed it reads zero and the Settings card could not tell whether
+  // restoring the checklist would reveal anything or nothing.
+  const checklistItemCount = readiness.steps.filter((step) => !step.done).length;
+  const checklistHasItems = checklistItemCount > 0;
+
   const reviewHeading = buildReviewHeading(meetingReview?.session, reviewOrigin);
   const reviewCopy = buildReviewCopy(meetingReview?.session, reviewOrigin);
   const reviewFacts = buildReviewFacts(meetingReview?.session);
@@ -1738,30 +1744,45 @@ export function ControlApp() {
           {/* "Not now" persists, so without this the checklist could be dismissed once and
               never seen again - including by the next person to use the machine, and
               including after a reinstall of the camera changed what the advice should say.
-              A dismissible thing needs a way back. */}
+              A dismissible thing needs a way back.
+
+              The card reports three states and only offers navigation when there is
+              somewhere to go. It previously said "Go to the checklist" unconditionally, so
+              with everything already satisfied it switched tabs and showed nothing - a
+              button that promised something it could not deliver. */}
           <article className="card">
             <p className="eyebrow">GETTING STARTED</p><h2>Setup checklist</h2>
             <p className="supporting-copy">
               {advisoriesDismissed
-                ? 'The before-you-start checklist is hidden. Bring it back to re-check the microphone and virtual camera.'
-                : 'Shown on the Session tab whenever something needed for a meeting is missing.'}
+                ? checklistHasItems
+                  ? `Hidden. ${checklistItemCount} item${checklistItemCount === 1 ? '' : 's'} would be shown before your next meeting.`
+                  : 'Hidden. Nothing needs attention right now, but it will stay hidden when something does.'
+                : checklistHasItems
+                  ? `${checklistItemCount} item${checklistItemCount === 1 ? '' : 's'} to look at on the Session tab.`
+                  : 'Nothing outstanding. It appears on the Session tab by itself whenever something needed for a meeting is missing.'}
             </p>
-            <div className="button-row">
-              <button
-                className={`button ${advisoriesDismissed ? 'button--primary' : 'button--secondary'}`}
-                disabled={busy}
-                onClick={() => {
-                  setAdvisoriesDismissed(false);
-                  window.localStorage.removeItem(READINESS_DISMISSED_KEY);
-                  // Straight to where it appears, rather than announcing a change on a tab
-                  // that cannot show it.
-                  setTab('session');
-                }}
-              >
-                <ListChecks size={15} strokeWidth={2.25} aria-hidden="true" />
-                {advisoriesDismissed ? 'Show the checklist again' : 'Go to the checklist'}
-              </button>
-            </div>
+            {(advisoriesDismissed || checklistHasItems) && (
+              <div className="button-row">
+                <button
+                  className={`button ${advisoriesDismissed ? 'button--primary' : 'button--secondary'}`}
+                  disabled={busy}
+                  onClick={() => {
+                    if (advisoriesDismissed) {
+                      setAdvisoriesDismissed(false);
+                      window.localStorage.removeItem(READINESS_DISMISSED_KEY);
+                    }
+                    // Only switch tabs when the checklist will actually be there. Otherwise
+                    // say what changed and stay put, rather than sending the operator to
+                    // look at nothing.
+                    if (checklistHasItems) setTab('session');
+                    else setNotice('Checklist restored. It will appear when something needs attention.');
+                  }}
+                >
+                  <ListChecks size={15} strokeWidth={2.25} aria-hidden="true" />
+                  {advisoriesDismissed ? 'Show the checklist again' : 'Go to the checklist'}
+                </button>
+              </div>
+            )}
             <p className="field-note">
               Nothing is reset: your key, glossary and camera stay exactly as they are.
             </p>

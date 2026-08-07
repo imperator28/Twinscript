@@ -593,6 +593,53 @@ describe('meeting caption controls', () => {
     expect(await screen.findByText('BEFORE YOU START')).toBeVisible();
   });
 
+  it('does not offer to navigate to a checklist that has nothing on it', async () => {
+    // The dead end this replaces: the card said "Go to the checklist" unconditionally, so
+    // with everything already satisfied it switched tabs and showed nothing.
+    render(<ControlApp />);
+    await screen.findByRole('button', { name: /Start session/i });
+    fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+
+    expect(await screen.findByText(/Nothing outstanding/)).toBeVisible();
+    expect(
+      screen.queryByRole('button', { name: 'Go to the checklist' }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('restores a dismissed checklist without pretending there is something to see', async () => {
+    // Restoring still matters with nothing outstanding - the flag suppresses future
+    // advisories too - but it must report that rather than send the operator to an empty
+    // tab.
+    window.localStorage.setItem('captions.readinessDismissed', '1');
+    render(<ControlApp />);
+    await screen.findByRole('button', { name: /Start session/i });
+    fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Show the checklist again' }),
+    );
+    expect(window.localStorage.getItem('captions.readinessDismissed')).toBeNull();
+    expect(await screen.findByText(/Checklist restored/)).toBeVisible();
+    // Stayed put: the Session tab has nothing to show.
+    expect(screen.getByRole('heading', { name: 'Setup checklist' })).toBeVisible();
+  });
+
+  it('counts hidden items while dismissed, so the card can say what is waiting', async () => {
+    // `outstanding` has the dismissal applied and reads zero while hidden; the count has to
+    // come from every unfinished step or the card cannot tell "nothing" from "hidden".
+    const { enumerateAudioDevices } = await import('./audioCapture');
+    vi.mocked(enumerateAudioDevices).mockResolvedValueOnce({ inputs: [], outputs: [] });
+    window.localStorage.setItem('captions.readinessDismissed', '1');
+
+    render(<ControlApp />);
+    await screen.findByRole('button', { name: /Start session/i });
+    fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+
+    expect(
+      await screen.findByText(/1 item would be shown before your next meeting/),
+    ).toBeVisible();
+  });
+
   it('hides the readiness checklist once nothing is outstanding', async () => {
     render(<ControlApp />);
     await screen.findByRole('button', { name: /Start session/i });

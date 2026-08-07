@@ -259,6 +259,19 @@ describe('live session stripe', () => {
     expect(CSS).toMatch(/\.session-stripe__action \{[^}]*flex:\s*0 0 auto/);
   });
 
+  it('aligns each reading as a block, label over value', () => {
+    // Two defaults fought here: a <button> carries a UA `text-align: center` that the
+    // label span inherited, and the value is an inline-flex box that stretched under the
+    // default `justify-items`, packing its own content to the left of a full-width cell.
+    // The label and the value therefore sat on different alignments inside one column.
+    const stat = CSS.match(/\.session-stripe__stat \{[^}]+\}/)?.[0] ?? '';
+    expect(stat).toMatch(/justify-items:\s*start/);
+    expect(stat).toMatch(/text-align:\s*left/);
+    const end = CSS.match(/\.session-stripe__stat--end \{[^}]+\}/)?.[0] ?? '';
+    expect(end).toMatch(/justify-items:\s*end/);
+    expect(end).toMatch(/text-align:\s*right/);
+  });
+
   it('draws the live bar as one solid colour', () => {
     expect(liveBar()).toMatch(/background:\s*var\(--danger\)/);
     // No separate meter element competing with the bar it sits on.

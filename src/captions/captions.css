@@ -438,11 +438,27 @@ h2 { margin-bottom: var(--space-4); font-size: var(--size-title); line-height: v
    however wide the figures grow - the elapsed time crossing 9:59 to 10:00 would otherwise
    nudge it sideways. */
 .session-stripe__action { display: inline-flex; align-items: center; gap: var(--space-2); flex: 0 0 auto; }
-.session-stripe__stat--end { text-align: right; }
 /* A labelled reading, not a bare number: "12:04" alone is ambiguous between elapsed and
    remaining. Both flanks sit on the red bar, so they take the on-danger colour and carry
-   their own opacity for hierarchy instead of a second hue. */
-.session-stripe__stat { display: grid; flex: 1; gap: 1px; line-height: 1.15; color: var(--text-on-danger); }
+   their own opacity for hierarchy instead of a second hue.
+
+   `justify-items` and `text-align` are both set, and both are load-bearing:
+   - a <button> carries a UA `text-align: center`, which the label span inherited, so it
+     centred inside its cell while the value did not;
+   - the value is an inline-flex box, so as a grid item with the default
+     `justify-items: stretch` it filled the cell and packed its own content to the left.
+   Together those put the label and the value on different alignments inside one column,
+   and the elapsed value ended up hard against the centred action. */
+.session-stripe__stat {
+  display: grid;
+  flex: 1;
+  gap: 1px;
+  justify-items: start;
+  text-align: left;
+  line-height: 1.15;
+  color: var(--text-on-danger);
+}
+.session-stripe__stat--end { justify-items: end; text-align: right; }
 .session-stripe__stat span { font-size: 9px; font-weight: var(--weight-heavy); letter-spacing: var(--track-label); text-transform: uppercase; opacity: .72; }
 .session-stripe__stat strong { display: inline-flex; align-items: center; gap: 5px; font-size: var(--size-body); font-weight: var(--weight-semibold); font-variant-numeric: tabular-nums; }
 .session-stripe__stat em { font-style: normal; font-weight: var(--weight-regular); opacity: .72; }

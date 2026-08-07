@@ -115,9 +115,56 @@ describe('CameraStage', () => {
     expect(window.captions.hideCameraStage).toHaveBeenCalledOnce();
   });
 
-  it('renders one shared entry only after both audience projections settle', () => {
+  it('shows an in-flight line while early captions are enabled', () => {
+    // The reported friction: the control window's session log showed each sentence
+    // immediately while this surface waited for both languages to settle, so the operator
+    // watched every line appear in their own window before it reached the audience - and the
+    // first line of a session looked like a failure rather than a delay.
+    //
+    // "Show early captions while speech is processing" is on by default, the pipeline already
+    // honours it by translating provisional transcripts, and the on-screen overlay already
+    // renders them. Only this surface ignored it.
     render(<CameraStage />);
     act(() => statusListener?.({ state: 'running', sessionId: 'session-a' }));
+
+    act(() => audienceListener?.(caption(1, 'en')));
+    // Visible immediately, with the pending translation worded as the overlay words it rather
+    // than rendering an empty row on the audience's screen.
+    expect(screen.getByText('English 1')).toBeVisible();
+    expect(screen.getByText('正在翻译…')).toBeVisible();
+
+    act(() => audienceListener?.(caption(1, 'zh')));
+    expect(screen.getByText('中文 1')).toBeVisible();
+    // The speaker badge is deliberately not rendered: it spent a fixed column of
+    // every line on a label a remote viewer cannot act on, and the caption text
+    // gets that width instead.
+    expect(screen.queryByText('YOU')).not.toBeInTheDocument();
+    expect(screen.queryByText('MEETING')).not.toBeInTheDocument();
+  });
+
+  it('marks an unsettled line so a viewer can tell it may still change', () => {
+    const { container } = render(<CameraStage />);
+    act(() => statusListener?.({ state: 'running', sessionId: 'session-a' }));
+
+    act(() => audienceListener?.(caption(1, 'en')));
+    expect(container.querySelectorAll('.camera-stage__entry.is-provisional')).toHaveLength(2);
+
+    act(() => audienceListener?.(caption(1, 'zh')));
+    expect(container.querySelectorAll('.camera-stage__entry.is-provisional')).toHaveLength(0);
+  });
+
+  it('waits for settled text when early captions are turned off', () => {
+    // Restores the previous behaviour, which is a real preference for a camera feed: text that
+    // rewrites itself in front of remote participants can be worse than a short wait. The
+    // choice is the operator's now instead of hard-coded here.
+    render(<CameraStage />);
+    act(() => statusListener?.({ state: 'running', sessionId: 'session-a' }));
+    act(() =>
+      settingsListener?.({
+        captionTheme: 'blueprint',
+        provisionalTranslation: false,
+      }),
+    );
 
     act(() => audienceListener?.(caption(1, 'en')));
     expect(screen.queryByText('English 1')).not.toBeInTheDocument();
@@ -132,11 +179,6 @@ describe('CameraStage', () => {
     act(() => audienceListener?.(caption(1, 'zh')));
     expect(screen.getByText('English 1')).toBeVisible();
     expect(screen.getByText('中文 1')).toBeVisible();
-    // The speaker badge is deliberately not rendered: it spent a fixed column of
-    // every line on a label a remote viewer cannot act on, and the caption text
-    // gets that width instead.
-    expect(screen.queryByText('YOU')).not.toBeInTheDocument();
-    expect(screen.queryByText('MEETING')).not.toBeInTheDocument();
   });
 
   it('uses shared visible history and clears on a new session boundary', () => {

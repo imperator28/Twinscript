@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { captionThemeById } from './captionThemes';
 import { captionFontScale, clampHistoryEntries } from './captionScale';
+// Shared with the on-screen overlay so both audience surfaces word a pending translation
+// identically - two surfaces inventing their own placeholder is how they drift apart.
+import { audienceCaptionText } from './CaptionSurface';
 import type {
   AudienceCaption,
   CaptionSettings,
@@ -51,6 +54,10 @@ export function CameraStage() {
   const [status, setStatus] = useState<SessionStatus>({ state: 'ready' });
   const [historyEntries, setHistoryEntries] = useState(6);
   const [fontScale, setFontScale] = useState(1);
+  // "Show early captions while speech is processing". The pipeline already honours it by
+  // translating provisional transcripts, and the on-screen overlay already renders them; this
+  // surface ignored it entirely and waited for settled text either way.
+  const [showEarly, setShowEarly] = useState(true);
   const [layout, setLayout] = useState<CaptionSettings['layout']>('stacked');
   const [themeId, setThemeId] = useState<CaptionSettings['captionTheme']>(
     'blueprint',
@@ -125,6 +132,7 @@ export function CameraStage() {
       // Previously ignored here, which is why the Caption size slider appeared to
       // do nothing whenever the virtual camera was the output.
       setFontScale(Number(settings.captionFontScale) || 1);
+      setShowEarly(settings.provisionalTranslation !== false);
       setLayout(settings.layout === 'side-by-side' ? 'side-by-side' : 'stacked');
       setThemeId(settings.captionTheme || 'blueprint');
     };
@@ -145,19 +153,39 @@ export function CameraStage() {
     };
   }, []);
 
-  const visibleEntries = useMemo(
-    () =>
-      [...entries]
-        .filter(
-          (entry) =>
-            entry.en?.settled &&
-            entry.zh?.settled &&
-            entry.sessionId === activeSessionId.current,
-        )
-        .sort((left, right) => left.sequence - right.sequence)
-        .slice(-historyEntries),
-    [entries, historyEntries],
-  );
+  /**
+   * Settled entries, plus whatever is still in flight.
+   *
+   * This used to require `en.settled && zh.settled`, so the stage showed nothing at all until
+   * a line was final in both languages - while the control window's session log showed the
+   * provisional caption immediately. The operator saw every sentence appear in their own
+   * window before it reached the audience, and the first sentence of a session looked like a
+   * failure rather than a delay.
+   *
+   * Waiting is now the operator's choice rather than this file's. "Show early captions while
+   * speech is processing" already exists, the pipeline already honours it by translating
+   * provisional transcripts, and the on-screen overlay already renders them (see
+   * `visibleCaptions`) - only this surface ignored it and waited regardless, so the two
+   * audience views disagreed about what the audience should see.
+   *
+   * Turning the setting off restores the previous behaviour, which is a real preference for a
+   * camera feed: text that rewrites itself in front of remote participants can be worse than a
+   * short wait.
+   *
+   * In-flight entries are never dropped by the history cap: the cap limits how much settled
+   * history is retained, and trimming the newest line - the one being spoken - is the opposite
+   * of what it is for.
+   */
+  const visibleEntries = useMemo(() => {
+    const mine = [...entries]
+      .filter((entry) => entry.sessionId === activeSessionId.current)
+      .sort((left, right) => left.sequence - right.sequence);
+    const isSettled = (entry: CameraStageEntry) =>
+      Boolean(entry.en?.settled && entry.zh?.settled);
+    const settled = mine.filter(isSettled).slice(-historyEntries);
+    if (!showEarly) return settled;
+    return [...settled, ...mine.filter((entry) => !isSettled(entry))];
+  }, [entries, historyEntries, showEarly]);
   const theme = captionThemeById(themeId);
   const live = status.state === 'running';
   // Opt-in, not opt-out: only an explicit `role=preview` gets operator chrome.
@@ -218,15 +246,28 @@ export function CameraStage() {
                     {audience === 'en' ? 'Listening…' : '正在聆听…'}
                   </p>
                 ) : (
-                  visibleEntries.map((entry, index) => (
-                    <p
-                      className="camera-stage__entry"
-                      data-age={visibleEntries.length - index - 1}
-                      key={entry.id}
-                    >
-                      <strong>{entry[audience]?.text}</strong>
-                    </p>
-                  ))
+                  visibleEntries.map((entry, index) => {
+                    const caption = entry[audience];
+                    const settled = Boolean(entry.en?.settled && entry.zh?.settled);
+                    return (
+                      <p
+                        className={`camera-stage__entry${settled ? '' : ' is-provisional'}`}
+                        data-age={visibleEntries.length - index - 1}
+                        key={entry.id}
+                      >
+                        {/* The same fallback the overlay uses, so a line whose translation is
+                            still running says so instead of rendering as an empty row that
+                            silently takes up space on the audience's screen. */}
+                        <strong>
+                          {caption
+                            ? audienceCaptionText(caption, audience)
+                            : audience === 'en'
+                              ? 'Translating…'
+                              : '正在翻译…'}
+                        </strong>
+                      </p>
+                    );
+                  })
                 )}
               </div>
             </section>

@@ -1224,6 +1224,11 @@ a:hover { text-decoration-color: currentColor; }
   transition: opacity 180ms var(--ease-glide), transform 180ms var(--ease-glide);
 }
 .camera-stage__entry > strong { font-weight: 720; letter-spacing: -.02em; }
+/* A line still being spoken. Held slightly back so a remote viewer can tell what has settled
+   from what may still change, without it reading as faded-out or unimportant - it is the most
+   current line on the stage. Opacity only: a size or weight change would reflow every line
+   below it each time a word arrives. */
+.camera-stage__entry.is-provisional > strong { opacity: .82; }
 .camera-stage__entry[data-age="2"] { opacity: .72; }
 .camera-stage__entry[data-age="3"],
 .camera-stage__entry[data-age="4"],

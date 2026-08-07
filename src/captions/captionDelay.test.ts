@@ -14,8 +14,6 @@ describe('DELAY_OPTIONS', () => {
       'minimal',
       'low',
       'medium',
-      'high',
-      'xhigh',
     ]);
   });
 
@@ -33,8 +31,6 @@ describe('DELAY_OPTIONS', () => {
       'Fastest',
       'Fast',
       'Balanced',
-      'Careful',
-      'Most accurate',
     ]);
   });
 
@@ -42,8 +38,9 @@ describe('DELAY_OPTIONS', () => {
     // These go straight through to OpenAI's `delay` parameter; a renamed label must not
     // change the wire value.
     for (const option of DELAY_OPTIONS) {
-      // The exact set the API named when it rejected 'default'.
-      expect(['minimal', 'low', 'medium', 'high', 'xhigh']).toContain(option.profile);
+      // A subset of what the API accepts: 'high' and 'xhigh' are valid but stop captions
+      // tracking the conversation, so they are not offered.
+      expect(['minimal', 'low', 'medium']).toContain(option.profile);
     }
   });
 });
@@ -53,7 +50,7 @@ describe('delayIndex', () => {
     expect(delayIndex('minimal')).toBe(0);
     expect(delayIndex('low')).toBe(1);
     expect(delayIndex('medium')).toBe(2);
-    expect(delayIndex('xhigh')).toBe(4);
+    expect(delayIndex('medium')).toBe(2);
   });
 
   it('falls back to the shipped default, not to position zero', () => {
@@ -63,8 +60,11 @@ describe('delayIndex', () => {
     expect(delayIndex(undefined)).toBe(fallback);
     expect(delayIndex(null)).toBe(fallback);
     expect(delayIndex('turbo')).toBe(fallback);
-    // The value that shipped and was rejected by the API resolves to the default too.
-    expect(delayIndex('default')).toBe(fallback);
+    // The value the API rejected, and the two withdrawn for holding text too long, all
+    // resolve to the default rather than to a slider position that no longer exists.
+    for (const withdrawn of ['default', 'high', 'xhigh']) {
+      expect(delayIndex(withdrawn)).toBe(fallback);
+    }
     expect(fallback).not.toBe(0);
   });
 });
@@ -73,12 +73,12 @@ describe('delayProfileAt', () => {
   it('maps a slider position back to its profile', () => {
     expect(delayProfileAt(0)).toBe('minimal');
     expect(delayProfileAt(1)).toBe('low');
-    expect(delayProfileAt(4)).toBe('xhigh');
+    expect(delayProfileAt(2)).toBe('medium');
   });
 
   it('clamps rather than returning undefined at the edges', () => {
     expect(delayProfileAt(-5)).toBe('minimal');
-    expect(delayProfileAt(99)).toBe('xhigh');
+    expect(delayProfileAt(99)).toBe('medium');
   });
 
   it('rounds a fractional position', () => {
@@ -95,35 +95,10 @@ describe('delayProfileAt', () => {
 
 describe('delayOption', () => {
   it('returns the option for display', () => {
-    expect(delayOption('xhigh').label).toBe('Most accurate');
+    expect(delayOption('medium').label).toBe('Balanced');
   });
 
   it('never returns undefined for an unknown value', () => {
     expect(delayOption('nonsense').profile).toBe(DEFAULT_DELAY_PROFILE);
-  });
-});
-
-describe('liveSafe', () => {
-  it('marks only the settings where captions still track the conversation', () => {
-    // The five values came from the API's own list of what it accepts, which says nothing
-    // about whether they are usable for live captioning. At the top of the range the
-    // captions no longer belong to the sentence being spoken.
-    expect(
-      DELAY_OPTIONS.filter((option) => option.liveSafe).map((o) => o.profile),
-    ).toEqual(['minimal', 'low', 'medium']);
-    expect(
-      DELAY_OPTIONS.filter((option) => !option.liveSafe).map((o) => o.profile),
-    ).toEqual(['high', 'xhigh']);
-  });
-
-  it('keeps the shipped default inside the live-safe range', () => {
-    expect(delayOption(DEFAULT_DELAY_PROFILE).liveSafe).toBe(true);
-  });
-
-  it('keeps the unsafe settings at the far end, so the slider degrades in one direction', () => {
-    const firstUnsafe = DELAY_OPTIONS.findIndex((option) => !option.liveSafe);
-    expect(
-      DELAY_OPTIONS.slice(firstUnsafe).every((option) => !option.liveSafe),
-    ).toBe(true);
   });
 });

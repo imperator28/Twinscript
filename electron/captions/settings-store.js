@@ -52,13 +52,18 @@ function normalizeLayout(value) {
 /**
  * The transcription API's accepted `delay` values.
  *
- * `'default'` shipped as the "Stable" dropdown option and is NOT one of them - the API
- * answers "Invalid value: 'default'. Supported values are: 'minimal', 'low', 'medium',
- * 'high', and 'xhigh'." The value was never validated here, so the only thing that ever
- * checked it was the server, at the moment a session tried to start. Any stored value
- * outside the set now falls back to the default rather than reaching the API.
+ * The API accepts 'minimal', 'low', 'medium', 'high' and 'xhigh'. Only the first three are
+ * offered: at 'high' and 'xhigh' the transcriber holds text so long that captions stop
+ * tracking the conversation, which presents as the product not working rather than as a
+ * slower setting.
+ *
+ * `'default'` shipped as the "Stable" dropdown option and the API rejects it outright. The
+ * value was never validated here, so the only thing that ever checked it was the server, at
+ * the moment a session tried to start. Anything outside the offered set - the rejected
+ * 'default', or 'high'/'xhigh' stored before they were withdrawn - falls back to the
+ * shipped default rather than reaching the API.
  */
-const DELAY_PROFILES = ['minimal', 'low', 'medium', 'high', 'xhigh'];
+const DELAY_PROFILES = ['minimal', 'low', 'medium'];
 
 function normalizeDelayProfile(value) {
   return DELAY_PROFILES.includes(value) ? value : 'low';
@@ -93,7 +98,7 @@ function normalizeContextNotes(value) {
 }
 
 const DEFAULT_SETTINGS = Object.freeze({
-  settingsVersion: 12,
+  settingsVersion: 13,
   glossaryContextNotes: [],
   layout: 'stacked',
   outputMode: 'overlays',
@@ -237,9 +242,9 @@ class SettingsStore {
         if (layout !== next.layout) migrated = true;
         next.layout = layout;
       }
-      // v12 repairs an invalid delay profile. 'default' shipped as a selectable option
-      // and the API rejects it, so an install that ever chose "Stable" could not start a
-      // session at all until the value was changed by hand.
+      // v12 repaired the rejected 'default'; v13 also withdraws 'high' and 'xhigh', which
+      // the API accepts but which stop captions tracking the conversation. Repaired on read
+      // AND written back, or the value returns on the next launch.
       {
         const delayProfile = normalizeDelayProfile(next.delayProfile);
         if (delayProfile !== next.delayProfile) migrated = true;

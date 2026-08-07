@@ -580,7 +580,7 @@ test('legacy caption settings migrate to product-safe runtime defaults', () => {
     }),
   );
   const settings = new SettingsStore({ getPath: () => userData }).get();
-  assert.equal(settings.settingsVersion, 12);
+  assert.equal(settings.settingsVersion, 13);
   assert.equal(settings.vadEnabled, false);
   assert.equal(Object.hasOwn(settings, 'captionPaceMs'), false);
   assert.equal(settings.shadowEnabled, false);
@@ -597,7 +597,7 @@ test('legacy caption settings migrate to product-safe runtime defaults', () => {
   const persisted = JSON.parse(
     fs.readFileSync(path.join(userData, 'caption-settings.json'), 'utf8'),
   );
-  assert.equal(persisted.settingsVersion, 12);
+  assert.equal(persisted.settingsVersion, 13);
   assert.equal(persisted.shadowEnabled, false);
   assert.equal(persisted.recordEvaluation, false);
   assert.equal(persisted.autoSaveTranscript, true);
@@ -909,7 +909,7 @@ test('v7 glossary and theme settings migrate without losing custom terms', () =>
     }),
   );
   const settings = new SettingsStore({ getPath: () => userData }).get();
-  assert.equal(settings.settingsVersion, 12);
+  assert.equal(settings.settingsVersion, 13);
   assert.equal(settings.glossaryConfigurationId, 'universal-engineering');
   assert.equal(settings.customGlossaryConfiguration.terms[0].en, 'project falcon');
   assert.equal(settings.glossary[0].en, 'project falcon');
@@ -1492,10 +1492,12 @@ test("an invalid delay profile is repaired instead of reaching the API", () => {
 test('every supported delay profile is accepted, and nothing else is', () => {
   const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'delay-accept-'));
   const store = new SettingsStore({ getPath: () => userData });
-  for (const profile of ['minimal', 'low', 'medium', 'high', 'xhigh']) {
+  for (const profile of ['minimal', 'low', 'medium']) {
     assert.equal(store.set({ delayProfile: profile }).delayProfile, profile);
   }
-  for (const bad of ['default', 'stable', '', null, 7]) {
+  // 'high' and 'xhigh' are accepted by the API but withdrawn here: they hold text so long
+  // that captions stop tracking the conversation.
+  for (const bad of ['default', 'high', 'xhigh', 'stable', '', null, 7]) {
     assert.equal(
       store.set({ delayProfile: bad }).delayProfile,
       'low',
@@ -1539,4 +1541,21 @@ test('a nonsensical budget is ignored rather than disabling the session', () => 
     meter.setBudget(bad);
     assert.equal(meter.budgetUsd, 5, `${String(bad)} should be ignored`);
   }
+});
+
+test('a session runs on the normalized settings, not the renderer payload', () => {
+  // start() used to call settingsStore.set(...) and discard the result, keeping the raw
+  // object it was handed. Every check the store performs was therefore applied to the file
+  // on disk and NOT to the settings the session sends to the API - a bad value was
+  // corrected everywhere except the one place that mattered, and reached the transcriber
+  // verbatim.
+  const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'session-normalize-'));
+  const store = new SettingsStore({ getPath: () => userData });
+  const normalized = store.set({ delayProfile: 'xhigh', captionHistoryEntries: 999 });
+
+  assert.equal(normalized.delayProfile, 'low', 'withdrawn value repaired');
+  assert.equal(normalized.captionHistoryEntries, 10, 'out-of-range value clamped');
+  // The value the session would send is the repaired one, because start() now assigns the
+  // store's return value.
+  assert.ok(['minimal', 'low', 'medium'].includes(normalized.delayProfile));
 });

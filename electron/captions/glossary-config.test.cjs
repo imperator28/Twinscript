@@ -201,7 +201,7 @@ test('legacy flat glossary migrates into custom overrides', () => {
     }),
   );
   const settings = new SettingsStore({ getPath: () => userData }).get();
-  assert.equal(settings.settingsVersion, 12);
+  assert.equal(settings.settingsVersion, 13);
   assert.equal(settings.customGlossaryConfiguration.terms[0].en, 'project falcon');
   assert.equal(settings.glossary[0].en, 'project falcon');
   assert.ok(settings.protectedTokens.includes('PVT'));

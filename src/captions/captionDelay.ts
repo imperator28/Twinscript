@@ -17,7 +17,7 @@
  * 'minimal', 'low', 'medium', 'high', and 'xhigh'." Nothing caught it because the setting
  * was only ever validated by the server, at the moment a session tried to start.
  */
-export type DelayProfile = 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
+export type DelayProfile = 'minimal' | 'low' | 'medium';
 
 export interface DelayOption {
   profile: DelayProfile;
@@ -25,21 +25,18 @@ export interface DelayOption {
   label: string;
   /** The consequence, in one sentence, in both directions. */
   detail: string;
-  /**
-   * Whether captions still track a live conversation at this setting.
-   *
-   * The five values were taken from the API's own error message listing what it accepts,
-   * which says nothing about whether they are usable for live captioning. The top two are
-   * not: at `xhigh` the transcriber holds text long enough that the captions no longer
-   * belong to the sentence being spoken. Valid is not the same as appropriate, and the
-   * control has to say which is which.
-   */
-  liveSafe: boolean;
 }
 
 /**
  * Ordered fastest to steadiest, so a slider's left-to-right matches "sooner to surer".
  * The index IS the slider value; nothing else may reorder this.
+ *
+ * Three stops, not the five the API accepts. `high` and `xhigh` are valid values that hold
+ * text so long the captions stop belonging to the sentence being spoken - at `xhigh` they
+ * effectively stop appearing during a normal exchange. They were added because the API's
+ * rejection of 'default' listed everything it accepts, which says nothing about what suits
+ * a live meeting. An option that makes the product look broken is not a choice worth
+ * offering, so the range ends where captions still keep up.
  */
 export const DELAY_OPTIONS: readonly DelayOption[] = [
   {
@@ -47,35 +44,18 @@ export const DELAY_OPTIONS: readonly DelayOption[] = [
     label: 'Fastest',
     detail:
       'Text appears almost as it is spoken, and is rewritten most often as the model hears the rest of the sentence.',
-    liveSafe: true,
   },
   {
     profile: 'low',
     label: 'Fast',
     detail:
       'A short wait before committing. Captions still feel live, with noticeably fewer rewrites than Fastest.',
-    liveSafe: true,
   },
   {
     profile: 'medium',
     label: 'Balanced',
     detail:
       'Waits for a natural pause before committing most lines. A good default for a conversation at normal pace.',
-    liveSafe: true,
-  },
-  {
-    profile: 'high',
-    label: 'Careful',
-    detail:
-      'Holds text back until the phrase is settled. Noticeably behind the speaker, and rarely corrected afterwards.',
-    liveSafe: false,
-  },
-  {
-    profile: 'xhigh',
-    label: 'Most accurate',
-    detail:
-      'The longest wait. Captions stop tracking the conversation - by the time a line appears the speaker has moved on.',
-    liveSafe: false,
   },
 ] as const;
 

@@ -765,47 +765,35 @@ describe('meeting caption controls', () => {
       expect(window.captions.setSettings).toHaveBeenCalledWith({ delayProfile: 'minimal' }),
     );
 
-    // The far end is 'xhigh'. It used to be 'default', which the API rejects outright:
-    // "Invalid value: 'default'. Supported values are: 'minimal', 'low', 'medium',
-    // 'high', and 'xhigh'."
-    fireEvent.change(slider, { target: { value: '4' } });
+    // The far end is 'medium'. It used to be 'default', which the API rejects outright, and
+    // then briefly 'xhigh', which the API accepts but which holds text so long that
+    // captions stop tracking the conversation.
+    fireEvent.change(slider, { target: { value: '2' } });
     await waitFor(() =>
-      expect(window.captions.setSettings).toHaveBeenCalledWith({ delayProfile: 'xhigh' }),
+      expect(window.captions.setSettings).toHaveBeenCalledWith({ delayProfile: 'medium' }),
     );
-    expect(window.captions.setSettings).not.toHaveBeenCalledWith({
-      delayProfile: 'default',
-    });
+    for (const withdrawn of ['default', 'high', 'xhigh']) {
+      expect(window.captions.setSettings).not.toHaveBeenCalledWith({
+        delayProfile: withdrawn,
+      });
+    }
   });
 
-  it('warns at the settings where captions stop tracking the conversation', async () => {
-    // The five values came from the API's list of what it accepts, which says nothing about
-    // whether they suit live captioning. At the top of the range they do not, and the
-    // symptom is transcription that looks broken rather than slow.
+  it('cannot be dragged to a setting that stops captions appearing', async () => {
+    // 'high' and 'xhigh' are accepted by the API but hold text so long that during a normal
+    // exchange nothing arrives - the product looks broken rather than slow. The slider ends
+    // before them, so the state is unreachable rather than merely discouraged.
     render(<ControlApp />);
     await screen.findByRole('button', { name: /Start session/i });
     fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
 
     const slider = await screen.findByRole('slider', { name: 'Caption responsiveness' });
-    expect(screen.queryByText(/lag well behind the speaker/)).not.toBeInTheDocument();
+    expect(slider).toHaveAttribute('max', '2');
 
-    fireEvent.change(slider, { target: { value: '4' } });
+    // Even a value past the end clamps to the last usable stop.
+    fireEvent.change(slider, { target: { value: '9' } });
     await waitFor(() =>
-      expect(window.captions.setSettings).toHaveBeenCalledWith({ delayProfile: 'xhigh' }),
-    );
-  });
-
-  it('offers one press back to the default from an unusable setting', async () => {
-    window.captions.getSettings = () =>
-      Promise.resolve({ ok: true as const, data: { ...settings, delayProfile: 'xhigh' } });
-
-    render(<ControlApp />);
-    await screen.findByRole('button', { name: /Start session/i });
-    fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
-
-    expect(await screen.findByText(/lag well behind the speaker/)).toBeVisible();
-    fireEvent.click(screen.getByRole('button', { name: 'Use the default' }));
-    await waitFor(() =>
-      expect(window.captions.setSettings).toHaveBeenCalledWith({ delayProfile: 'low' }),
+      expect(window.captions.setSettings).toHaveBeenCalledWith({ delayProfile: 'medium' }),
     );
   });
 

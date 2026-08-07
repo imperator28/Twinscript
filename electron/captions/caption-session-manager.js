@@ -154,8 +154,22 @@ class CaptionSessionManager {
     this.reset();
     this.sessionId = crypto.randomUUID();
     this.mode = request.mode || 'live';
-    this.settings = { ...this.settingsStore.get(), ...(request.settings || {}) };
-    this.settingsStore.set(this.settings);
+    // The store's return value is what the session runs on.
+    //
+    // This used to call set() and throw the result away, keeping the renderer's raw object.
+    // Every validation the store performs - clamping, enum checks, the delay profile - was
+    // therefore applied to the file on disk and NOT to the settings this session sends to
+    // the API. A bad value was corrected everywhere except the one place it mattered.
+    const requested = {
+      ...this.settingsStore.get(),
+      ...(request.settings || {}),
+    };
+    const stored = this.settingsStore.set(requested);
+    // Falls back to the requested object if the store returns nothing. Depending on a
+    // return value would make a store that legitimately returns void crash the session,
+    // and a session that cannot start is a worse failure than one running unnormalized
+    // settings.
+    this.settings = stored && typeof stored === 'object' ? stored : requested;
     this.startedAt = Date.now();
     this.active = true;
     this.shadowActive = Boolean(this.settings.shadowEnabled);

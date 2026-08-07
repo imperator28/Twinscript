@@ -56,7 +56,6 @@ import {
   resetLocalPreferences,
 } from './localPreferences';
 import {
-  DEFAULT_DELAY_PROFILE,
   DELAY_OPTIONS,
   delayIndex,
   delayOption,
@@ -1972,31 +1971,6 @@ export function ControlApp() {
                   ? ' Locked while a session is running: the transcriber is told this once, when the session starts. Stop and start to change it.'
                   : ' Applies when you start the next session.'}
               </span>
-              {/* Valid is not the same as usable. The five values came from the API's own
-                  list of what it accepts, which says nothing about live captioning - and at
-                  the top of the range the captions stop belonging to the sentence being
-                  spoken. The warning names that, and offers the way back in one press. */}
-              {!delaySelection.liveSafe && (
-                <span className="pace-control__warning" role="status">
-                  <AlertTriangle size={14} strokeWidth={2.5} aria-hidden="true" />
-                  <span>
-                    Captions will lag well behind the speaker at this setting. Use it for a
-                    recording you will read afterwards, not for a live meeting.
-                  </span>
-                  <button
-                    className="text-button"
-                    disabled={active || busy}
-                    onClick={() =>
-                      void saveSettings({
-                        delayProfile:
-                          DEFAULT_DELAY_PROFILE as CaptionSettings['delayProfile'],
-                      })
-                    }
-                  >
-                    Use the default
-                  </button>
-                </span>
-              )}
             </label>
             {/* Caption size lived here, one tab away from Visible history - its
                 sibling control, affecting the same pixels. Both now sit in the

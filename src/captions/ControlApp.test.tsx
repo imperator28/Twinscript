@@ -756,9 +756,8 @@ describe('meeting caption controls', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
 
     const slider = await screen.findByRole('slider', { name: 'Caption responsiveness' });
-    // Default is the middle stop, not the fastest.
+    // The shipped default, and not the fastest stop.
     expect(slider).toHaveValue('1');
-    expect(screen.getByText(/Balanced/)).toBeVisible();
     expect(screen.getByText(/fewer rewrites than Fastest/)).toBeVisible();
 
     fireEvent.change(slider, { target: { value: '0' } });
@@ -766,10 +765,16 @@ describe('meeting caption controls', () => {
       expect(window.captions.setSettings).toHaveBeenCalledWith({ delayProfile: 'minimal' }),
     );
 
-    fireEvent.change(slider, { target: { value: '2' } });
+    // The far end is 'xhigh'. It used to be 'default', which the API rejects outright:
+    // "Invalid value: 'default'. Supported values are: 'minimal', 'low', 'medium',
+    // 'high', and 'xhigh'."
+    fireEvent.change(slider, { target: { value: '4' } });
     await waitFor(() =>
-      expect(window.captions.setSettings).toHaveBeenCalledWith({ delayProfile: 'default' }),
+      expect(window.captions.setSettings).toHaveBeenCalledWith({ delayProfile: 'xhigh' }),
     );
+    expect(window.captions.setSettings).not.toHaveBeenCalledWith({
+      delayProfile: 'default',
+    });
   });
 
   it('hides the readiness checklist once nothing is outstanding', async () => {

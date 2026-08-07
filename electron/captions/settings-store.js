@@ -50,6 +50,21 @@ function normalizeLayout(value) {
 }
 
 /**
+ * The transcription API's accepted `delay` values.
+ *
+ * `'default'` shipped as the "Stable" dropdown option and is NOT one of them - the API
+ * answers "Invalid value: 'default'. Supported values are: 'minimal', 'low', 'medium',
+ * 'high', and 'xhigh'." The value was never validated here, so the only thing that ever
+ * checked it was the server, at the moment a session tried to start. Any stored value
+ * outside the set now falls back to the default rather than reaching the API.
+ */
+const DELAY_PROFILES = ['minimal', 'low', 'medium', 'high', 'xhigh'];
+
+function normalizeDelayProfile(value) {
+  return DELAY_PROFILES.includes(value) ? value : 'low';
+}
+
+/**
  * Meeting context notes: participant names, project and site names. Not translation
  * pairs - they tell the model who and what is being discussed so a supplier's name is
  * transcribed rather than guessed at phonetically.
@@ -78,7 +93,7 @@ function normalizeContextNotes(value) {
 }
 
 const DEFAULT_SETTINGS = Object.freeze({
-  settingsVersion: 11,
+  settingsVersion: 12,
   glossaryContextNotes: [],
   layout: 'stacked',
   outputMode: 'overlays',
@@ -222,6 +237,14 @@ class SettingsStore {
         if (layout !== next.layout) migrated = true;
         next.layout = layout;
       }
+      // v12 repairs an invalid delay profile. 'default' shipped as a selectable option
+      // and the API rejects it, so an install that ever chose "Stable" could not start a
+      // session at all until the value was changed by hand.
+      {
+        const delayProfile = normalizeDelayProfile(next.delayProfile);
+        if (delayProfile !== next.delayProfile) migrated = true;
+        next.delayProfile = delayProfile;
+      }
       // v11 adds meeting context notes: names, projects and sites that inform
       // transcription without being translation pairs. Normalized on every read rather
       // than only on the version step, because these come from a free-text field.
@@ -280,6 +303,9 @@ class SettingsStore {
     }
     if (Object.hasOwn(cleanPatch, 'layout')) {
       next.layout = normalizeLayout(next.layout);
+    }
+    if (Object.hasOwn(cleanPatch, 'delayProfile')) {
+      next.delayProfile = normalizeDelayProfile(next.delayProfile);
     }
     if (Object.hasOwn(cleanPatch, 'glossaryContextNotes')) {
       // Bounded here as well as on read: this arrives from a free-text field, and

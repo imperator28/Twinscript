@@ -9,7 +9,15 @@
 // dimensions, supplier names, and Chinese homophones that only resolve from context. Wait
 // less and text appears sooner but is rewritten more often as the model catches up.
 
-export type DelayProfile = 'minimal' | 'low' | 'default';
+/**
+ * The values the transcription API actually accepts.
+ *
+ * `'default'` was NOT one of them. It sat in the old dropdown as the "Stable" option and
+ * the API rejected it outright - "Invalid value: 'default'. Supported values are:
+ * 'minimal', 'low', 'medium', 'high', and 'xhigh'." Nothing caught it because the setting
+ * was only ever validated by the server, at the moment a session tried to start.
+ */
+export type DelayProfile = 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
 
 export interface DelayOption {
   profile: DelayProfile;
@@ -32,12 +40,24 @@ export const DELAY_OPTIONS: readonly DelayOption[] = [
   },
   {
     profile: 'low',
-    label: 'Balanced',
+    label: 'Fast',
     detail:
       'A short wait before committing. Captions still feel live, with noticeably fewer rewrites than Fastest.',
   },
   {
-    profile: 'default',
+    profile: 'medium',
+    label: 'Balanced',
+    detail:
+      'Waits for a natural pause before committing most lines. A good default for a conversation at normal pace.',
+  },
+  {
+    profile: 'high',
+    label: 'Careful',
+    detail:
+      'Holds text back until the phrase is settled. Noticeably behind the speaker, and rarely corrected afterwards.',
+  },
+  {
+    profile: 'xhigh',
     label: 'Most accurate',
     detail:
       'The longest wait. Best for part numbers, dimensions and names, which are the words most often corrected after the fact.',

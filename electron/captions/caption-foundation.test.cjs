@@ -580,7 +580,7 @@ test('legacy caption settings migrate to product-safe runtime defaults', () => {
     }),
   );
   const settings = new SettingsStore({ getPath: () => userData }).get();
-  assert.equal(settings.settingsVersion, 11);
+  assert.equal(settings.settingsVersion, 12);
   assert.equal(settings.vadEnabled, false);
   assert.equal(Object.hasOwn(settings, 'captionPaceMs'), false);
   assert.equal(settings.shadowEnabled, false);
@@ -597,7 +597,7 @@ test('legacy caption settings migrate to product-safe runtime defaults', () => {
   const persisted = JSON.parse(
     fs.readFileSync(path.join(userData, 'caption-settings.json'), 'utf8'),
   );
-  assert.equal(persisted.settingsVersion, 11);
+  assert.equal(persisted.settingsVersion, 12);
   assert.equal(persisted.shadowEnabled, false);
   assert.equal(persisted.recordEvaluation, false);
   assert.equal(persisted.autoSaveTranscript, true);
@@ -909,7 +909,7 @@ test('v7 glossary and theme settings migrate without losing custom terms', () =>
     }),
   );
   const settings = new SettingsStore({ getPath: () => userData }).get();
-  assert.equal(settings.settingsVersion, 11);
+  assert.equal(settings.settingsVersion, 12);
   assert.equal(settings.glossaryConfigurationId, 'universal-engineering');
   assert.equal(settings.customGlossaryConfiguration.terms[0].en, 'project falcon');
   assert.equal(settings.glossary[0].en, 'project falcon');
@@ -1466,4 +1466,40 @@ test('settings reset restores defaults and cannot reach the key or the meetings'
   // property that makes offering "reset all" safe.
   assert.equal(reset.meetingRecordsDirectory, null);
   assert.ok(!('apiKey' in reset) && !('credential' in reset));
+});
+
+test("an invalid delay profile is repaired instead of reaching the API", () => {
+  // 'default' shipped as the "Stable" dropdown option and the API rejects it: "Invalid
+  // value: 'default'. Supported values are: 'minimal', 'low', 'medium', 'high', and
+  // 'xhigh'." Nothing validated it here, so the only check was the server, at the moment a
+  // session tried to start - an install that ever chose Stable simply could not caption.
+  const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'delay-profile-'));
+  fs.writeFileSync(
+    path.join(userData, 'caption-settings.json'),
+    JSON.stringify({ settingsVersion: 11, delayProfile: 'default' }),
+  );
+
+  const settings = new SettingsStore({ getPath: () => userData }).get();
+  assert.equal(settings.delayProfile, 'low', 'repaired on read');
+
+  // Repaired on disk, not just in memory, or it would fail again on the next launch.
+  const reloaded = JSON.parse(
+    fs.readFileSync(path.join(userData, 'caption-settings.json'), 'utf8'),
+  );
+  assert.equal(reloaded.delayProfile, 'low');
+});
+
+test('every supported delay profile is accepted, and nothing else is', () => {
+  const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'delay-accept-'));
+  const store = new SettingsStore({ getPath: () => userData });
+  for (const profile of ['minimal', 'low', 'medium', 'high', 'xhigh']) {
+    assert.equal(store.set({ delayProfile: profile }).delayProfile, profile);
+  }
+  for (const bad of ['default', 'stable', '', null, 7]) {
+    assert.equal(
+      store.set({ delayProfile: bad }).delayProfile,
+      'low',
+      `${String(bad)} should fall back rather than reach the API`,
+    );
+  }
 });

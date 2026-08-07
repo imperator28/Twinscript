@@ -13,7 +13,9 @@ describe('DELAY_OPTIONS', () => {
     expect(DELAY_OPTIONS.map((option) => option.profile)).toEqual([
       'minimal',
       'low',
-      'default',
+      'medium',
+      'high',
+      'xhigh',
     ]);
   });
 
@@ -29,7 +31,9 @@ describe('DELAY_OPTIONS', () => {
   it('labels the behaviour rather than the setting', () => {
     expect(DELAY_OPTIONS.map((option) => option.label)).toEqual([
       'Fastest',
+      'Fast',
       'Balanced',
+      'Careful',
       'Most accurate',
     ]);
   });
@@ -38,7 +42,8 @@ describe('DELAY_OPTIONS', () => {
     // These go straight through to OpenAI's `delay` parameter; a renamed label must not
     // change the wire value.
     for (const option of DELAY_OPTIONS) {
-      expect(['minimal', 'low', 'default']).toContain(option.profile);
+      // The exact set the API named when it rejected 'default'.
+      expect(['minimal', 'low', 'medium', 'high', 'xhigh']).toContain(option.profile);
     }
   });
 });
@@ -47,7 +52,8 @@ describe('delayIndex', () => {
   it('maps each profile to its slider position', () => {
     expect(delayIndex('minimal')).toBe(0);
     expect(delayIndex('low')).toBe(1);
-    expect(delayIndex('default')).toBe(2);
+    expect(delayIndex('medium')).toBe(2);
+    expect(delayIndex('xhigh')).toBe(4);
   });
 
   it('falls back to the shipped default, not to position zero', () => {
@@ -57,6 +63,8 @@ describe('delayIndex', () => {
     expect(delayIndex(undefined)).toBe(fallback);
     expect(delayIndex(null)).toBe(fallback);
     expect(delayIndex('turbo')).toBe(fallback);
+    // The value that shipped and was rejected by the API resolves to the default too.
+    expect(delayIndex('default')).toBe(fallback);
     expect(fallback).not.toBe(0);
   });
 });
@@ -65,17 +73,17 @@ describe('delayProfileAt', () => {
   it('maps a slider position back to its profile', () => {
     expect(delayProfileAt(0)).toBe('minimal');
     expect(delayProfileAt(1)).toBe('low');
-    expect(delayProfileAt(2)).toBe('default');
+    expect(delayProfileAt(4)).toBe('xhigh');
   });
 
   it('clamps rather than returning undefined at the edges', () => {
     expect(delayProfileAt(-5)).toBe('minimal');
-    expect(delayProfileAt(99)).toBe('default');
+    expect(delayProfileAt(99)).toBe('xhigh');
   });
 
   it('rounds a fractional position', () => {
     expect(delayProfileAt(1.4)).toBe('low');
-    expect(delayProfileAt(1.6)).toBe('default');
+    expect(delayProfileAt(1.6)).toBe('medium');
   });
 
   it('round-trips with delayIndex', () => {
@@ -87,7 +95,7 @@ describe('delayProfileAt', () => {
 
 describe('delayOption', () => {
   it('returns the option for display', () => {
-    expect(delayOption('default').label).toBe('Most accurate');
+    expect(delayOption('xhigh').label).toBe('Most accurate');
   });
 
   it('never returns undefined for an unknown value', () => {

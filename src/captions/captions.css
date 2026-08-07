@@ -1040,6 +1040,22 @@ input[type="range"] { width: 100%; accent-color: var(--accent); }
 .readiness__step p { margin: var(--space-1) 0 0; color: var(--text-secondary); font-size: var(--size-sm); line-height: var(--leading-tight); }
 .readiness__step .button { flex: 0 0 auto; }
 .transcript-actions { margin-top: var(--space-4); padding-top: var(--space-4); border-top: 1px solid var(--border-subtle); }
+/* Shown only when the surface below has already failed, so it owns the whole window. */
+.surface-error { display: grid; place-items: center; height: 100%; padding: var(--space-8); background: var(--surface-sunken); color: var(--text); overflow-y: auto; }
+.surface-error > div { max-width: 62ch; }
+.surface-error h1 { margin-bottom: var(--space-3); }
+.surface-error pre {
+  margin: var(--space-4) 0;
+  padding: var(--space-3);
+  overflow-x: auto;
+  border: 1px solid var(--danger-border);
+  border-radius: var(--radius);
+  background: var(--danger-surface);
+  color: var(--danger-text);
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: var(--size-sm);
+  white-space: pre-wrap;
+}
 .empty-state { color: var(--text-secondary); text-align: center; line-height: 1.6; }
 .app-footer { margin-top: var(--space-6); padding-top: var(--space-4); border-top: 1px solid var(--border); color: var(--text-secondary); font-size: var(--size-xs); }
 /* Links inherit the accent rather than the UA's default blue, which is off-palette in
@@ -1210,10 +1226,21 @@ a:hover { text-decoration-color: currentColor; }
    the operator has to be able to read. */
 @media (max-width: 1180px) {
   .session-grid, .settings-layout { grid-template-columns: 1fr; }
-  /* A single column should not stretch to the full width of a wide-but-short window. */
+  /* Cards fill the window.
+     They used to be capped at 820px here, on the theory that a single column should not
+     stretch across a wide window. But this breakpoint fires up to 1180px, so at 1100px the
+     cap left ~300px of empty margin and the content no longer looked related to the window
+     it was in. Long lines are the actual problem that cap was aiming at, and they are
+     solved directly below by bounding the prose rather than the container. */
   .panel-stack, .session-grid, .settings-layout, .app-header, .tab-bar, .app-footer {
-    max-width: 820px;
+    max-width: none;
   }
+}
+
+/* Prose stops at a readable measure wherever it sits. Bounding the container instead made
+   every control narrow in order to keep one paragraph short. */
+.supporting-copy, .field-note, .notice > span, .readiness__step p, .glossary-section > header p {
+  max-width: 78ch;
 }
 
 @media (max-width: 900px) {

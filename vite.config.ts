@@ -107,6 +107,7 @@ export default defineConfig(({ command, mode }) => {
           // Entry points for the main process
           entry: {
             'captions-main': 'electron/captions-main.js',
+            'captions/app-icon': 'electron/captions/app-icon.js',
             'captions/app-lifecycle': 'electron/captions/app-lifecycle.js',
             'captions/camera-frame-transport': 'electron/captions/camera-frame-transport.js',
             'captions/caption-domain': 'electron/captions/caption-domain.js',

@@ -12,6 +12,7 @@ const {
 } = require('electron');
 const path = require('path');
 const { initMain } = require('electron-audio-loopback');
+const { appIconPath } = require('./captions/app-icon');
 const { CaptionSessionManager } = require('./captions/caption-session-manager');
 const { CaptionWindowManager } = require('./captions/caption-window-manager');
 const { CameraRegionPublisher } = require('./captions/camera-region-publisher');
@@ -108,12 +109,19 @@ function loadControlWindow(window) {
 }
 
 function createControlWindow() {
+  const controlWindowIcon = appIconPath({ isPackaged: app.isPackaged });
   controlWindow = new BrowserWindow({
     width: 1180,
     height: 780,
     minWidth: 940,
     minHeight: 640,
     title: 'Twinscript',
+    // Without this the window inherited Electron's own default icon in
+    // development and on Linux: the shipped caption entry point never set one,
+    // while the retired Sokuji entry point (electron/main.js) did. Omitted rather
+    // than passed empty when the file cannot be found, so Electron's fallback is a
+    // deliberate outcome instead of a bad path silently producing the same thing.
+    ...(controlWindowIcon ? { icon: controlWindowIcon } : {}),
     backgroundColor: '#F3F4F6',
     show: false,
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
@@ -371,6 +379,7 @@ app.whenReady().then(async () => {
     controlWindow,
     isDev: isDevelopment(),
     preloadPath: path.join(__dirname, 'captions-preload.js'),
+    iconPath: appIconPath({ isPackaged: app.isPackaged }),
     settingsStore,
     cameraFramePublisher,
     nativeCameraSupervisor,

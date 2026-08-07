@@ -24,6 +24,11 @@ class CaptionWindowManager {
     controlWindow,
     isDev,
     preloadPath,
+    // Injected rather than resolved here, the same way preloadPath is: this module
+    // is constructed with fakes in the main-process tests, and reaching for the
+    // real filesystem to find an icon would make every one of them depend on the
+    // repo layout.
+    iconPath = '',
     settingsStore,
     cameraFramePublisher = null,
     nativeCameraSupervisor = null,
@@ -36,6 +41,7 @@ class CaptionWindowManager {
     this.controlWindow = controlWindow;
     this.isDev = isDev;
     this.preloadPath = preloadPath;
+    this.iconPath = iconPath;
     this.settingsStore = settingsStore;
     this.cameraFramePublisher = cameraFramePublisher;
     this.nativeCameraSupervisor = nativeCameraSupervisor;
@@ -221,6 +227,10 @@ class CaptionWindowManager {
       alwaysOnTop: false,
       backgroundColor: '#05070A',
       title: 'Twinscript Camera Stage',
+      // The one caption window that appears in the taskbar, so it is the one that
+      // needs the mark. The overlays set skipTaskbar and are frameless, so an icon
+      // on them would never be drawn.
+      ...(this.iconPath ? { icon: this.iconPath } : {}),
       webPreferences: {
         preload: this.preloadPath,
         contextIsolation: true,

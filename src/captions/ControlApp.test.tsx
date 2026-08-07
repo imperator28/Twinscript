@@ -534,6 +534,66 @@ describe('meeting caption controls', () => {
     expect(document.documentElement.dataset.theme).toBe('dark');
   });
 
+  it('credits the stack and the fork at the bottom of Settings', async () => {
+    render(<ControlApp />);
+    await screen.findByRole('button', { name: /Start session/i });
+    fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+
+    const about = (await screen.findByRole('heading', { name: /Twinscript/ }))
+      .closest('article');
+    expect(about).not.toBeNull();
+    expect(about?.textContent).toMatch(/Version 0\.1\.0/);
+    expect(about?.textContent).toMatch(/AGPL-3\.0/);
+    expect(about?.textContent).toMatch(/Electron, React, Vite and TypeScript/);
+    expect(about?.textContent).toMatch(/Sokuji v0\.34\.5/);
+    // Last card on the Settings tab, and the designer credit is the last line of it.
+    const cards = Array.from(
+      about?.parentElement?.querySelectorAll(':scope > article') ?? [],
+    );
+    // Not `.at(-1)`: the renderer targets ES2020, where Array.prototype.at does
+    // not exist in the type library.
+    expect(cards[cards.length - 1]).toBe(about);
+    expect(about?.textContent?.trimEnd().endsWith('Designed by Jiyu')).toBe(true);
+  });
+
+  it('keeps the logo ids unique across every copy on the page', async () => {
+    // The exported asset named its gradients `linear-gradient`, `linear-gradient-2`
+    // and its clip path `clippath`. Inlined twice - the header mark and the About
+    // card - those become duplicate document ids, and any other inlined SVG picking
+    // the same obvious names would repaint this one. The component namespaces them
+    // per instance; this fails if that is ever simplified away.
+    render(<ControlApp />);
+    await screen.findByRole('button', { name: /Start session/i });
+    fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+    await screen.findByRole('heading', { name: /Twinscript/ });
+
+    const marks = Array.from(
+      document.querySelectorAll<SVGSVGElement>('.brand-mark svg'),
+    );
+    expect(marks.length).toBeGreaterThan(1);
+    // Per-instance id sets, compared directly: two copies of the mark must not
+    // share a single definition id between them.
+    const perMark = marks.map((mark) =>
+      Array.from(mark.querySelectorAll('[id]')).map((node) => node.id),
+    );
+    for (const ids of perMark) {
+      // Four gradients and one clip path, none of them named generically.
+      expect(ids).toHaveLength(5);
+      expect(ids.every((id) => id.startsWith('twinscript-'))).toBe(true);
+    }
+    const flattened = perMark.flat();
+    expect(new Set(flattened).size).toBe(flattened.length);
+
+    // And every fill/clip reference resolves to an element that exists, so
+    // namespacing has not left a path pointing at a gradient that was renamed.
+    for (const node of document.querySelectorAll('[fill^="url("], [clip-path]')) {
+      const ref = (node.getAttribute('fill') || node.getAttribute('clip-path'))!;
+      const id = ref.replace(/^url\(#/, '').replace(/\)$/, '');
+      expect(document.getElementById(id), `${id} is referenced but not defined`)
+        .not.toBeNull();
+    }
+  });
+
   it('reports what the recordings are actually using, not an estimate', async () => {
     // The card only ever stated a hypothetical - "two one-hour tracks can use about
     // 346 MB" - which says nothing about the meetings the operator has.

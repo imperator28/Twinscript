@@ -117,6 +117,12 @@
   --shadow-card: 0 1px 2px rgba(18, 22, 28, .04);
   --shadow-raised: 0 6px 20px -6px rgba(18, 22, 28, .18);
 
+  /* The logo sits on a white plate, so on a white card its edge has to be drawn or
+     the corners simply vanish and the mark reads as a floating gradient. In the
+     dark theme the plate is already the brightest thing on screen and a ring only
+     muddies it, so there it is nothing. */
+  --brand-mark-ring: 0 0 0 1px rgba(18, 22, 28, .1);
+
   /* The minimum comfortable target. Kept as a token so it cannot drift. */
   --target: 44px;
 
@@ -214,6 +220,10 @@
 
     --shadow-card: 0 1px 2px rgba(0, 0, 0, .3);
     --shadow-raised: 0 8px 24px -8px rgba(0, 0, 0, .6);
+
+    /* See the light value: against a dark card the white plate needs no help
+       finding its own edge, and a dark ring around it only reads as grime. */
+    --brand-mark-ring: none;
 }
 
 /* Pre-paint fallback, deliberately only the two root properties.
@@ -1076,6 +1086,95 @@ input[type="range"] { width: 100%; accent-color: var(--accent); }
   white-space: pre-wrap;
 }
 .empty-state { color: var(--text-secondary); text-align: center; line-height: 1.6; }
+
+/* ---------------------------------------------------------------------------
+   Brand mark and attribution.
+   --------------------------------------------------------------------------- */
+
+/* The logo's own corner radius, as a proportion of its width: `rx="111.26"` on a
+   500-unit square. Kept here as a token so anything that draws an edge along the
+   mark - a ring, a hover surface, a future drop shadow - traces the plate instead
+   of cutting a second, slightly different curve across it. The most common way an
+   app icon comes to look fake is two radii on one corner. */
+.brand-mark {
+  --brand-mark-radius: 22.252%;
+  display: inline-flex;
+  flex: none;
+  border-radius: var(--brand-mark-radius);
+  /* Drawn OUTSIDE the box, not inset: the mark's white plate is a child element
+     and paints over any inset shadow, so an inner ring would be invisible. */
+  box-shadow: var(--brand-mark-ring);
+  /* Without this the inline SVG reserves descender space and the mark sits a few
+     pixels high in every row it appears in. */
+  line-height: 0;
+}
+/* The header is the one flex row that should NOT space-between: the mark belongs
+   against the wordmark it marks, not pinned to the opposite edge of the window.
+   `align-items: center` comes from the shared layout-row rule above and is what is
+   wanted here: measured against the real lockup, top-aligning the mark left it 8px
+   above the optical centre of the two-line eyebrow-plus-title block, which reads as
+   the mark belonging to the eyebrow rather than to the pair. */
+.app-header { justify-content: flex-start; gap: var(--space-4); }
+
+.about-card__identity {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  margin-bottom: var(--space-5);
+}
+/* The global h2 rule adds 16px below every card title. Inside this row the title
+   is one line of a two-line block, so that gap would separate the name from its
+   own version string. */
+.about-card__identity h2 { margin-bottom: 0; }
+.about-card__version {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 3px 0 0;
+  color: var(--text-secondary);
+  font-size: var(--size-xs);
+  /* Tabular figures so a version bump cannot shift the licence link beside it. */
+  font-variant-numeric: tabular-nums;
+}
+
+.about-card__credits { margin: 0; }
+/* Label and claim, not a paragraph of prose: an operator checking what this is
+   built on is scanning for one of five things, and a wall of sentences makes them
+   read all five. Baseline alignment rather than centre - the two columns are
+   different sizes, and matching their first baselines is what makes the rows read
+   as rows. */
+.about-card__credit {
+  display: grid;
+  align-items: baseline;
+  grid-template-columns: 104px minmax(0, 1fr);
+  gap: var(--space-4);
+  padding: var(--space-2) 0;
+  border-top: 1px solid var(--border-subtle);
+}
+.about-card__credit:first-child { border-top: 0; padding-top: 0; }
+.about-card__credit dt {
+  color: var(--text-secondary);
+  font-size: var(--size-xs);
+  font-weight: var(--weight-medium);
+  line-height: var(--leading-body);
+}
+.about-card__credit dd {
+  /* The UA indents every dd by 40px, which would put the claims out of line with
+     everything else in the card. */
+  margin: 0;
+  max-width: 78ch;
+  font-size: var(--size-body);
+  line-height: var(--leading-body);
+}
+.about-card__signature {
+  margin: var(--space-5) 0 0;
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-size: var(--size-xs);
+  font-weight: var(--weight-medium);
+}
+
 .app-footer { margin-top: var(--space-6); padding-top: var(--space-4); border-top: 1px solid var(--border); color: var(--text-secondary); font-size: var(--size-xs); }
 /* Links inherit the accent rather than the UA's default blue, which is off-palette in
    light mode and unreadably dark against the dark surface. */
@@ -1283,6 +1382,10 @@ a:hover { text-decoration-color: currentColor; }
   .readiness__step { align-items: stretch; flex-direction: column; }
   .transcript-list > .transcript-entry { grid-template-columns: 1fr; }
   .overlay-preview--side-by-side { grid-template-columns: 1fr; }
+  /* A 104px label column plus a claim leaves the claim about 26 characters wide at
+     this width, which wraps every one of them to four lines. Label above value
+     instead, still separated by the row rules. */
+  .about-card__credit { gap: 2px; grid-template-columns: minmax(0, 1fr); }
 }
 
 /* Reduced motion means gentler, not absent. The previous blanket rule set every

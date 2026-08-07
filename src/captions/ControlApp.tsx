@@ -67,6 +67,16 @@ import {
   readThemePreference,
   type ThemePreference,
 } from './theme';
+import { TwinscriptLogo } from './TwinscriptLogo';
+import {
+  APP_LICENSE,
+  APP_LICENSE_URL,
+  APP_NAME,
+  APP_NAME_ZH,
+  APP_VERSION,
+  CREDITS,
+  SIGNATURE,
+} from './aboutCredits';
 import type {
   CaptionEvent,
   GlossaryConfiguration,
@@ -1113,11 +1123,19 @@ export function ControlApp() {
   return (
     <main className="control-shell">
       <header className="app-header">
+        {/* The mark is decorative: the wordmark it would announce is the very next
+            thing in the reading order. */}
+        <span className="brand-mark">
+          <TwinscriptLogo size={34} />
+        </span>
         <div>
           {/* The Chinese name sits in the operator UI rather than the audience
               overlays: the camera stage and lower thirds must stay free of
               branding (see docs/windows/virtual-camera.md). */}
-          <p className="eyebrow">TWINSCRIPT<span lang="zh-Hans"> 会意</span></p>
+          <p className="eyebrow">
+            {APP_NAME.toUpperCase()}
+            <span lang="zh-Hans"> {APP_NAME_ZH}</span>
+          </p>
           <h1>Live Caption Studio</h1>
         </div>
       </header>
@@ -2264,6 +2282,48 @@ export function ControlApp() {
               </p>
             </article>
           )}
+
+          {/* Last card on the page, deliberately. Attribution is something an
+              operator looks up once - when filing a bug, or checking what this
+              thing is built on - so it earns a fixed, findable home rather than a
+              place in the flow of things they came here to change.
+
+              The strings live in `aboutCredits.ts` so the version and the stack
+              can be asserted against package.json instead of drifting into a
+              claim nobody re-reads. */}
+          <article className="card about-card" aria-labelledby="about-heading">
+            <p className="eyebrow">ABOUT</p>
+            <div className="about-card__identity">
+              {/* The white plate carries its own 22.25% corner radius, so this
+                  wrapper matches it rather than clipping to a radius of its own -
+                  see TwinscriptLogo.tsx. */}
+              <span className="brand-mark">
+                <TwinscriptLogo size={52} />
+              </span>
+              <div>
+                <h2 id="about-heading">
+                  {APP_NAME}
+                  <span lang="zh-Hans"> {APP_NAME_ZH}</span>
+                </h2>
+                <p className="about-card__version">
+                  <span>Version {APP_VERSION}</span>
+                  <span aria-hidden="true">·</span>
+                  <a href={APP_LICENSE_URL} target="_blank" rel="noreferrer">
+                    {APP_LICENSE}
+                  </a>
+                </p>
+              </div>
+            </div>
+            <dl className="about-card__credits">
+              {CREDITS.map((credit) => (
+                <div className="about-card__credit" key={credit.label}>
+                  <dt>{credit.label}</dt>
+                  <dd>{credit.body}</dd>
+                </div>
+              ))}
+            </dl>
+            <p className="about-card__signature">{SIGNATURE}</p>
+          </article>
 
           {/* "Save this meeting" was here, one tab away from both the log it saves
               and the post-meeting review card that also saves. Saving is a

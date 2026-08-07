@@ -157,15 +157,29 @@ describe('meeting caption controls', () => {
           configurationId: 'universal-engineering',
           protectedTokens: ['T1', 'EVT'],
           storedCount: 3,
+          activeLimit: 40,
           terms: [
-            { en: 'boss', zh: '凸台', doNotTranslate: false, source: 'custom' as const },
+            {
+              en: 'boss',
+              zh: '凸台',
+              doNotTranslate: false,
+              source: 'custom' as const,
+              active: true,
+            },
             {
               en: 'wall thickness',
               zh: '壁厚',
               doNotTranslate: false,
               source: 'builtin' as const,
+              active: true,
             },
-            { en: 'EVT', zh: 'EVT', doNotTranslate: true, source: 'builtin' as const },
+            {
+              en: 'EVT',
+              zh: 'EVT',
+              doNotTranslate: true,
+              source: 'builtin' as const,
+              active: true,
+            },
           ],
         }),
       ),
@@ -472,7 +486,7 @@ describe('meeting caption controls', () => {
     window.captions.credentialStatus = () =>
       Promise.resolve({
         ok: true as const,
-        data: { available: false, source: 'none', encryptionAvailable: true },
+        data: { available: false, source: 'missing', encryptionAvailable: true },
       });
 
     render(<ControlApp />);

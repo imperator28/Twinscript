@@ -35,7 +35,6 @@ import {
   draftsToTerms,
   filterTerms,
   parseContextNotes,
-  partitionGlossary,
   type DraftTerm,
   type EffectiveGlossary,
 } from './glossaryView';
@@ -106,6 +105,7 @@ const DEFAULT_SETTINGS: CaptionSettings = {
   budgetUsd: 5,
   glossaryConfigurationId: 'universal-engineering',
   customGlossaryConfiguration: null,
+  glossaryContextNotes: [],
   glossary: [],
   protectedTokens: [],
   glossaryStoredCount: 0,

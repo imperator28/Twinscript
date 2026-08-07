@@ -50,7 +50,6 @@ describe('delayIndex', () => {
     expect(delayIndex('minimal')).toBe(0);
     expect(delayIndex('low')).toBe(1);
     expect(delayIndex('medium')).toBe(2);
-    expect(delayIndex('medium')).toBe(2);
   });
 
   it('falls back to the shipped default, not to position zero', () => {

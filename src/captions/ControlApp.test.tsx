@@ -777,6 +777,38 @@ describe('meeting caption controls', () => {
     });
   });
 
+  it('warns at the settings where captions stop tracking the conversation', async () => {
+    // The five values came from the API's list of what it accepts, which says nothing about
+    // whether they suit live captioning. At the top of the range they do not, and the
+    // symptom is transcription that looks broken rather than slow.
+    render(<ControlApp />);
+    await screen.findByRole('button', { name: /Start session/i });
+    fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+
+    const slider = await screen.findByRole('slider', { name: 'Caption responsiveness' });
+    expect(screen.queryByText(/lag well behind the speaker/)).not.toBeInTheDocument();
+
+    fireEvent.change(slider, { target: { value: '4' } });
+    await waitFor(() =>
+      expect(window.captions.setSettings).toHaveBeenCalledWith({ delayProfile: 'xhigh' }),
+    );
+  });
+
+  it('offers one press back to the default from an unusable setting', async () => {
+    window.captions.getSettings = () =>
+      Promise.resolve({ ok: true as const, data: { ...settings, delayProfile: 'xhigh' } });
+
+    render(<ControlApp />);
+    await screen.findByRole('button', { name: /Start session/i });
+    fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+
+    expect(await screen.findByText(/lag well behind the speaker/)).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: 'Use the default' }));
+    await waitFor(() =>
+      expect(window.captions.setSettings).toHaveBeenCalledWith({ delayProfile: 'low' }),
+    );
+  });
+
   it('locks the settings a running session cannot pick up', async () => {
     // Both are snapshotted at session start - the delay is sent once in the session.update
     // that opens the transcription socket, and provisionalTranslation is read from the

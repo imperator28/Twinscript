@@ -25,6 +25,16 @@ export interface DelayOption {
   label: string;
   /** The consequence, in one sentence, in both directions. */
   detail: string;
+  /**
+   * Whether captions still track a live conversation at this setting.
+   *
+   * The five values were taken from the API's own error message listing what it accepts,
+   * which says nothing about whether they are usable for live captioning. The top two are
+   * not: at `xhigh` the transcriber holds text long enough that the captions no longer
+   * belong to the sentence being spoken. Valid is not the same as appropriate, and the
+   * control has to say which is which.
+   */
+  liveSafe: boolean;
 }
 
 /**
@@ -37,30 +47,35 @@ export const DELAY_OPTIONS: readonly DelayOption[] = [
     label: 'Fastest',
     detail:
       'Text appears almost as it is spoken, and is rewritten most often as the model hears the rest of the sentence.',
+    liveSafe: true,
   },
   {
     profile: 'low',
     label: 'Fast',
     detail:
       'A short wait before committing. Captions still feel live, with noticeably fewer rewrites than Fastest.',
+    liveSafe: true,
   },
   {
     profile: 'medium',
     label: 'Balanced',
     detail:
       'Waits for a natural pause before committing most lines. A good default for a conversation at normal pace.',
+    liveSafe: true,
   },
   {
     profile: 'high',
     label: 'Careful',
     detail:
       'Holds text back until the phrase is settled. Noticeably behind the speaker, and rarely corrected afterwards.',
+    liveSafe: false,
   },
   {
     profile: 'xhigh',
     label: 'Most accurate',
     detail:
-      'The longest wait. Best for part numbers, dimensions and names, which are the words most often corrected after the fact.',
+      'The longest wait. Captions stop tracking the conversation - by the time a line appears the speaker has moved on.',
+    liveSafe: false,
   },
 ] as const;
 

@@ -102,3 +102,28 @@ describe('delayOption', () => {
     expect(delayOption('nonsense').profile).toBe(DEFAULT_DELAY_PROFILE);
   });
 });
+
+describe('liveSafe', () => {
+  it('marks only the settings where captions still track the conversation', () => {
+    // The five values came from the API's own list of what it accepts, which says nothing
+    // about whether they are usable for live captioning. At the top of the range the
+    // captions no longer belong to the sentence being spoken.
+    expect(
+      DELAY_OPTIONS.filter((option) => option.liveSafe).map((o) => o.profile),
+    ).toEqual(['minimal', 'low', 'medium']);
+    expect(
+      DELAY_OPTIONS.filter((option) => !option.liveSafe).map((o) => o.profile),
+    ).toEqual(['high', 'xhigh']);
+  });
+
+  it('keeps the shipped default inside the live-safe range', () => {
+    expect(delayOption(DEFAULT_DELAY_PROFILE).liveSafe).toBe(true);
+  });
+
+  it('keeps the unsafe settings at the far end, so the slider degrades in one direction', () => {
+    const firstUnsafe = DELAY_OPTIONS.findIndex((option) => !option.liveSafe);
+    expect(
+      DELAY_OPTIONS.slice(firstUnsafe).every((option) => !option.liveSafe),
+    ).toBe(true);
+  });
+});

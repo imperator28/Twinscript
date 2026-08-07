@@ -640,6 +640,48 @@ describe('meeting caption controls', () => {
     ).toBeVisible();
   });
 
+  it('resets display preferences behind a confirmation, and nothing else', async () => {
+    window.localStorage.setItem('captions.theme', 'dark');
+    window.localStorage.setItem('captions.readinessDismissed', '1');
+    // Real configuration, which a control called "Reset" must not touch.
+    window.localStorage.setItem('sokuji_onboarding_completed', 'true');
+
+    render(<ControlApp />);
+    await screen.findByRole('button', { name: /Start session/i });
+    fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Reset display preferences' }),
+    );
+    // One click does not do it: clearing a preference cannot be undone.
+    expect(window.localStorage.getItem('captions.theme')).toBe('dark');
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(window.localStorage.getItem('captions.theme')).toBe('dark');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Reset display preferences' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Reset preferences' }));
+
+    expect(window.localStorage.getItem('captions.theme')).toBeNull();
+    expect(window.localStorage.getItem('captions.readinessDismissed')).toBeNull();
+    expect(window.localStorage.getItem('sokuji_onboarding_completed')).toBe('true');
+    // Theme returns to following the system, not merely forgotten in storage.
+    expect(document.documentElement.dataset.theme).toBeDefined();
+    expect(await screen.findByText(/Your key, glossary and meetings are unchanged/))
+      .toBeVisible();
+  });
+
+  it('says so rather than claiming a reset that did nothing', async () => {
+    render(<ControlApp />);
+    await screen.findByRole('button', { name: /Start session/i });
+    fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Reset display preferences' }),
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Reset preferences' }));
+    expect(await screen.findByText(/already at their defaults/)).toBeVisible();
+  });
+
   it('hides the readiness checklist once nothing is outstanding', async () => {
     render(<ControlApp />);
     await screen.findByRole('button', { name: /Start session/i });

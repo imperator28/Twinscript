@@ -12,6 +12,7 @@ import {
   Play,
   Plus,
   Radio,
+  RotateCcw,
   ShieldCheck,
   Square,
   Sun,
@@ -50,6 +51,10 @@ import {
   reviewHeading as buildReviewHeading,
   formatSize,
 } from './meetingReviewCopy';
+import {
+  READINESS_DISMISSED_KEY,
+  resetLocalPreferences,
+} from './localPreferences';
 import {
   THEME_STORAGE_KEY,
   applyPlatform,
@@ -140,8 +145,6 @@ const CHANNEL_ICONS = {
 
 // One icon per readiness step, naming the thing rather than the problem, so the row
 // is scannable before any of its text is read.
-const READINESS_DISMISSED_KEY = 'captions.readinessDismissed';
-
 const READINESS_ICONS: Record<ReadinessId, typeof KeyRound> = {
   credential: KeyRound,
   microphone: Mic,
@@ -227,6 +230,7 @@ export function ControlApp() {
   // invisibly while the operator believed they had answered everything.
   const [backlog, setBacklog] = useState<MeetingRecordReview[]>([]);
   const [confirmDiscardAll, setConfirmDiscardAll] = useState(false);
+  const [confirmReset, setConfirmReset] = useState(false);
   const [recordsUsage, setRecordsUsage] = useState<{
     bytes: number;
     sessionCount: number;
@@ -1783,8 +1787,52 @@ export function ControlApp() {
                 </button>
               </div>
             )}
+            {/* Scoped deliberately, and the scope is stated rather than implied. A control
+                called "Reset" next to a glossary and an API key has to say what it will not
+                touch, or nobody can safely press it. Two steps because clearing a
+                preference cannot be undone - the same inline pattern as deleting audio. */}
+            <div className="button-row">
+              {confirmReset ? (
+                <>
+                  <button
+                    className="button button--danger"
+                    disabled={busy}
+                    onClick={() => {
+                      const cleared = resetLocalPreferences(window.localStorage);
+                      setAdvisoriesDismissed(false);
+                      setTheme('system');
+                      setConfirmReset(false);
+                      setNotice(
+                        cleared.length
+                          ? 'Display preferences reset. Your key, glossary and meetings are unchanged.'
+                          : 'Nothing to reset: display preferences were already at their defaults.',
+                      );
+                    }}
+                  >
+                    Reset preferences
+                  </button>
+                  <button
+                    className="button button--quiet"
+                    disabled={busy}
+                    onClick={() => setConfirmReset(false)}
+                  >
+                    Cancel
+                  </button>
+                </>
+              ) : (
+                <button
+                  className="button button--danger-quiet"
+                  disabled={busy}
+                  onClick={() => setConfirmReset(true)}
+                >
+                  <RotateCcw size={15} strokeWidth={2.25} aria-hidden="true" />
+                  Reset display preferences
+                </button>
+              )}
+            </div>
             <p className="field-note">
-              Nothing is reset: your key, glossary and camera stay exactly as they are.
+              Reset clears only this window's appearance and checklist state. Your API key,
+              glossary, budget, saved meetings and installed camera are untouched.
             </p>
           </article>
 

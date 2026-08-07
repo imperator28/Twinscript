@@ -983,10 +983,25 @@ export function ControlApp() {
     }
   };
 
+  /**
+   * The most recent caption the audience has actually been shown.
+   *
+   * This used to fall back to `captions[captions.length - 1]` when nothing had settled yet,
+   * which is a provisional caption - a mid-sentence fragment such as "Good morning,". The
+   * audience surfaces only present settled text, so the preview displayed the first sentence
+   * of every session before the overlays and camera stage did, and displayed a fragment the
+   * audience never saw at all.
+   *
+   * The condition matches `settled` in projectForAudience exactly, so the swatch cannot lead
+   * what it is previewing. With nothing settled it falls through to the placeholder copy.
+   */
   const latest = useMemo(
     () =>
-      [...captions].reverse().find((caption) => caption.status === 'final') ||
-      captions[captions.length - 1],
+      [...captions]
+        .reverse()
+        .find(
+          (caption) => caption.status === 'final' || caption.status === 'failed',
+        ),
     [captions],
   );
   const universalGlossary = glossaryConfigurations[0];

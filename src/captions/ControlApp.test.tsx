@@ -811,6 +811,91 @@ describe('meeting caption controls', () => {
     );
   });
 
+  it('never previews a caption the audience has not been shown', async () => {
+    // The reported defect: the first sentence of every session appeared in the control
+    // window before the overlays and camera stage had it. The preview fell back to the
+    // latest provisional caption when nothing had settled, so it showed a mid-sentence
+    // fragment - "Good morning," - that the audience surfaces never render, because they
+    // only present settled text.
+    render(<ControlApp />);
+    await screen.findByRole('button', { name: /Start session/i });
+    act(() => statusListener?.({ state: 'running' }));
+
+    act(() =>
+      captionListener?.({
+        id: 'c1',
+        sessionId: 's1',
+        sequence: 1,
+        status: 'provisional',
+        sourceChannel: 'microphone',
+        sourceText: 'Good morning,',
+        sourceLanguage: 'en',
+        english: { text: 'Good morning,', status: 'provisional' },
+        chinese: { text: '早上好，', status: 'provisional' },
+      }),
+    );
+
+    // Scoped to the swatch: the transcript log below it legitimately shows provisional text,
+    // because that is the operator's own working view rather than a preview of the audience's.
+    const previewEn = () => document.querySelector('.preview-en')?.textContent ?? '';
+    const previewZh = () => document.querySelector('.preview-zh')?.textContent ?? '';
+
+    // Still the placeholder: nothing has settled, so there is nothing the audience has seen.
+    expect(previewEn()).toContain('English audience caption');
+    expect(previewEn()).not.toContain('Good morning,');
+
+    act(() =>
+      captionListener?.({
+        id: 'c1',
+        sessionId: 's1',
+        sequence: 1,
+        status: 'final',
+        sourceChannel: 'microphone',
+        sourceText: 'Good morning, everyone.',
+        sourceLanguage: 'en',
+        english: { text: 'Good morning, everyone.', status: 'final' },
+        chinese: { text: '大家早上好。', status: 'final' },
+      }),
+    );
+
+    await waitFor(() => expect(previewEn()).toContain('Good morning, everyone.'));
+    expect(previewZh()).toContain('大家早上好。');
+    expect(previewEn()).not.toContain('English audience caption');
+  });
+
+  it('previews a failed translation, which the audience also sees', async () => {
+    // `settled` in projectForAudience is final OR failed, and the preview matches it: a
+    // failed caption reaches the audience as an error string, so hiding it here would make
+    // the preview lag instead of lead.
+    render(<ControlApp />);
+    await screen.findByRole('button', { name: /Start session/i });
+    act(() => statusListener?.({ state: 'running' }));
+
+    act(() =>
+      captionListener?.({
+        id: 'c2',
+        sessionId: 's1',
+        sequence: 2,
+        status: 'failed',
+        sourceChannel: 'microphone',
+        sourceText: 'Wall thickness check.',
+        sourceLanguage: 'en',
+        english: { text: 'Wall thickness check.', status: 'final' },
+        chinese: { text: '', status: 'failed' },
+      }),
+    );
+
+    await waitFor(() =>
+      expect(document.querySelector('.preview-en')?.textContent ?? '').toContain(
+        'Wall thickness check.',
+      ),
+    );
+    // The audience sees the same unavailable-translation string, so the preview shows it too.
+    expect(document.querySelector('.preview-zh')?.textContent ?? '').toContain(
+      '翻译暂不可用',
+    );
+  });
+
   it('locks the settings a running session cannot pick up', async () => {
     // Both are snapshotted at session start - the delay is sent once in the session.update
     // that opens the transcription socket, and provisionalTranslation is read from the

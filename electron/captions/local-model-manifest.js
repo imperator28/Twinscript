@@ -1,6 +1,8 @@
 const crypto = require('crypto');
 const path = require('path');
 
+const ALLOWED_MODEL_IDS = ['whisper-small', 'hy-mt2-1.8b'];
+
 function canonicalValue(value) {
   if (Array.isArray(value)) return value.map(canonicalValue);
   if (value && typeof value === 'object') {
@@ -27,27 +29,44 @@ function validateManifest(manifest) {
   }
   const ids = new Set();
   for (const model of manifest.models) {
-    if (!model?.id || !model.version || !Array.isArray(model.files) || !model.files.length) {
+    if (
+      !model?.id || !model.version || !Array.isArray(model.files) || !model.files.length ||
+      !['displayName', 'purpose', 'license', 'source'].every((field) => (
+        typeof model[field] === 'string' && model[field].trim()
+      )) ||
+      !['NPU', 'GPU', 'CPU'].includes(model.expectedDevice) ||
+      !Number.isSafeInteger(model.unpackedSize) || model.unpackedSize < 0
+    ) {
       throw invalidManifest('Local model entry is incomplete');
     }
+    if (!ALLOWED_MODEL_IDS.includes(model.id)) throw invalidManifest(`Unknown local model: ${model.id}`);
     if (ids.has(model.id)) throw invalidManifest(`Duplicate local model: ${model.id}`);
     ids.add(model.id);
     const filePaths = new Set();
     for (const file of model.files) {
-      const declaredPath = String(file.path || '').replaceAll('\\', '/');
+      const declaredPath = String(file?.path || '').replaceAll('\\', '/');
       const normalized = path.posix.normalize(declaredPath);
       if (
         !normalized || normalized !== declaredPath || normalized.startsWith('../') ||
         normalized.startsWith('/') || /[:*?"<>|\0-\x1f]/.test(normalized) ||
         filePaths.has(normalized.toLowerCase()) ||
-        !/^https:\/\//.test(file.url || '') ||
-        !Number.isSafeInteger(file.size) || file.size < 0 ||
-        !/^[a-f0-9]{64}$/i.test(file.sha256 || '')
+        !/^https:\/\//.test(file?.url || '') ||
+        !Number.isSafeInteger(file?.size) || file.size < 0 ||
+        !/^[a-f0-9]{64}$/i.test(file?.sha256 || '')
       ) {
         throw invalidManifest(`Invalid file entry for ${model.id}`);
       }
       filePaths.add(normalized.toLowerCase());
     }
+    if (
+      typeof model.launchPath !== 'string' ||
+      (model.launchPath !== '.' && !model.files.some((file) => file.path === model.launchPath))
+    ) {
+      throw invalidManifest(`Invalid launch path for ${model.id}`);
+    }
+  }
+  if (ids.size !== ALLOWED_MODEL_IDS.length || ALLOWED_MODEL_IDS.some((id) => !ids.has(id))) {
+    throw invalidManifest('Local model catalog is incomplete');
   }
   return manifest;
 }
@@ -77,4 +96,4 @@ function loadManifest({ json, signature, publicKey, packaged }) {
   return manifest;
 }
 
-module.exports = { canonicalJson, loadManifest, validateManifest };
+module.exports = { ALLOWED_MODEL_IDS, canonicalJson, loadManifest, validateManifest };

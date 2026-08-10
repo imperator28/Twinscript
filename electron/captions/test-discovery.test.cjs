@@ -123,10 +123,30 @@ test('Vitest does not gate this client on the upstream browser extension', () =>
   );
 });
 
-test('Vitest collects only caption renderer suites', () => {
+test('Vitest collects the caption surfaces and the live capture path, nothing else', () => {
+  // Two entries, both deliberate. `src/lib/modern-audio` was added after a
+  // deleted AudioWorklet reached a meeting: the capture path is live product code
+  // and had no coverage at all, so nothing failed when its worklet disappeared.
   assert.deepEqual(vitestArray('include'), [
     'src/captions/**/*.test.{ts,tsx}',
+    'src/lib/modern-audio/**/*.test.{ts,tsx}',
   ]);
+});
+
+test('Vitest does not collect the retained local-inference stack', () => {
+  // The point of pinning the include list: src/lib/local-inference is kept
+  // deliberately but nothing in the app reaches it, and its suites must never
+  // gate this product. Widening to all of src/lib would silently do that.
+  for (const pattern of vitestArray('include')) {
+    assert.ok(
+      !pattern.includes('local-inference'),
+      `${pattern} pulls in the retained local-inference suites`,
+    );
+    assert.ok(
+      !/^src\/lib\/\*/.test(pattern),
+      `${pattern} is broad enough to reach local-inference; name the subdirectory`,
+    );
+  }
 });
 
 test('the legacy quarantine is gone, not just unenforced', () => {

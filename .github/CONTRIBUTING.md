@@ -1,120 +1,56 @@
-# Contributing to Sokuji
+# Contributing
 
-Thank you for your interest in contributing to Sokuji! We welcome contributions from the community, but please read these guidelines carefully before submitting any issues or pull requests.
+Twinscript is a private, single-maintainer project. There is no open contribution
+process and no external issue queue.
 
-## 🚨 Important Notice
+What follows is for anyone with access working on it — including future me.
 
-**This project is focused on technical development and user experience improvements.** Issues that are not related to code, features, bugs, or technical discussions will be closed immediately without response.
+## Before and after every change
 
-## ✅ What We Accept
+```bash
+npm test              # renderer and shared logic (Vitest, .ts/.tsx)
+npm run test:captions # main process (node:test, .cjs)
+npx tsc --noEmit      # compare the error count to the count before your change
+npm run build
+```
 
-### Bug Reports
-- Technical issues with the application
-- Reproducible errors or unexpected behavior
-- Performance problems
-- UI/UX issues
-- Installation or setup problems
+The two suites deliberately do not overlap on file extension. A file picked up by
+both runs under the wrong environment.
 
-### Feature Requests
-- New functionality suggestions
-- User experience improvements
-- Technical enhancements
-- Integration requests
+`tsc` is not clean on this repository. What matters is that your change does not
+add errors, so record the count before you start and compare — a single new error
+is easy to lose in a few hundred.
 
-### Technical Discussions
-- Architecture discussions
-- Code quality improvements
-- Security concerns (technical)
-- Performance optimization ideas
+## Conventions
 
-## ❌ What We Do NOT Accept
+- **English only** in comments, commit messages and docs.
+- **Conventional commits** (`feat:`, `fix:`, `docs:`, `chore:`).
+- Comments explain **why**, and are worth most where the code looks wrong but
+  isn't. A comment restating the line above it is noise.
+- Match the surrounding code's naming and idiom rather than importing a new style.
 
-The following types of issues will be **closed immediately** without response:
+## Things that will bite you
 
-### Project Management Issues
-- Complaints about star counts or repository statistics
-- Demands to make the repository private
-- Requests to change repository URLs or ownership
-- Accusations about "fake stars" or similar claims
-- General project management suggestions unrelated to code
+- **`npm run dev` launches Electron itself** through `vite-plugin-electron`.
+  Stopping Electron stops the dev server; there is no separate start step.
+- **The main-process build entry map in `vite.config.ts` is hand-maintained.**
+  A module required from a sibling as `./name` must also be listed there, or it is
+  never emitted and the app dies at launch with `Cannot find module './name'`.
+  `electron/captions/main-build-entries.test.cjs` guards this — but only for bare
+  sibling requires, not for `./captions/name`.
+- **`assets/` is not inside the asar.** It ships through `extraResource` and lands
+  at `process.resourcesPath/assets`, so no single relative path reaches it both
+  packaged and unpackaged. See `electron/captions/app-icon.js`.
+- **Never put a secret in a `VITE_` variable.** Anything so prefixed is inlined
+  into renderer JavaScript and ships with the app. API keys belong in the OS
+  credential store — see [safe API key setup](../docs/security/api-key-setup.md).
+- **The virtual camera CLSID must never change.** A new one orphans every
+  previously registered camera.
 
-### Non-Technical Discussions
-- General opinions about the project direction (use Discussions instead)
-- Marketing or promotion suggestions
-- Community management topics
-- Off-topic discussions
+## Provenance
 
-### Harassment or Spam
-- Repeated submissions of the same issue
-- Coordinated harassment campaigns
-- Issues created solely to disrupt development
-- Baseless accusations or inflammatory content
-
-## 📋 Before Creating an Issue
-
-1. **Search existing issues** to avoid duplicates
-2. **Read our documentation** thoroughly
-3. **Test with the latest version** of the application
-4. **Choose the appropriate template** (Bug Report or Feature Request)
-5. **Provide complete information** as requested in the template
-
-## 🔧 Issue Templates
-
-We provide structured templates for:
-- 🐛 **Bug Reports**: For technical issues and bugs
-- ✨ **Feature Requests**: For new features and enhancements
-
-**Blank issues are disabled.** You must use one of the provided templates.
-
-## 📝 Writing Good Issues
-
-### For Bug Reports
-- Provide clear steps to reproduce the issue
-- Include your environment details (OS, browser, version)
-- Add screenshots or error logs when applicable
-- Describe expected vs actual behavior
-
-### For Feature Requests
-- Explain the problem you're trying to solve
-- Describe your proposed solution clearly
-- Consider and mention alternative approaches
-- Provide use cases and examples
-
-## 🚀 Pull Requests
-
-We welcome code contributions! Please:
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes with clear commit messages
-4. Test your changes thoroughly
-5. Submit a pull request with a clear description
-
-## 📞 Getting Help
-
-- **Technical Questions**: Use our issue templates
-- **General Discussions**: Use [GitHub Discussions](https://github.com/kizuna-ai-lab/sokuji/discussions)
-- **Documentation**: Check our [README](https://github.com/kizuna-ai-lab/sokuji/blob/main/README.md)
-
-## ⚖️ Code of Conduct
-
-- Be respectful and constructive
-- Focus on technical matters
-- Avoid spam, harassment, or off-topic discussions
-- Follow GitHub's Community Guidelines
-
-## 🛡️ Enforcement
-
-Issues that violate these guidelines will be:
-1. **Closed immediately** without discussion
-2. **Labeled appropriately** (e.g., "invalid", "spam", "off-topic")
-3. **Reported to GitHub** if they constitute harassment or spam
-
-Repeated violations may result in blocking users from the repository.
-
-## 📧 Contact
-
-For matters that don't fit into issues or discussions, you can contact the maintainers directly through GitHub.
-
----
-
-**Remember**: This is an open-source project maintained by volunteers. Please be respectful of our time and focus on constructive, technical contributions that help improve the software for everyone. 
+Forked from Sokuji v0.34.5 and licensed under [AGPL-3.0](../LICENSE). See the
+[reuse map](../docs/architecture/sokuji-reuse-map.md) for what was kept, adapted,
+replaced, or excluded. The Windows virtual camera is an independent DirectShow
+implementation: no code from any other virtual camera is in this repository, and
+none may be added.

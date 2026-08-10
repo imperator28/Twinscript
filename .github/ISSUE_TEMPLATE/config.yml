@@ -1,11 +1,14 @@
 blank_issues_enabled: false
 contact_links:
-  - name: 💬 General Discussion
-    url: https://github.com/kizuna-ai-lab/sokuji/discussions
-    about: For general questions, ideas, or discussions that are not bug reports or feature requests
+  # Deliberately just the two that exist in this repository.
+  #
+  # These previously pointed at the upstream fork - its Discussions tab, its
+  # README, its contributing guide - so every link on the new-issue page sent the
+  # reader to a different project. A Discussions link is not offered here because
+  # this repository has no Discussions tab, and a dead tab is worse than no link.
   - name: 📖 Documentation
-    url: https://github.com/kizuna-ai-lab/sokuji/blob/main/README.md
-    about: Please read our documentation before creating an issue
-  - name: ⚠️ Important Notice
-    url: https://github.com/kizuna-ai-lab/sokuji/blob/main/.github/CONTRIBUTING.md
-    about: Please read our contributing guidelines before submitting any issue 
+    url: https://github.com/imperator28/Twinscript/blob/main/README.md
+    about: Start here — what the app does, how to run it, and how to set up a key safely
+  - name: 🪟 Windows client handoff
+    url: https://github.com/imperator28/Twinscript/blob/main/docs/windows/README.md
+    about: Platform status, validation matrix, and the virtual camera

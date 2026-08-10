@@ -11,12 +11,10 @@ body:
         
         **This template is for suggesting technical features or enhancements only.**
         
-        Issues about project management, star counts, repository visibility, or other non-technical matters will be closed immediately.
         
         Please ensure you have:
-        - ✅ Read our [Contributing Guidelines](https://github.com/kizuna-ai-lab/sokuji/blob/main/.github/CONTRIBUTING.md)
+        - ✅ Read the [contributing notes](https://github.com/imperator28/Twinscript/blob/main/.github/CONTRIBUTING.md)
         - ✅ Searched existing issues to avoid duplicates
-        - ✅ Considered if this belongs in [Discussions](https://github.com/kizuna-ai-lab/sokuji/discussions) instead
 
   - type: checkboxes
     id: prerequisites

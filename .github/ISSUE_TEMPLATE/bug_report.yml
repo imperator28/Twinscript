@@ -11,10 +11,9 @@ body:
         
         **This template is for reporting technical bugs only.** 
         
-        Issues about project management, star counts, repository visibility, or other non-technical matters will be closed immediately.
         
         Please ensure you have:
-        - ✅ Read our [Contributing Guidelines](https://github.com/kizuna-ai-lab/sokuji/blob/main/.github/CONTRIBUTING.md)
+        - ✅ Read the [contributing notes](https://github.com/imperator28/Twinscript/blob/main/.github/CONTRIBUTING.md)
         - ✅ Searched existing issues to avoid duplicates
         - ✅ Tested with the latest version
         
@@ -36,33 +35,18 @@ body:
   - type: dropdown
     id: bug-type
     attributes:
-      label: Bug Type
-      description: What type of issue are you experiencing?
+      label: Which part
+      description: Where does the problem show up?
       options:
-        - Desktop Application
-        - Browser Extension
-        - Both Desktop and Extension
+        - Control window
+        - Caption overlays
+        - Virtual camera output
+        - Audio capture (microphone or meeting audio)
+        - Transcription or translation quality
+        - Install, update, or launch
         - Other
     validations:
       required: true
-
-  - type: input
-    id: provider
-    attributes:
-      label: AI Provider
-      description: Which translation provider were you using when the bug occurred? (e.g. OpenAI, Gemini, Palabra.ai, Kizuna AI, OpenAI Compatible, Local Inference)
-      placeholder: "e.g. OpenAI"
-    validations:
-      required: true
-
-  - type: input
-    id: model
-    attributes:
-      label: Model
-      description: Which model were you using? For Local Inference, please specify the translation model you selected (e.g. Opus-MT en→zh).
-      placeholder: "e.g. gpt-4o-mini, gemini-2.5-flash, qwen2.5-7b, Opus-MT en→zh"
-    validations:
-      required: false
 
   - type: textarea
     id: bug-description
@@ -110,33 +94,13 @@ body:
       label: Environment Information
       description: Please provide your environment details
       placeholder: |
-        **Desktop Application:**
-        - OS: [e.g. Windows 11, macOS 13, Ubuntu 22.04]
-        - App Version: [e.g. 1.0.0]
-        - Installation Method: [e.g. GitHub Release, Package Manager]
-        
-        **Browser Extension (if applicable):**
-        - Browser: [e.g. Chrome 120, Firefox 121, Edge 119]
-        - Extension Version: [e.g. 1.0.0]
-        - Browser Extension Store: [e.g. Chrome Web Store, Firefox Add-ons]
-        
-        **Additional Info:**
-        - Node.js Version: [if applicable]
-        - System Architecture: [e.g. x64, arm64]
+        - OS and build: [e.g. Windows 11 26200 x64, macOS 14.4 arm64]
+        - App version: [Settings -> About]
+        - Install method: [installer, packaged build, npm run dev]
+        - Output mode: [overlays or virtual camera]
+        - Caption responsiveness: [Fastest, Fast, or Balanced]
     validations:
       required: true
-
-  - type: textarea
-    id: extension-specific
-    attributes:
-      label: Extension-Specific Information (if applicable)
-      description: If this is an extension-related bug, please provide additional details
-      placeholder: |
-        - Extension permissions granted: [list permissions]
-        - Websites where the issue occurs: [specific URLs or domains]
-        - Extension popup/content script behavior: [describe]
-        - Console errors in browser dev tools: [paste errors]
-        - Extension conflicts: [other extensions that might interfere]
 
   - type: textarea
     id: screenshots

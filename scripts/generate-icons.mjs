@@ -23,6 +23,10 @@ import { fileURLToPath } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const assets = join(here, '..', 'assets');
+// The renderer's own favicon set, served from public/ and referenced by
+// index.html and manifest.json. These were the fork's artwork too, and are
+// generated from the same source so the two can never drift apart.
+const publicDir = join(here, '..', 'public');
 const source = join(assets, 'icon.svg');
 
 let sharp;
@@ -110,7 +114,9 @@ function buildIcns(chunks) {
 mkdirSync(assets, { recursive: true });
 
 // One render per distinct pixel size, reused across both containers.
-const sizes = [...new Set([...ICO_SIZES, ...ICNS_TYPES.map(([, s]) => s), 512])];
+const sizes = [
+  ...new Set([...ICO_SIZES, ...ICNS_TYPES.map(([, s]) => s), 192, 512]),
+];
 const rendered = new Map();
 for (const size of sizes.sort((a, b) => a - b)) rendered.set(size, await png(size));
 
@@ -125,6 +131,22 @@ writeFileSync(
 // Linux and the Electron `icon` option want a plain raster.
 writeFileSync(join(assets, 'icon.png'), rendered.get(512));
 
-for (const name of ['icon.ico', 'icon.icns', 'icon.png']) {
+// The renderer's favicon set. `favicon.ico` keeps only the sizes manifest.json
+// declares for it; the two PNGs are the web-app manifest's.
+writeFileSync(
+  join(publicDir, 'favicon.ico'),
+  buildIco([16, 24, 32, 64].map((size) => ({ size, data: rendered.get(size) }))),
+);
+writeFileSync(join(publicDir, 'logo192.png'), rendered.get(192));
+writeFileSync(join(publicDir, 'logo512.png'), rendered.get(512));
+
+for (const name of [
+  'assets/icon.ico',
+  'assets/icon.icns',
+  'assets/icon.png',
+  'public/favicon.ico',
+  'public/logo192.png',
+  'public/logo512.png',
+]) {
   console.log(name);
 }

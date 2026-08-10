@@ -1,6 +1,6 @@
 {
-  "short_name": "Sokuji",
-  "name": "Sokuji - Live speech translation application",
+  "short_name": "Twinscript",
+  "name": "Twinscript - Realtime bilingual meeting captions",
   "icons": [
     {
       "src": "favicon.ico",
@@ -20,6 +20,6 @@
   ],
   "start_url": ".",
   "display": "standalone",
-  "theme_color": "#000000",
+  "theme_color": "#F3F4F6",
   "background_color": "#ffffff"
 }

@@ -1,6 +1,12 @@
-# Twinscript
+<p align="center">
+  <img src="assets/icon.png" alt="Twinscript" width="104" height="104">
+</p>
 
-Private, realtime English–Chinese subtitles for bilingual engineering meetings.
+<h1 align="center">Twinscript 会意</h1>
+
+<p align="center">
+  Private, realtime English–Chinese subtitles for bilingual engineering meetings.
+</p>
 
 The macOS Phase 1 build includes separate microphone and meeting capture,
 `gpt-live-transcribe`, two audience-specific overlays, primary/shadow
@@ -27,3 +33,17 @@ Planning and setup:
 - [Current architecture decision](docs/validation/phase-1/architecture-decision.md)
 - [Safe API key setup](docs/security/api-key-setup.md)
 - [Sokuji reuse map](docs/architecture/sokuji-reuse-map.md)
+
+## License and attribution
+
+Licensed under [AGPL-3.0](LICENSE). Forked from Sokuji v0.34.5, whose audio
+capture and window handling this app keeps. Runs on Electron, React, Vite and
+TypeScript; captions come from OpenAI's realtime speech-to-text and translation
+models; icons by Lucide. The Windows virtual camera is an independent DirectShow
+filter written for this app, not derived from any existing virtual camera.
+
+The same attribution appears in the app under Settings → About, and its wording
+is asserted against `package.json` by `src/captions/aboutCredits.test.ts` so the
+two cannot drift.
+
+Designed by Jiyu.

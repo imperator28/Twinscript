@@ -10,8 +10,14 @@ const path = require('node:path');
  * `process.resourcesPath/assets`. A single relative path cannot reach it in both
  * layouts, which is why this exists rather than one `path.join` at the call site.
  *
- * In development `__dirname` is `dist-electron/`, so the repo's `assets/` is one
- * level up.
+ * Unpackaged, the root comes from `app.getAppPath()` rather than from `__dirname`.
+ * That is not a style preference: this module is a declared build entry today, so
+ * it lands at `dist-electron/captions/app-icon.js` and `../..` would reach the
+ * repo - but drop the entry from vite.config.ts and rolldown inlines it into
+ * `dist-electron/captions-main.js`, where the same expression resolves one level
+ * ABOVE the repo. The build-entry guard does not catch that (it only tracks bare
+ * `./sibling` requires), so the icon would quietly go missing with every test
+ * still green. `getAppPath()` is where it is called from, not where it lives.
  *
  * Windows gets the `.ico`: it is the only container carrying the small sizes the
  * shell asks for (16-48px for the title bar, Alt-Tab and the taskbar at various
@@ -23,14 +29,13 @@ function appIconPath({
   platform = process.platform,
   isPackaged = false,
   resourcesPath = process.resourcesPath,
-  moduleDirectory = __dirname,
+  appPath = '',
   exists = fs.existsSync,
 } = {}) {
   const file = platform === 'win32' ? 'icon.ico' : 'icon.png';
-  const root = isPackaged
-    ? resourcesPath
-    : // dist-electron/captions -> dist-electron -> repo root
-      path.join(moduleDirectory, '..', '..');
+  // Packaged, assets/ sits beside the asar rather than inside it; unpackaged it is
+  // in the app directory itself.
+  const root = isPackaged ? resourcesPath : appPath;
   if (!root) return '';
   const candidate = path.join(root, 'assets', file);
   // A missing icon is not worth crashing over, but it must not be reported as a

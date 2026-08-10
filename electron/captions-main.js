@@ -109,7 +109,10 @@ function loadControlWindow(window) {
 }
 
 function createControlWindow() {
-  const controlWindowIcon = appIconPath({ isPackaged: app.isPackaged });
+  const controlWindowIcon = appIconPath({
+    isPackaged: app.isPackaged,
+    appPath: app.getAppPath(),
+  });
   controlWindow = new BrowserWindow({
     width: 1180,
     height: 780,
@@ -379,7 +382,10 @@ app.whenReady().then(async () => {
     controlWindow,
     isDev: isDevelopment(),
     preloadPath: path.join(__dirname, 'captions-preload.js'),
-    iconPath: appIconPath({ isPackaged: app.isPackaged }),
+    iconPath: appIconPath({
+      isPackaged: app.isPackaged,
+      appPath: app.getAppPath(),
+    }),
     settingsStore,
     cameraFramePublisher,
     nativeCameraSupervisor,

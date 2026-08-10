@@ -28,14 +28,27 @@ test('finds the icon beside the app once packaged', () => {
   assert.equal(resolved, path.join('C:\\App\\resources', 'assets', 'icon.ico'));
 });
 
-test('finds the icon in the repo during development', () => {
+test('finds the icon in the app directory during development', () => {
   const resolved = appIconPath({
     platform: 'win32',
     isPackaged: false,
-    moduleDirectory: path.join(REPO, 'dist-electron', 'captions'),
+    appPath: REPO,
     exists: () => true,
   });
   assert.equal(resolved, path.join(REPO, 'assets', 'icon.ico'));
+});
+
+test('does not resolve from its own file location', () => {
+  // The unpackaged root is `app.getAppPath()`, never a path relative to
+  // __dirname. This module is a declared build entry today so `../..` would
+  // happen to work - but drop the entry and rolldown inlines it into
+  // captions-main.js, where the same relative walk lands ABOVE the repo. Nothing
+  // in the build or either test suite would notice.
+  assert.equal(
+    appIconPath({ platform: 'win32', isPackaged: false, exists: () => true }),
+    '',
+    'with no appPath there is no root to search, and guessing one is the bug',
+  );
 });
 
 test('asks for the ico on Windows and the png elsewhere', () => {
@@ -73,11 +86,7 @@ test('the real icon files exist where the resolver looks for them', () => {
   }
   // The development path is the one this repo can actually verify.
   assert.equal(
-    appIconPath({
-      platform: 'win32',
-      isPackaged: false,
-      moduleDirectory: path.join(REPO, 'dist-electron', 'captions'),
-    }),
+    appIconPath({ platform: 'win32', isPackaged: false, appPath: REPO }),
     path.join(ASSETS, 'icon.ico'),
   );
 });

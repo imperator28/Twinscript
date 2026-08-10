@@ -29,8 +29,14 @@ export interface CaptionEvent {
   finalTranscriptAt?: number;
   provider: {
     transcriptionModel: string;
+    transcriptionRuntime?: string;
+    transcriptionDevice?: string;
     normalizationModel: string;
+    normalizationRuntime?: string;
+    normalizationDevice?: string;
     finalNormalizationModel?: string;
+    finalNormalizationRuntime?: string;
+    finalNormalizationDevice?: string;
     profile: string;
   };
   usage: {

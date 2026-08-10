@@ -494,6 +494,17 @@ class CaptionSessionManager {
       observedAt: transcript.at,
       transcriptStatus: transcript.final ? 'final' : 'provisional',
       profile: this.settings.primaryProfile,
+      transcriptionModel: transcript.model || (
+        this.processing?.transcription === 'whisper-local'
+          ? 'whisper-small'
+          : 'gpt-live-transcribe'
+      ),
+      transcriptionRuntime: transcript.runtime || (
+        this.processing?.transcription === 'whisper-local'
+          ? 'openvino-genai'
+          : 'openai-realtime'
+      ),
+      transcriptionDevice: transcript.actualDevice || 'cloud',
       normalizationModel:
         this.translationPolicy?.finalBackend === 'hy-mt2-local'
           ? 'hy-mt2-1.8b'
@@ -674,7 +685,13 @@ class CaptionSessionManager {
           });
           updated.sourceLanguage = result.sourceLanguage;
           updated.provider.normalizationModel = result.model;
-          if (final) updated.provider.finalNormalizationModel = result.model;
+          updated.provider.normalizationRuntime = result.runtime || 'openai-responses';
+          updated.provider.normalizationDevice = result.actualDevice || 'cloud';
+          if (final) {
+            updated.provider.finalNormalizationModel = result.model;
+            updated.provider.finalNormalizationRuntime = result.runtime || 'openai-responses';
+            updated.provider.finalNormalizationDevice = result.actualDevice || 'cloud';
+          }
           updated.usage = {
             ...updated.usage,
             normalizationTokensIn:

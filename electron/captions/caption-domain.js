@@ -61,6 +61,8 @@ function createCaptionEvent({
   transcriptStatus = 'provisional',
   profile,
   transcriptionModel = 'gpt-live-transcribe',
+  transcriptionRuntime = 'openai-realtime',
+  transcriptionDevice = 'cloud',
   normalizationModel = 'gpt-5.4-nano',
   fastPath = true,
 }) {
@@ -105,6 +107,8 @@ function createCaptionEvent({
     ...(transcriptStatus === 'final' ? { finalTranscriptAt: now } : {}),
     provider: {
       transcriptionModel,
+      transcriptionRuntime,
+      transcriptionDevice,
       normalizationModel,
       profile,
     },

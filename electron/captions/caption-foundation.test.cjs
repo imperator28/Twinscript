@@ -68,6 +68,26 @@ test('fast path passes the source only to its matching audience', () => {
   assert.equal(projectForAudience(translated, 'zh').text, '请更新 CAD。');
 });
 
+test('caption events preserve truthful local runtime and device provenance', () => {
+  const event = createCaptionEvent({
+    sessionId: 'session',
+    sequence: 1,
+    sourceChannel: 'microphone',
+    providerItemId: 'item',
+    sourceText: 'Confirmed.',
+    sourceStartedAt: 1,
+    transcriptStatus: 'final',
+    profile: 'economy',
+    transcriptionModel: 'whisper-small',
+    transcriptionRuntime: 'openvino-genai',
+    transcriptionDevice: 'NPU',
+  });
+
+  assert.equal(event.provider.transcriptionModel, 'whisper-small');
+  assert.equal(event.provider.transcriptionRuntime, 'openvino-genai');
+  assert.equal(event.provider.transcriptionDevice, 'NPU');
+});
+
 test('audience projections share aggregate completion while target states differ', () => {
   const event = createCaptionEvent({
     sessionId: 'session',

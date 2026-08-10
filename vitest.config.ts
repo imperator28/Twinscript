@@ -23,6 +23,11 @@ export default defineConfig({
     // `electron-conf` - dependencies this client never had.
     include: [
       'src/captions/**/*.test.{ts,tsx}',
+      // The capture path is live product code and had no coverage at all, which
+      // is how a deleted AudioWorklet reached a meeting. Scoped to modern-audio
+      // rather than all of src/lib, because src/lib/local-inference is retained
+      // but unreachable and must not gate this product.
+      'src/lib/modern-audio/**/*.test.{ts,tsx}',
     ],
     exclude: [
       ...configDefaults.exclude,

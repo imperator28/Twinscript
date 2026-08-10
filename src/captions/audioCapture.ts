@@ -243,6 +243,16 @@ export class AudioCaptureController {
       this.microphoneBatcher.push(data.mono),
     );
 
+    // A degraded microphone transport is reported, not just logged. The
+    // ScriptProcessor path is the one that used to send 48 kHz audio into a
+    // 24 kHz session and produce gibberish captions; it now resamples correctly,
+    // but it is still the compatibility path and the operator should know they
+    // are on it rather than discovering it from the transcript.
+    const transportWarning =
+      this.microphone.getCaptureTransport() === 'script-processor'
+        ? 'Microphone capture is using the compatibility path, not the audio worklet. Captions still work; restart the app if the transcript looks wrong.'
+        : undefined;
+
     // Loopback failure must never take the microphone down with it: the local
     // speaker's captions keep flowing and the operator is told what to fix.
     try {
@@ -256,13 +266,15 @@ export class AudioCaptureController {
       return {
         microphone: true,
         system: false,
-        warning: describeSystemCaptureFailure({
-          platform: this.platform,
-          error,
-        }),
+        warning: [
+          transportWarning,
+          describeSystemCaptureFailure({ platform: this.platform, error }),
+        ]
+          .filter(Boolean)
+          .join(' '),
       };
     }
-    return { microphone: true, system: true };
+    return { microphone: true, system: true, warning: transportWarning };
   }
 
   async stop() {

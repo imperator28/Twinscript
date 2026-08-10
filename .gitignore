@@ -134,4 +134,5 @@ __pycache__/
 native/camera-companion/build/
 native/local-inference-host/.venv/
 native/local-inference-host/models/
+native/local-inference-host/build/
 /artifacts/local-inference/

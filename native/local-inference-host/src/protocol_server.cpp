@@ -98,6 +98,9 @@ nlohmann::json ProtocolServer::handle(const nlohmann::json& request) {
         !request.contains("capturedAt")) {
       return error(request, "invalid_audio_contract", "audio request is incomplete");
     }
+    if (request.at("audio").get_ref<const std::string&>().size() > 640000) {
+      return error(request, "audio_too_large", "decoded audio may not exceed 480000 bytes");
+    }
     const AsrRequest audio{
         .session_id = request.at("sessionId"),
         .request_id = request.at("requestId"),

@@ -22,7 +22,9 @@ FetchContent_MakeAvailable(nlohmann_json Catch2)
 enable_testing()
 add_library(local_inference_core
   src/fake_engine.cpp
+  src/json_line_transport.cpp
   src/protocol_server.cpp
+  src/request_registry.cpp
 )
 target_include_directories(local_inference_core PUBLIC src)
 target_link_libraries(local_inference_core PUBLIC nlohmann_json::nlohmann_json)
@@ -30,7 +32,11 @@ target_link_libraries(local_inference_core PUBLIC nlohmann_json::nlohmann_json)
 add_executable(twinscript-local-inference src/main.cpp)
 target_link_libraries(twinscript-local-inference PRIVATE local_inference_core)
 
-add_executable(local_inference_tests tests/protocol_server_test.cpp)
+add_executable(local_inference_tests
+  tests/json_line_transport_test.cpp
+  tests/protocol_server_test.cpp
+  tests/request_registry_test.cpp
+)
 target_include_directories(local_inference_tests PRIVATE src)
 target_link_libraries(local_inference_tests PRIVATE Catch2::Catch2WithMain local_inference_core)
 

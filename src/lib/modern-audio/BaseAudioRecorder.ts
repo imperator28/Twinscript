@@ -34,6 +34,19 @@ export abstract class BaseAudioRecorder {
   }
 
   /**
+   * Which transport actually carried the audio.
+   *
+   * Exposed because the fallback used to be invisible: `addModule` failure was
+   * caught, written to console.warn, and the session continued. Nobody watching a
+   * meeting reads the renderer console, so a degraded capture path looked
+   * identical to a healthy one until the captions came out as nonsense. The
+   * operator now gets told.
+   */
+  getCaptureTransport(): 'audio-worklet' | 'script-processor' {
+    return this.useAudioWorklet ? 'audio-worklet' : 'script-processor';
+  }
+
+  /**
    * Get the current recording status
    */
   getStatus(): 'ended' | 'paused' | 'recording' {
@@ -77,12 +90,21 @@ export abstract class BaseAudioRecorder {
    * Handles both extension and regular web/Electron environments
    */
   protected getAudioWorkletProcessorUrl(): string {
-    // Check if we're in a Chrome extension environment
-    if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.getURL) {
-      return chrome.runtime.getURL('worklets/audio-recorder-worklet-processor.js');
-    }
-    // For regular web/Electron environments
-    return new URL('../../services/worklets/audio-recorder-worklet-processor.js', import.meta.url).href;
+    // The worklet lives in this directory, beside its only consumer, and is
+    // referenced relative to this file.
+    //
+    // It used to live in `src/services/worklets/`, three directories away from
+    // anything that loaded it, reached by a URL string. An import crawler cannot
+    // see a string, so a cleanup that removed the unreachable `src/services/`
+    // tree took the worklet with it - and because `addModule` failure is caught
+    // and degraded rather than raised, the only symptom was gibberish captions.
+    // Colocating it means the file cannot be orphaned without also orphaning the
+    // recorder, and `worklet-asset.test.ts` fails if this path stops resolving.
+    //
+    // The Chrome-extension branch that used to sit here is gone with the
+    // extension: it was a second way for this URL to be wrong.
+    return new URL('./worklets/audio-recorder-worklet-processor.js', import.meta.url)
+      .href;
   }
 
   /**
@@ -187,6 +209,50 @@ export abstract class BaseAudioRecorder {
   }
 
   /**
+   * Bring captured audio to the rate the transport actually claims.
+   *
+   * This is the fix for a bug that resurfaced repeatedly under different triggers.
+   * The capture AudioContext runs at 48 kHz deliberately, while the session sent
+   * to OpenAI declares 24 kHz PCM. The AudioWorklet path resampled; the
+   * ScriptProcessor fallback below did not, and sent 48 kHz samples labelled as
+   * 24 kHz. Decoded at half rate, speech comes out as confident nonsense - so the
+   * symptom was never "capture is broken", it was "the transcription is
+   * gibberish", which sent every previous investigation looking at the model, the
+   * prompt and the API instead of at the microphone.
+   *
+   * Any future failure in the worklet path therefore degrades transport without
+   * corrupting the audio. The rates are read from the context rather than
+   * hardcoded, so a machine whose context refuses 48 kHz is also handled.
+   */
+  protected resampleForTransport(input: Int16Array): Int16Array {
+    const sourceRate = this.audioContext?.sampleRate ?? 0;
+    const targetRate = this.sampleRate;
+    if (!sourceRate || !targetRate || sourceRate === targetRate) return input;
+    const ratio = sourceRate / targetRate;
+    // Never invent samples. A context slower than the target is a different
+    // problem, and upsampling here would hide it.
+    if (ratio < 1) return input;
+
+    const outputLength = Math.floor(input.length / ratio);
+    const output = new Int16Array(outputLength);
+    for (let i = 0; i < outputLength; i += 1) {
+      const start = Math.floor(i * ratio);
+      const end = Math.min(input.length, Math.floor((i + 1) * ratio));
+      if (end <= start) {
+        output[i] = input[Math.min(start, input.length - 1)] ?? 0;
+        continue;
+      }
+      // Averaged rather than point-decimated: dropping every other sample
+      // aliases, which is audible on sibilants and measurably worse to
+      // recognise.
+      let sum = 0;
+      for (let j = start; j < end; j += 1) sum += input[j];
+      output[i] = (sum / (end - start)) | 0;
+    }
+    return output;
+  }
+
+  /**
    * Setup ScriptProcessor as fallback for browsers without AudioWorklet support
    */
   protected async setupScriptProcessorFallback(): Promise<void> {
@@ -224,7 +290,9 @@ export abstract class BaseAudioRecorder {
         }
       }
 
-      this._processAudioData(pcmData);
+      // Resampled to the transport's declared rate. Without this the fallback
+      // sends 48 kHz audio into a 24 kHz session - see resampleForTransport.
+      this._processAudioData(this.resampleForTransport(pcmData));
     };
 
     // Connect the nodes

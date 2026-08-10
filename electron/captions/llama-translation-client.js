@@ -30,6 +30,7 @@ class LlamaTranslationServer {
     fetchImpl = globalThis.fetch,
     allocatePort = allocateLoopbackPort,
     startupTimeoutMs = 120_000,
+    requestTimeoutMs = 30_000,
   }) {
     this.binaryPath = binaryPath;
     this.modelPath = modelPath;
@@ -37,6 +38,7 @@ class LlamaTranslationServer {
     this.fetchImpl = fetchImpl;
     this.allocatePort = allocatePort;
     this.startupTimeoutMs = startupTimeoutMs;
+    this.requestTimeoutMs = requestTimeoutMs;
     this.child = null;
     this.port = 0;
     this.started = false;
@@ -150,19 +152,40 @@ class LlamaTranslationServer {
       'Note that you should only output the translated result without any additional explanation: ' +
       sourceText;
     const startedAt = performance.now();
-    const response = await this.fetchImpl(
-      `http://127.0.0.1:${this.port}/v1/chat/completions`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          messages: [{ role: 'user', content: prompt }],
-          temperature: 0,
-          max_tokens: 256,
-        }),
-        signal,
-      },
-    );
+    const requestController = new AbortController();
+    let timedOut = false;
+    const onCallerAbort = () => requestController.abort(signal?.reason);
+    if (signal?.aborted) requestController.abort(signal.reason);
+    else signal?.addEventListener('abort', onCallerAbort, { once: true });
+    const timer = setTimeout(() => {
+      timedOut = true;
+      requestController.abort();
+    }, this.requestTimeoutMs);
+    timer.unref?.();
+    let response;
+    try {
+      response = await this.fetchImpl(
+        `http://127.0.0.1:${this.port}/v1/chat/completions`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            messages: [{ role: 'user', content: prompt }],
+            temperature: 0,
+            max_tokens: 256,
+          }),
+          signal: requestController.signal,
+        },
+      );
+    } catch (error) {
+      if (timedOut) {
+        throw llamaError('local_translation_timeout', 'Local Hy-MT2 translation timed out');
+      }
+      throw error;
+    } finally {
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', onCallerAbort);
+    }
     if (!response.ok) {
       throw llamaError('local_translation_failed', `llama.cpp returned HTTP ${response.status}`);
     }

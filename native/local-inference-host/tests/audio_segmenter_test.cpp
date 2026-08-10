@@ -27,3 +27,29 @@ TEST_CASE("segmenter bounds each channel and flushes only the requested channel"
   REQUIRE(segmenter.samples("microphone").empty());
   REQUIRE(segmenter.samples("system").size() == 16000);
 }
+
+TEST_CASE("utterance gate finalizes speech after bounded trailing silence") {
+  twinscript::UtteranceGate gate{24000, 0.01, 500, 20000};
+  const auto leading = gate.observe(std::vector<std::int16_t>(6000, 0));
+  REQUIRE_FALSE(leading.append);
+  REQUIRE_FALSE(leading.finalize);
+
+  const auto speech = gate.observe(std::vector<std::int16_t>(24000, 1200));
+  REQUIRE(speech.append);
+  REQUIRE_FALSE(speech.finalize);
+  REQUIRE(gate.observe(std::vector<std::int16_t>(6000, 0)).finalize == false);
+  REQUIRE(gate.observe(std::vector<std::int16_t>(6000, 0)).finalize == true);
+}
+
+TEST_CASE("utterance gate force-finalizes continuous speech before the audio cap") {
+  twinscript::UtteranceGate gate{24000, 0.01, 500, 20000};
+  twinscript::UtteranceDecision decision;
+  for (int second = 0; second < 20; ++second) {
+    decision = gate.observe(std::vector<std::int16_t>(24000, 1200));
+  }
+  REQUIRE(decision.append);
+  REQUIRE(decision.finalize);
+
+  gate.reset();
+  REQUIRE_FALSE(gate.observe(std::vector<std::int16_t>(24000, 0)).append);
+}

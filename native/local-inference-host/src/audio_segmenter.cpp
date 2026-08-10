@@ -7,6 +7,53 @@
 
 namespace twinscript {
 
+UtteranceGate::UtteranceGate(
+    int sample_rate,
+    double speech_threshold,
+    int trailing_silence_ms,
+    int maximum_utterance_ms)
+    : sample_rate_(sample_rate),
+      speech_threshold_(speech_threshold),
+      trailing_silence_samples_(
+          static_cast<std::size_t>(sample_rate) * trailing_silence_ms / 1000),
+      maximum_utterance_samples_(
+          static_cast<std::size_t>(sample_rate) * maximum_utterance_ms / 1000) {
+  if (sample_rate <= 0 || speech_threshold <= 0 || trailing_silence_ms <= 0 ||
+      maximum_utterance_ms <= trailing_silence_ms) {
+    throw std::invalid_argument("utterance gate configuration is invalid");
+  }
+}
+
+UtteranceDecision UtteranceGate::observe(
+    const std::vector<std::int16_t>& input) {
+  if (input.empty()) return {};
+  double square_sum = 0;
+  for (const auto sample : input) {
+    const auto normalized = static_cast<double>(sample) / 32768.0;
+    square_sum += normalized * normalized;
+  }
+  const auto rms = std::sqrt(square_sum / static_cast<double>(input.size()));
+  const bool speech = rms >= speech_threshold_;
+  if (!speech && !speech_seen_) return {};
+
+  speech_seen_ = speech_seen_ || speech;
+  buffered_samples_ += input.size();
+  if (speech) silence_samples_ = 0;
+  else silence_samples_ += input.size();
+  return {
+      true,
+      speech_seen_ &&
+          (silence_samples_ >= trailing_silence_samples_ ||
+           buffered_samples_ >= maximum_utterance_samples_),
+  };
+}
+
+void UtteranceGate::reset() {
+  buffered_samples_ = 0;
+  silence_samples_ = 0;
+  speech_seen_ = false;
+}
+
 AudioSegmenter::AudioSegmenter(
     int input_rate,
     int output_rate,

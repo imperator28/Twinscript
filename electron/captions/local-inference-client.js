@@ -62,13 +62,19 @@ class LocalInferenceClient extends EventEmitter {
       }, duration);
       timer.unref?.();
       const onAbort = () => {
-        this.transport.write(`${JSON.stringify({
+        try {
+          const cancellation = this.transport.write(`${JSON.stringify({
           protocolVersion: 1,
           type: 'request.cancel',
           requestId,
           sessionId,
           generation: this.generation,
-        })}\n`);
+          })}\n`);
+          cancellation?.catch?.(() => {});
+        } catch {
+          // The request is already being aborted; a closed cancellation pipe
+          // must not replace the caller-visible abort reason.
+        }
         this.finish(requestId);
         reject(localError('local_request_aborted', 'Local request aborted'));
       };
@@ -82,7 +88,21 @@ class LocalInferenceClient extends EventEmitter {
         sessionId,
         expectedType: REPLY_TYPES[type] || null,
       });
-      this.transport.write(line);
+      const rejectWrite = (error) => {
+        const pending = this.pending.get(requestId);
+        if (!pending) return;
+        this.finish(requestId);
+        pending.reject(localError(
+          'local_transport_write_failed',
+          `Could not write to local inference host: ${error?.message || error}`,
+        ));
+      };
+      try {
+        const written = this.transport.write(line);
+        written?.catch?.(rejectWrite);
+      } catch (error) {
+        rejectWrite(error);
+      }
     });
   }
 

@@ -1,10 +1,16 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const crypto = require('node:crypto');
 const { EventEmitter } = require('node:events');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
 
 const {
   LocalInferenceSupervisor,
+  hasVerifiedMarker,
   resolveLocalInferenceExecutable,
+  verifyRuntimeManifest,
 } = require('./local-inference-supervisor');
 
 
@@ -64,6 +70,24 @@ test('transport labels replies with the generation that spawned the process', ()
   assert.deepEqual(accepted, []);
 });
 
+test('an unexpected active-host close triggers the one supervised restart', async () => {
+  const supervisor = new LocalInferenceSupervisor({ spawn: () => { throw new Error('unused'); } });
+  const child = new EventEmitter();
+  child.stdin = { write() {} };
+  child.stdout = new EventEmitter();
+  child.stderr = new EventEmitter();
+  supervisor.generation = 1;
+  supervisor.requestedModels = ['whisper-small'];
+  let restarted = 0;
+  supervisor.restart = async () => { restarted += 1; };
+
+  supervisor.createTransport(child, 1);
+  child.emit('close');
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(restarted, 1);
+});
+
 test('prepare starts Hy-MT2 only when selected and exposes the hybrid client', async () => {
   const calls = [];
   const translationServer = {
@@ -103,6 +127,11 @@ test('readiness reports runtime and each local model independently', () => {
     llamaBinaryPath: 'llama.exe',
     hyMt2ModelPath: 'hy.gguf',
     exists: (candidate) => present.has(candidate),
+    artifactReady: (kind, candidate) => kind === 'runtime'
+      ? present.has(candidate)
+      : kind === 'whisper-small'
+        ? present.has(candidate)
+        : present.has('llama.exe') && present.has(candidate),
   });
 
   assert.deepEqual(supervisor.readiness(), {
@@ -113,4 +142,36 @@ test('readiness reports runtime and each local model independently', () => {
       'hy-mt2-1.8b': { ready: false, actualDevice: null },
     },
   });
+});
+
+test('runtime readiness verifies the staged manifest hash', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'twinscript-runtime-'));
+  const executable = path.join(root, 'twinscript-local-inference.exe');
+  const bytes = Buffer.from('verified runtime');
+  fs.writeFileSync(executable, bytes);
+  fs.writeFileSync(path.join(root, 'runtime-manifest.json'), JSON.stringify({
+    schemaVersion: 1,
+    files: [{
+      path: 'twinscript-local-inference.exe',
+      size: bytes.length,
+      sha256: crypto.createHash('sha256').update(bytes).digest('hex'),
+    }],
+  }));
+
+  assert.equal(verifyRuntimeManifest(executable), true);
+  fs.appendFileSync(executable, '!');
+  assert.equal(verifyRuntimeManifest(executable), false);
+});
+
+test('packaged model readiness requires a verification marker', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'twinscript-model-'));
+  const model = path.join(root, 'model.bin');
+  fs.writeFileSync(model, 'weights');
+
+  assert.equal(hasVerifiedMarker(model, ['model.bin']), false);
+  fs.writeFileSync(path.join(root, '.verified.json'), JSON.stringify({
+    version: path.basename(root),
+    files: { 'model.bin': 'a'.repeat(64) },
+  }));
+  assert.equal(hasVerifiedMarker(model, ['model.bin']), true);
 });

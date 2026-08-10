@@ -1313,6 +1313,25 @@ test('stop waits for an in-flight final caption before finalizing its transcript
   assert.deepEqual(order.slice(-2), ['caption', 'record-stop']);
 });
 
+test('stop aborts and proceeds when a final translation never settles', async () => {
+  let aborted = false;
+  const manager = new CaptionSessionManager({
+    credentialStore: {},
+    settingsStore: {},
+    finalizationDrainTimeoutMs: 10,
+  });
+  manager.active = true;
+  manager.pendingFinalizations.add(new Promise(() => {}));
+  manager.abortControllers.set('hung-final', {
+    abort: () => { aborted = true; },
+  });
+
+  await manager.stop();
+
+  assert.equal(aborted, true);
+  assert.equal(manager.active, false);
+});
+
 test('stop accepts a final transcript emitted while transports drain', async () => {
   const recorded = [];
   const manager = new CaptionSessionManager({

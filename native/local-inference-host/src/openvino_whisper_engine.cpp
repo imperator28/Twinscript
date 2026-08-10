@@ -32,6 +32,7 @@ class OpenVinoWhisperEngine::Impl {
     std::size_t sequence{};
     std::size_t revision{};
     std::size_t last_decoded_samples{};
+    UtteranceGate gate{24000, 0.01, 500, 20000};
   };
 
   Impl(
@@ -128,6 +129,7 @@ nlohmann::json OpenVinoWhisperEngine::start(
   ++state.sequence;
   state.revision = 0;
   state.last_decoded_samples = 0;
+  state.gate.reset();
   return {{"channel", channel}, {"state", "started"}};
 }
 
@@ -138,8 +140,21 @@ nlohmann::json OpenVinoWhisperEngine::append(const AsrRequest& request) {
     state.session = request.session_id;
     ++state.sequence;
   }
+  const auto decision = state.gate.observe(request.samples);
+  if (!decision.append) {
+    return { {"channel", request.channel}, {"accepted", true} };
+  }
   impl_->segmenter.append(request.channel, request.samples);
   const auto audio = impl_->segmenter.samples(request.channel);
+  if (decision.finalize) {
+    auto response = impl_->result(request.channel, true, audio, request.captured_at);
+    impl_->segmenter.take(request.channel);
+    ++state.sequence;
+    state.revision = 0;
+    state.last_decoded_samples = 0;
+    state.gate.reset();
+    return response;
+  }
   constexpr std::size_t decode_interval = 32000;
   if (audio.size() < decode_interval ||
       audio.size() - state.last_decoded_samples < decode_interval) {
@@ -161,6 +176,7 @@ nlohmann::json OpenVinoWhisperEngine::flush(
   ++state.sequence;
   state.revision = 0;
   state.last_decoded_samples = 0;
+  state.gate.reset();
   return response;
 }
 

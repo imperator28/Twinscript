@@ -59,6 +59,37 @@ test('local Whisper forwards the existing 24 kHz PCM audio contract', async () =
   assert.equal(Buffer.from(calls[0][1].audio, 'base64').length, 6);
 });
 
+test('local Whisper serializes audio requests and keeps backlog bounded', async () => {
+  let releaseFirst;
+  let calls = 0;
+  const errors = [];
+  const client = {
+    request: async () => {
+      calls += 1;
+      if (calls === 1) await new Promise((resolve) => { releaseFirst = resolve; });
+      return {};
+    },
+  };
+  const backend = new LocalWhisperBackend({
+    client,
+    channel: 'microphone',
+    sessionId: 's1',
+    onEvent: (event) => errors.push(event),
+  });
+
+  for (let index = 0; index < 20; ++index) {
+    backend.appendAudio(new Int16Array(24000).fill(index + 1), index);
+  }
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(calls, 1, 'only one audio request may be in flight');
+  assert.ok(backend.queuedSamples <= 240000, 'backlog stays at or below ten seconds');
+  assert.ok(errors.some((event) => event.code === 'local_asr_backpressure_dropped'));
+
+  releaseFirst();
+  await backend.drain();
+});
+
 test('transcription factory preserves the existing cloud class', () => {
   class CloudSession {}
   const factory = new TranscriptionBackendFactory({ CloudSession });

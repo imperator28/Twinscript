@@ -42,7 +42,7 @@ async function main() {
       channel: 'microphone',
     });
     const pcm = fs.readFileSync(process.env.TWINSCRIPT_WHISPER_PCM24);
-    const transcript = await client.request('asr.audio', {
+    const partialTranscript = await client.request('asr.audio', {
       sessionId: 'native-app-smoke',
       channel: 'microphone',
       encoding: 'pcm_s16le',
@@ -50,7 +50,17 @@ async function main() {
       capturedAt: Date.now(),
       audio: pcm.toString('base64'),
     });
+    const transcript = await client.request('asr.audio', {
+      sessionId: 'native-app-smoke',
+      channel: 'microphone',
+      encoding: 'pcm_s16le',
+      sampleRate: 24000,
+      capturedAt: Date.now(),
+      audio: Buffer.alloc(12000 * 2).toString('base64'),
+    });
+    assert.equal(partialTranscript.final, false);
     assert.match(transcript.text, /How are you doing today/i);
+    assert.equal(transcript.final, true);
     assert.equal(transcript.actualDevice, 'NPU');
 
     const translation = await client.request('translate.final', {
@@ -65,7 +75,7 @@ async function main() {
     assert.match(translation.text, /24 VDC/);
     assert.equal(translation.authoritative, true);
     assert.equal(translation.actualDevice, 'CPU');
-    console.log(JSON.stringify({ ready, transcript, translation }, null, 2));
+    console.log(JSON.stringify({ ready, partialTranscript, transcript, translation }, null, 2));
   } finally {
     await supervisor.dispose();
   }

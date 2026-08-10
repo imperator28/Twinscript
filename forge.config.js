@@ -99,9 +99,10 @@ module.exports = {
     extraResource: [
       'assets',
       'resources',
-      ...(fs.existsSync(path.join(__dirname, 'artifacts', 'local-inference-host'))
-        ? ['artifacts/local-inference-host']
-        : []),
+      // Local inference is a selectable production pipeline. Packaging must
+      // fail if its verified runtime was not staged; silently omitting it would
+      // produce a Settings option that can never start.
+      ...(process.platform === 'win32' ? ['artifacts/local-inference-host'] : []),
     ],
     icon: process.platform === 'win32' ? 'assets/icon.ico' : 'assets/icon',
     appBundleId: 'com.jiyu.twinscript',

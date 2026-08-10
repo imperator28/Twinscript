@@ -70,3 +70,13 @@ test('transport close rejects every pending request', async () => {
   await assert.rejects(first, { code: 'local_host_closed' });
   await assert.rejects(second, { code: 'local_host_closed' });
 });
+
+test('transport write failure rejects and releases the pending request', async () => {
+  const transport = fakeTransport();
+  transport.write = async () => { throw new Error('pipe closed'); };
+  const client = new LocalInferenceClient({ transport, timeoutMs: 100 });
+
+  await assert.rejects(client.request('health'), { code: 'local_transport_write_failed' });
+  assert.equal(client.pending.size, 0);
+  client.dispose();
+});

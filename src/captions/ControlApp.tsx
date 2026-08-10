@@ -197,6 +197,11 @@ function targetText(target: TargetText, audience: 'en' | 'zh') {
   return audience === 'en' ? 'Translating…' : '正在翻译…';
 }
 
+function pipelineUsesCloud(settings: CaptionSettings) {
+  return settings.transcriptionModel === 'openai-live' ||
+    settings.finalTranslationModel === 'luna';
+}
+
 export function ControlApp() {
   const repairedLaunch = useRef(
     window.localStorage.getItem('captions.secureStorageRepaired') === '1',
@@ -290,6 +295,14 @@ export function ControlApp() {
   const operationId = useRef(0);
   const active = sessionActive;
 
+  const refreshCredentialStatus = () => {
+    void window.captions.credentialStatus().then((result) => {
+      if (!result.ok) return;
+      setCredential(result.data);
+      setCredentialIssue(Boolean(result.data.repairRecommended));
+    });
+  };
+
   useEffect(() => {
     const handleStatus = (next: SessionStatus) => {
       setStatus(next);
@@ -342,14 +355,16 @@ export function ControlApp() {
     void Promise.all([
       window.captions.getSettings(),
       window.captions.getGlossaryConfigurations(),
-      window.captions.credentialStatus(),
       window.captions.getSessionStatus(),
       window.captions.listPendingMeetingRecords(),
       window.captions.getLocalInferenceStatus?.() ?? Promise.resolve({ ok: false as const, error: { code: 'unavailable', message: 'Unavailable' } }),
       enumerateAudioDevices().catch(() => ({ inputs: [], outputs: [] })),
-    ]).then(([settingsResult, glossaryResult, credentialResult, sessionResult, pendingResult, localInferenceResult, deviceResult]) => {
+    ]).then(([settingsResult, glossaryResult, sessionResult, pendingResult, localInferenceResult, deviceResult]) => {
+      const loadedSettings = settingsResult.ok
+        ? settingsResult.data as unknown as CaptionSettings
+        : DEFAULT_SETTINGS;
       if (settingsResult.ok) {
-        const next = settingsResult.data as unknown as CaptionSettings;
+        const next = loadedSettings;
         setSettingsState(next);
         // One helper populates all three editors, so first load and post-save cannot
         // drift apart - they used to duplicate the same term-formatting logic.
@@ -362,9 +377,10 @@ export function ControlApp() {
         setContextEntries([...(next.glossaryContextNotes || []), '']);
       }
       if (glossaryResult.ok) setGlossaryConfigurations(glossaryResult.data);
-      if (credentialResult.ok) {
-        setCredential(credentialResult.data);
-        setCredentialIssue(Boolean(credentialResult.data.repairRecommended));
+      if (pipelineUsesCloud(loadedSettings)) refreshCredentialStatus();
+      else {
+        setCredential(null);
+        setCredentialIssue(false);
       }
       if (sessionResult.ok && sessionResult.data.active) {
         setSessionActive(true);
@@ -455,6 +471,12 @@ export function ControlApp() {
     }
     const next = result.data as unknown as CaptionSettings;
     setSettingsState(next);
+    if (pipelineUsesCloud(next) && !pipelineUsesCloud(previous)) {
+      refreshCredentialStatus();
+    } else if (!pipelineUsesCloud(next)) {
+      setCredential(null);
+      setCredentialIssue(false);
+    }
     return next;
   };
 
@@ -1091,9 +1113,7 @@ export function ControlApp() {
   const budgetPressed = active && budgetRatio >= 0.8;
   // One place decides what is missing and how much it matters, so the checklist the
   // operator reads and the Start button they press cannot disagree.
-  const usesCloudModels =
-    settings.transcriptionModel === 'openai-live' ||
-    settings.finalTranslationModel === 'luna';
+  const usesCloudModels = pipelineUsesCloud(settings);
   const readiness = reviewReadiness({
     advisoriesDismissed: advisoriesDismissed,
     credentialRequired: usesCloudModels,

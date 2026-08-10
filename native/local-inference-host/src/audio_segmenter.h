@@ -9,6 +9,32 @@
 
 namespace twinscript {
 
+struct UtteranceDecision {
+  bool append{};
+  bool finalize{};
+};
+
+class UtteranceGate {
+ public:
+  UtteranceGate(
+      int sample_rate,
+      double speech_threshold,
+      int trailing_silence_ms,
+      int maximum_utterance_ms);
+
+  UtteranceDecision observe(const std::vector<std::int16_t>& input);
+  void reset();
+
+ private:
+  int sample_rate_;
+  double speech_threshold_;
+  std::size_t trailing_silence_samples_;
+  std::size_t maximum_utterance_samples_;
+  std::size_t buffered_samples_{};
+  std::size_t silence_samples_{};
+  bool speech_seen_{};
+};
+
 class AudioSegmenter {
  public:
   AudioSegmenter(int input_rate, int output_rate, int maximum_seconds);

@@ -92,3 +92,43 @@ test('protected literals are masked for inference and restored exactly', async (
   assert.match(posted.messages[0].content, /Set to ⟦TS0⟧\./);
   assert.equal(result.text, '设为 24 VDC。');
 });
+
+test('translation has a bounded timeout even when no caller signal is supplied', async () => {
+  const server = new LlamaTranslationServer({
+    binaryPath: 'llama-server.exe',
+    modelPath: 'hy-mt2.gguf',
+    requestTimeoutMs: 10,
+    fetchImpl: async (_url, options) => new Promise((_resolve, reject) => {
+      options.signal.addEventListener('abort', () => reject(options.signal.reason), { once: true });
+    }),
+  });
+  server.port = 1;
+  server.started = true;
+
+  await assert.rejects(server.translate('translate.final', {
+    targetLanguage: 'Chinese', text: 'Bound this request.',
+  }), { code: 'local_translation_timeout' });
+});
+
+test('translation forwards an already-aborted caller signal', async () => {
+  const caller = new AbortController();
+  caller.abort();
+  let forwardedSignal;
+  const server = new LlamaTranslationServer({
+    binaryPath: 'llama-server.exe',
+    modelPath: 'hy-mt2.gguf',
+    fetchImpl: async (_url, options) => {
+      forwardedSignal = options.signal;
+      throw Object.assign(new Error('aborted'), { name: 'AbortError' });
+    },
+  });
+  server.started = true;
+  server.port = 8080;
+
+  await assert.rejects(server.translate('translate.final', {
+    utteranceId: 'u-aborted',
+    text: 'hello',
+    targetLanguage: 'Chinese',
+  }, { signal: caller.signal }), { name: 'AbortError' });
+  assert.equal(forwardedSignal.aborted, true);
+});

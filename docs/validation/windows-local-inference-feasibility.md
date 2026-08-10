@@ -59,13 +59,34 @@ the app, not only through isolated model scripts:
 
 - Staged runtime integrity: 66 files verified against the generated SHA-256 manifest.
 - Whisper official sample: `How are you doing today?` transcribed exactly on `NPU`.
-- Latest Whisper inference through the Electron supervisor: 660.3 ms for 2.05 s of
-  synthesized 24 kHz speech.
-- Latest Hy-MT2 authoritative translation through the Electron supervisor: 548.2 ms.
-- Latest Hy-MT2 server load: 1,732.2 ms; reported device `CPU`.
+- Sustained-stream validation produced a provisional result in 812.6 ms and then a
+  final result in 362.3 ms after 500 ms of trailing silence for the same 2.46 s
+  24 kHz utterance. Continuous speech is force-finalized at 20 seconds, before the
+  30-second native audio cap.
+- Latest Hy-MT2 authoritative translation through the Electron supervisor: 574.5 ms.
+- Latest Hy-MT2 server load: 1,722.3 ms; reported device `CPU`.
 - Protected engineering literal smoke: `24 VDC` survived the English-to-Chinese result
   exactly.
 - Both child processes completed a clean supervised shutdown.
+
+## Audit hardening evidence
+
+- Local ASR transport is serialized and keeps no more than 10 seconds of queued
+  24 kHz PCM. If inference falls behind, it drops the oldest queued audio and emits
+  an explicit diagnostic instead of growing memory without bound.
+- Hy-MT2 requests have a 30-second timeout, and session shutdown has a separate
+  bounded finalization drain that aborts unresolved work before continuing.
+- An unexpected native-host exit triggers one supervised restart while the stable
+  app-facing client retains its event listeners. Stale generation replies are rejected.
+- Runtime readiness verifies all 66 staged files against their SHA-256 manifest.
+  Packaged model readiness requires the pinned version directory and the model
+  manager's completed verification marker.
+- A fully local Settings load does not query credential status. Session startup also
+  retains the fail-closed privacy test: no cloud constructor or credential read occurs.
+- Native CTest passed 16/16, the complete Node suite passed 468/468, and the renderer
+  suite passed 312/312. The production build and Windows package completed, the
+  packaged copy of all 66 runtime files verified, and the packaged control window
+  launched, survived startup, and exited its eight-process tree cleanly after WM_CLOSE.
 
 The measurements are smoke-test observations on the validation machine, not latency
 service-level guarantees.
@@ -78,3 +99,6 @@ service-level guarantees.
 - Packaged model acquisition is not yet a release-ready user flow. Manifest verification,
   resumable download, hash checking, and meeting-active mutation blocking are implemented,
   but hosted converted Whisper artifacts and the release signing key are not yet available.
+  Windows packaging now fails when the native runtime was not staged, so a clean build
+  can no longer silently ship a non-functional local selector. This remains a production
+  distribution gate, not a blocker for reviewing the pinned-model development build.

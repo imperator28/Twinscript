@@ -1,4 +1,5 @@
 const { EventEmitter } = require('events');
+const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const childProcess = require('child_process');
@@ -19,6 +20,71 @@ function resolveLocalInferenceExecutable({ isPackaged, resourcesPath, appPath })
   return path.win32.join(root, 'twinscript-local-inference.exe');
 }
 
+const REQUIRED_WHISPER_FILES = [
+  'openvino_encoder_model.xml',
+  'openvino_encoder_model.bin',
+  'openvino_decoder_model.xml',
+  'openvino_decoder_model.bin',
+  'openvino_tokenizer.xml',
+  'openvino_tokenizer.bin',
+  'openvino_detokenizer.xml',
+  'openvino_detokenizer.bin',
+];
+
+function hasVerifiedMarker(modelPath, requiredFiles, fsImpl = fs) {
+  try {
+    const directory = fsImpl.statSync(modelPath).isDirectory()
+      ? modelPath
+      : path.dirname(modelPath);
+    const marker = JSON.parse(fsImpl.readFileSync(path.join(directory, '.verified.json'), 'utf8'));
+    if (marker.version !== path.basename(directory) ||
+        !marker.files || typeof marker.files !== 'object') return false;
+    return requiredFiles.every((relativePath) => {
+      const digest = marker.files[relativePath];
+      const filePath = path.join(directory, ...relativePath.split('/'));
+      return /^[a-f0-9]{64}$/i.test(digest || '') && fsImpl.statSync(filePath).size > 0;
+    });
+  } catch {
+    return false;
+  }
+}
+
+function hasDevelopmentModel(modelPath, requiredFiles, fsImpl = fs) {
+  try {
+    const directory = fsImpl.statSync(modelPath).isDirectory()
+      ? modelPath
+      : path.dirname(modelPath);
+    return requiredFiles.every((relativePath) =>
+      fsImpl.statSync(path.join(directory, ...relativePath.split('/'))).size > 0,
+    );
+  } catch {
+    return false;
+  }
+}
+
+function verifyRuntimeManifest(executablePath, fsImpl = fs) {
+  try {
+    const root = path.dirname(executablePath);
+    const manifest = JSON.parse(fsImpl.readFileSync(path.join(root, 'runtime-manifest.json'), 'utf8'));
+    if (manifest.schemaVersion !== 1 || !Array.isArray(manifest.files)) return false;
+    let containsHost = false;
+    for (const entry of manifest.files) {
+      if (!entry || typeof entry.path !== 'string' || !Number.isSafeInteger(entry.size)) return false;
+      if (!/^[a-f0-9]{64}$/i.test(entry.sha256 || '')) return false;
+      const candidate = path.resolve(root, ...entry.path.split('/'));
+      const relative = path.relative(root, candidate);
+      if (relative.startsWith('..') || path.isAbsolute(relative)) return false;
+      if (fsImpl.statSync(candidate).size !== entry.size) return false;
+      const digest = crypto.createHash('sha256').update(fsImpl.readFileSync(candidate)).digest('hex');
+      if (digest.toLowerCase() !== entry.sha256.toLowerCase()) return false;
+      if (path.resolve(candidate) === path.resolve(executablePath)) containsHost = true;
+    }
+    return containsHost;
+  } catch {
+    return false;
+  }
+}
+
 class LocalInferenceSupervisor extends EventEmitter {
   constructor({
     spawn = childProcess.spawn,
@@ -33,9 +99,11 @@ class LocalInferenceSupervisor extends EventEmitter {
     hyMt2ModelPath = null,
     translationServer = null,
     exists = fs.existsSync,
+    artifactReady = null,
   } = {}) {
     super();
     this.spawnImpl = spawn;
+    this.isPackaged = isPackaged;
     this.executablePath = executablePath || resolveLocalInferenceExecutable({
       isPackaged,
       resourcesPath,
@@ -49,6 +117,8 @@ class LocalInferenceSupervisor extends EventEmitter {
     this.llamaBinaryPath = llamaBinaryPath;
     this.hyMt2ModelPath = hyMt2ModelPath;
     this.exists = exists;
+    this.artifactReady = artifactReady;
+    this.runtimeIntegrity = null;
     this.lastModels = new Map();
     this.translationServer = translationServer || (
       llamaBinaryPath && hyMt2ModelPath
@@ -59,10 +129,14 @@ class LocalInferenceSupervisor extends EventEmitter {
         : null
     );
     this.requestedModels = [];
+    this.lastSessionId = 'local-host';
     this.child = null;
     this.baseClient = null;
     this.activeClient = null;
     this.transport = null;
+    this.expectedCloseGenerations = new Set();
+    this.restartPromise = null;
+    this.shuttingDown = false;
   }
 
   accept(message) {
@@ -73,7 +147,13 @@ class LocalInferenceSupervisor extends EventEmitter {
 
   createTransport(child, processGeneration = this.generation) {
     const transport = new EventEmitter();
-    transport.write = (line) => child.stdin.write(line);
+    transport.write = (line) => new Promise((resolve, reject) => {
+      if (child.stdin.destroyed || child.stdin.writableEnded) {
+        reject(supervisorError('local_host_pipe_closed', 'Local inference input pipe is closed'));
+        return;
+      }
+      child.stdin.write(line, (error) => error ? reject(error) : resolve());
+    });
     let buffer = '';
     child.stdout.on('data', (chunk) => {
       buffer += chunk.toString('utf8');
@@ -90,12 +170,34 @@ class LocalInferenceSupervisor extends EventEmitter {
         }
       }
     });
-    child.once('close', () => transport.emit('close'));
+    child.once('close', () => {
+      transport.emit('close');
+      this.handleHostClose(processGeneration);
+    });
     child.stderr.on('data', (chunk) => this.emit('diagnostic', {
       code: 'local_host_stderr',
       message: chunk.toString('utf8').slice(-2000),
     }));
     return transport;
+  }
+
+  handleHostClose(processGeneration) {
+    if (processGeneration !== this.generation) return;
+    if (this.expectedCloseGenerations.delete(processGeneration)) return;
+    if (this.shuttingDown || this.requestedModels.length === 0 || this.restartPromise) return;
+    this.emit('diagnostic', {
+      code: 'local_host_closed_unexpectedly',
+      message: 'Local inference host closed unexpectedly; attempting one restart',
+    });
+    this.restartPromise = Promise.resolve()
+      .then(() => this.restart())
+      .catch((error) => this.emit('diagnostic', {
+        code: error.code || 'local_host_restart_failed',
+        message: error.message,
+      }))
+      .finally(() => {
+        this.restartPromise = null;
+      });
   }
 
   hostArguments(models = this.requestedModels) {
@@ -116,19 +218,39 @@ class LocalInferenceSupervisor extends EventEmitter {
 
   readiness() {
     const actual = (model) => this.lastModels.get(model)?.actualDevice || null;
+    if (this.runtimeIntegrity == null) {
+      this.runtimeIntegrity = this.artifactReady
+        ? this.artifactReady('runtime', this.executablePath)
+        : verifyRuntimeManifest(this.executablePath);
+    }
+    const whisperReady = this.artifactReady
+      ? this.artifactReady('whisper-small', this.whisperModelPath)
+      : Boolean(this.whisperModelPath && (
+          this.isPackaged
+            ? hasVerifiedMarker(this.whisperModelPath, REQUIRED_WHISPER_FILES)
+            : hasDevelopmentModel(this.whisperModelPath, REQUIRED_WHISPER_FILES)
+        ));
+    const hyMt2File = this.hyMt2ModelPath ? path.basename(this.hyMt2ModelPath) : '';
+    const hyMt2Ready = this.artifactReady
+      ? this.artifactReady('hy-mt2-1.8b', this.hyMt2ModelPath)
+      : Boolean(
+          this.llamaBinaryPath && this.exists(this.llamaBinaryPath) &&
+          this.hyMt2ModelPath && (
+            this.isPackaged
+              ? hasVerifiedMarker(this.hyMt2ModelPath, [hyMt2File])
+              : hasDevelopmentModel(this.hyMt2ModelPath, [hyMt2File])
+          )
+        );
     return {
-      runtimeReady: this.exists(this.executablePath),
+      runtimeReady: Boolean(this.runtimeIntegrity),
       requestedDevice: this.whisperDevice,
       models: {
         'whisper-small': {
-          ready: Boolean(this.whisperModelPath && this.exists(this.whisperModelPath)),
+          ready: whisperReady,
           actualDevice: actual('whisper-small'),
         },
         'hy-mt2-1.8b': {
-          ready: Boolean(
-            this.llamaBinaryPath && this.exists(this.llamaBinaryPath) &&
-            this.hyMt2ModelPath && this.exists(this.hyMt2ModelPath)
-          ),
+          ready: hyMt2Ready,
           actualDevice: actual('hy-mt2-1.8b'),
         },
       },
@@ -144,7 +266,8 @@ class LocalInferenceSupervisor extends EventEmitter {
   }
 
   async start(models = this.requestedModels) {
-    if (this.activeClient) return this.activeClient;
+    if (this.baseClient && this.activeClient) return this.activeClient;
+    const existingClient = this.activeClient;
     this.generation += 1;
     const processGeneration = this.generation;
     const child = this.spawnImpl(this.executablePath, this.hostArguments(models), {
@@ -160,12 +283,16 @@ class LocalInferenceSupervisor extends EventEmitter {
       timeoutMs: 30_000,
     });
     this.baseClient = baseClient;
-    this.activeClient = this.createHybridClient();
+    if (this.activeClient) {
+      this.activeClient.replaceBase(baseClient);
+    } else {
+      this.activeClient = this.createHybridClient();
+    }
     try {
       await baseClient.request('hello', { sessionId: 'local-host' }, { timeoutMs: 120_000 });
       return this.activeClient;
     } catch (error) {
-      await this.disposeProcess();
+      await this.disposeProcess({ preserveClient: Boolean(existingClient) });
       throw error;
     }
   }
@@ -177,6 +304,8 @@ class LocalInferenceSupervisor extends EventEmitter {
 
   async prepare(models, sessionId = 'local-host') {
     this.requestedModels = [...models];
+    if (sessionId !== this.lastSessionId) this.restartCount = 0;
+    this.lastSessionId = sessionId;
     const readiness = this.readiness();
     if (!this.activeClient && !readiness.runtimeReady) {
       throw supervisorError('local_runtime_missing', 'The local inference runtime is not installed');
@@ -235,14 +364,22 @@ class LocalInferenceSupervisor extends EventEmitter {
       );
     }
     this.restartCount += 1;
-    await this.disposeProcess();
-    return this.start();
+    await this.disposeProcess({ preserveClient: true, stopTranslation: false });
+    await this.start(this.requestedModels);
+    return this.prepare(this.requestedModels, this.lastSessionId);
   }
 
-  async disposeProcess() {
+  async disposeProcess({ preserveClient = false, stopTranslation = true } = {}) {
     const client = this.baseClient;
     const child = this.child;
-    this.activeClient = null;
+    const activeClient = this.activeClient;
+    const processGeneration = this.generation;
+    if (child) this.expectedCloseGenerations.add(processGeneration);
+    if (preserveClient) {
+      activeClient?.replaceBase(null);
+    } else {
+      this.activeClient = null;
+    }
     this.baseClient = null;
     this.transport = null;
     this.child = null;
@@ -258,10 +395,12 @@ class LocalInferenceSupervisor extends EventEmitter {
       }
       if (child.exitCode == null) child.kill();
     }
-    await this.translationServer?.stop();
+    if (!preserveClient) activeClient?.dispose({ disposeBase: false });
+    if (stopTranslation) await this.translationServer?.stop();
   }
 
   async dispose() {
+    this.shuttingDown = true;
     await this.disposeProcess();
     this.removeAllListeners();
   }
@@ -269,5 +408,7 @@ class LocalInferenceSupervisor extends EventEmitter {
 
 module.exports = {
   LocalInferenceSupervisor,
+  hasVerifiedMarker,
   resolveLocalInferenceExecutable,
+  verifyRuntimeManifest,
 };

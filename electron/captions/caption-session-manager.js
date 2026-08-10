@@ -85,6 +85,7 @@ class CaptionSessionManager {
     appVersion,
     coordinatorFactory,
     schedulerFactory,
+    finalizationDrainTimeoutMs = 30_000,
   }) {
     this.credentialStore = credentialStore;
     this.settingsStore = settingsStore;
@@ -115,6 +116,7 @@ class CaptionSessionManager {
       coordinatorFactory || ((options) => new TranscriptCoordinator(options));
     this.schedulerFactory =
       schedulerFactory || ((options) => new PriorityTaskQueue(options));
+    this.finalizationDrainTimeoutMs = finalizationDrainTimeoutMs;
     this.reset();
   }
 
@@ -1157,7 +1159,26 @@ class CaptionSessionManager {
     // discarding it would silently lose the end of the meeting.
     this.coordinator?.flushHeld();
     this.coordinator?.reset();
-    await Promise.allSettled([...this.pendingFinalizations]);
+    const pendingFinalizations = Promise.allSettled([...this.pendingFinalizations]);
+    let drainTimer;
+    const drainTimedOut = await Promise.race([
+      pendingFinalizations.then(() => false),
+      new Promise((resolve) => {
+        drainTimer = setTimeout(() => resolve(true), this.finalizationDrainTimeoutMs);
+        drainTimer.unref?.();
+      }),
+    ]);
+    clearTimeout(drainTimer);
+    if (drainTimedOut) {
+      for (const controller of this.abortControllers.values()) controller.abort();
+      for (const controller of this.shadowControllers) controller.abort();
+      this.onStatus({
+        state: 'degraded',
+        sessionId: this.sessionId,
+        code: 'translation_shutdown_timeout',
+        message: 'Translation did not finish before the bounded shutdown timeout',
+      });
+    }
     this.finalizingStop = false;
     for (const controller of this.abortControllers.values()) controller.abort();
     for (const controller of this.shadowControllers) controller.abort();

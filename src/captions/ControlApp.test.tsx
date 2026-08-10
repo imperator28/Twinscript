@@ -519,15 +519,16 @@ describe('meeting caption controls', () => {
           finalTranslationModel: 'hy-mt2-local' as const,
         },
       });
-    window.captions.credentialStatus = () =>
+    window.captions.credentialStatus = vi.fn(() =>
       Promise.resolve({
         ok: true as const,
         data: { available: false, source: 'missing', encryptionAvailable: true },
-      });
+      }));
 
     render(<ControlApp />);
 
     expect(await screen.findByRole('button', { name: /Start session/i })).toBeEnabled();
+    expect(window.captions.credentialStatus).not.toHaveBeenCalled();
     expect(screen.queryByText('Add your OpenAI API key')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
     expect(await screen.findByText(/No API key is read when a meeting starts/i)).toBeVisible();

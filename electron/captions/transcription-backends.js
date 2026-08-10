@@ -1,6 +1,7 @@
 const { LiveTranscriptionSession } = require('./live-transcription-session');
 
 const MAX_AUDIO_SAMPLES = 240000;
+const MAX_QUEUED_AUDIO_SAMPLES = 240000;
 
 class LocalWhisperBackend {
   constructor({
@@ -15,7 +16,9 @@ class LocalWhisperBackend {
     this.sessionId = sessionId;
     this.onEvent = onEvent;
     this.onUsage = onUsage;
-    this.pending = new Set();
+    this.audioQueue = [];
+    this.queuedSamples = 0;
+    this.audioDrainPromise = null;
     this.onClientEvent = (message) => this.accept(message);
     client.on?.('event', this.onClientEvent);
   }
@@ -34,24 +37,59 @@ class LocalWhisperBackend {
       : new Int16Array(samples.buffer, samples.byteOffset, samples.byteLength / 2);
     for (let offset = 0; offset < pcm.length; offset += MAX_AUDIO_SAMPLES) {
       const chunk = pcm.subarray(offset, Math.min(pcm.length, offset + MAX_AUDIO_SAMPLES));
-      const promise = this.client.request('asr.audio', {
-        sessionId: this.sessionId,
-        channel: this.channel,
-        encoding: 'pcm_s16le',
-        sampleRate: 24000,
-        capturedAt,
-        audio: Buffer.from(chunk.buffer, chunk.byteOffset, chunk.byteLength).toString('base64'),
-      }).then((message) => this.accept(message)).catch((error) => {
+      const samplesCopy = Buffer.from(chunk.buffer, chunk.byteOffset, chunk.byteLength);
+      this.audioQueue.push({ samples: samplesCopy, sampleCount: chunk.length, capturedAt });
+      this.queuedSamples += chunk.length;
+      let droppedSamples = 0;
+      while (this.queuedSamples > MAX_QUEUED_AUDIO_SAMPLES && this.audioQueue.length > 1) {
+        const dropped = this.audioQueue.shift();
+        this.queuedSamples -= dropped.sampleCount;
+        droppedSamples += dropped.sampleCount;
+      }
+      if (droppedSamples > 0) {
+        this.onUsage({ droppedAudioMs: (droppedSamples / 24000) * 1000 });
         this.onEvent({
           type: 'error',
           channel: this.channel,
-          code: error.code || 'local_asr_failed',
-          message: error.message,
+          code: 'local_asr_backpressure_dropped',
+          message: 'Local transcription fell behind and dropped the oldest queued audio',
         });
-      }).finally(() => this.pending.delete(promise));
-      this.pending.add(promise);
+      }
       this.onUsage({ audioMs: (chunk.length / 24000) * 1000 });
     }
+    this.pumpAudio();
+  }
+
+  pumpAudio() {
+    if (this.audioDrainPromise) return this.audioDrainPromise;
+    this.audioDrainPromise = (async () => {
+      while (this.audioQueue.length > 0) {
+        const chunk = this.audioQueue.shift();
+        this.queuedSamples -= chunk.sampleCount;
+        try {
+          const message = await this.client.request('asr.audio', {
+            sessionId: this.sessionId,
+            channel: this.channel,
+            encoding: 'pcm_s16le',
+            sampleRate: 24000,
+            capturedAt: chunk.capturedAt,
+            audio: chunk.samples.toString('base64'),
+          });
+          this.accept(message);
+        } catch (error) {
+          this.onEvent({
+            type: 'error',
+            channel: this.channel,
+            code: error.code || 'local_asr_failed',
+            message: error.message,
+          });
+        }
+      }
+    })().finally(() => {
+      this.audioDrainPromise = null;
+      if (this.audioQueue.length > 0) this.pumpAudio();
+    });
+    return this.audioDrainPromise;
   }
 
   accept(message) {
@@ -73,7 +111,7 @@ class LocalWhisperBackend {
   }
 
   async drain() {
-    await Promise.allSettled([...this.pending]);
+    while (this.audioDrainPromise) await this.audioDrainPromise;
   }
 
   async finish() {
@@ -116,6 +154,7 @@ class TranscriptionBackendFactory {
 }
 
 module.exports = {
+  MAX_QUEUED_AUDIO_SAMPLES,
   LocalWhisperBackend,
   TranscriptionBackendFactory,
 };

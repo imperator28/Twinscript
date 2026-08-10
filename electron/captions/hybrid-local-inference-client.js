@@ -1,7 +1,20 @@
-class HybridLocalInferenceClient {
+const { EventEmitter } = require('events');
+
+
+class HybridLocalInferenceClient extends EventEmitter {
   constructor({ base, translation = null }) {
-    this.base = base;
+    super();
+    this.base = null;
     this.translation = translation;
+    this.onBaseEvent = (event) => this.emit('event', event);
+    this.replaceBase(base);
+  }
+
+  replaceBase(base) {
+    this.base?.off?.('event', this.onBaseEvent);
+    this.base = base;
+    this.base?.on?.('event', this.onBaseEvent);
+    return this;
   }
 
   async request(type, payload = {}, options = {}) {
@@ -12,6 +25,11 @@ class HybridLocalInferenceClient {
         throw error;
       }
       return this.translation.translate(type, payload, options);
+    }
+    if (!this.base) {
+      const error = new Error('Local inference host is restarting');
+      error.code = 'local_host_restarting';
+      throw error;
     }
     const response = await this.base.request(type, payload, options);
     if (type === 'hello' && this.translation) {
@@ -35,18 +53,11 @@ class HybridLocalInferenceClient {
     return response;
   }
 
-  on(type, listener) {
-    this.base.on?.(type, listener);
-    return this;
-  }
-
-  off(type, listener) {
-    this.base.off?.(type, listener);
-    return this;
-  }
-
-  dispose() {
-    this.base.dispose?.();
+  dispose({ disposeBase = true } = {}) {
+    const base = this.base;
+    this.replaceBase(null);
+    if (disposeBase) base?.dispose?.();
+    this.removeAllListeners();
   }
 }
 

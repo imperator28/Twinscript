@@ -1,5 +1,6 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
+const { EventEmitter } = require('node:events');
 
 const { HybridLocalInferenceClient } = require('./hybrid-local-inference-client');
 
@@ -40,4 +41,23 @@ test('hybrid hello and health expose both truthful runtimes', async () => {
 
   assert.equal((await client.request('hello')).models.length, 2);
   assert.equal((await client.request('health')).models['hy-mt2-1.8b'].actualDevice, 'CPU');
+});
+
+test('hybrid client keeps listeners and routes requests after native host replacement', async () => {
+  const first = new EventEmitter();
+  first.request = async () => ({ host: 'first' });
+  first.dispose = () => {};
+  const second = new EventEmitter();
+  second.request = async () => ({ host: 'second' });
+  second.dispose = () => {};
+  const events = [];
+  const client = new HybridLocalInferenceClient({ base: first });
+  client.on('event', (event) => events.push(event.host));
+
+  client.replaceBase(second);
+  first.emit('event', { host: 'stale' });
+  second.emit('event', { host: 'second' });
+
+  assert.equal((await client.request('health')).host, 'second');
+  assert.deepEqual(events, ['second']);
 });

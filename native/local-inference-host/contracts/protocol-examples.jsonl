@@ -1,0 +1,19 @@
+{"protocolVersion":1,"type":"hello","requestId":"r-hello","sessionId":"s1","generation":1}
+{"protocolVersion":1,"type":"capabilities","requestId":"r-hello","sessionId":"s1","generation":1,"models":[{"id":"whisper-small","runtime":"openvino-genai","devices":["NPU","CPU"]},{"id":"hy-mt2-1.8b","runtime":"llama.cpp","devices":["CPU"]}]}
+{"protocolVersion":1,"type":"model.prepare","requestId":"r-prepare","sessionId":"s1","models":["whisper-small","hy-mt2-1.8b"]}
+{"protocolVersion":1,"type":"model.ready","requestId":"r-prepare","sessionId":"s1","generation":1,"models":[{"id":"whisper-small","actualDevice":"NPU"},{"id":"hy-mt2-1.8b","actualDevice":"CPU"}]}
+{"protocolVersion":1,"type":"asr.start","requestId":"r-asr-start","sessionId":"s1","channel":"microphone"}
+{"protocolVersion":1,"type":"asr.audio","requestId":"r-audio-mic","sessionId":"s1","channel":"microphone","encoding":"pcm_s16le","sampleRate":24000,"capturedAt":1750000000000,"audio":"AAAA"}
+{"protocolVersion":1,"type":"asr.audio","requestId":"r-audio-system","sessionId":"s1","channel":"system","encoding":"pcm_s16le","sampleRate":24000,"capturedAt":1750000000010,"audio":"AAAA"}
+{"protocolVersion":1,"type":"asr.flush","requestId":"r-flush","sessionId":"s1","channel":"microphone"}
+{"protocolVersion":1,"type":"asr.result","requestId":"r-audio-mic","sessionId":"s1","channel":"microphone","utteranceId":"u1","text":"Confirmed","final":false,"model":"whisper-small","runtime":"openvino-genai","requestedDevice":"NPU","actualDevice":"NPU","inferenceMs":182.4}
+{"protocolVersion":1,"type":"asr.result","requestId":"r-flush","sessionId":"s1","channel":"microphone","utteranceId":"u1","text":"Confirmed for DVT.","final":true,"model":"whisper-small","runtime":"openvino-genai","requestedDevice":"NPU","actualDevice":"NPU","inferenceMs":421.2}
+{"protocolVersion":1,"type":"translate.preview","requestId":"r-preview","sessionId":"s1","utteranceId":"u1","sourceRevision":1,"sourceLanguage":"English","targetLanguage":"Chinese","text":"Confirmed"}
+{"protocolVersion":1,"type":"translate.final","requestId":"r-final","sessionId":"s1","utteranceId":"u1","sourceRevision":2,"sourceLanguage":"English","targetLanguage":"Chinese","text":"Confirmed for DVT."}
+{"protocolVersion":1,"type":"translate.result","requestId":"r-preview","sessionId":"s1","utteranceId":"u1","sourceRevision":1,"text":"已确认","authoritative":false,"model":"hy-mt2-1.8b","runtime":"llama.cpp","requestedDevice":"CPU","actualDevice":"CPU","inferenceMs":520.1}
+{"protocolVersion":1,"type":"translate.result","requestId":"r-final","sessionId":"s1","utteranceId":"u1","sourceRevision":2,"text":"已确认用于 DVT。","authoritative":true,"model":"hy-mt2-1.8b","runtime":"llama.cpp","requestedDevice":"CPU","actualDevice":"CPU","inferenceMs":611.8}
+{"protocolVersion":1,"type":"request.cancel","requestId":"r-preview","sessionId":"s1"}
+{"protocolVersion":1,"type":"health","requestId":"r-health","sessionId":"s1","generation":1,"queueDepth":0,"models":{"whisper-small":{"loadCount":1},"hy-mt2-1.8b":{"loadCount":1}}}
+{"protocolVersion":1,"type":"error","requestId":"r-bad","sessionId":"s1","code":"invalid_request","message":"sampleRate must be 24000"}
+{"protocolVersion":1,"type":"asr.stop","requestId":"r-asr-stop","sessionId":"s1","channel":"microphone"}
+{"protocolVersion":1,"type":"shutdown","requestId":"r-shutdown","sessionId":"s1"}

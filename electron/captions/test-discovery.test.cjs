@@ -128,19 +128,26 @@ test('Vitest collects only caption renderer suites', () => {
   ]);
 });
 
-test('quarantined legacy suites are excluded rather than silently failing', () => {
+test('the legacy quarantine is gone, not just unenforced', () => {
+  // This used to assert that electron/better-auth-adapter.test.js and
+  // electron/sidecar-bundle.test.js stayed in Vitest's exclude list, with a note
+  // to "drop the exclusion when the module is removed". They are now removed, so
+  // the assertion is inverted: the files must be gone AND absent from the exclude
+  // list, because a stale exclusion is how that list silently accumulates paths
+  // nobody can explain.
   const exclude = vitestArray('exclude');
-  for (const quarantined of [
+  for (const removed of [
     'electron/better-auth-adapter.test.js',
     'electron/sidecar-bundle.test.js',
   ]) {
-    assert.ok(
-      exclude.includes(quarantined),
-      `${quarantined} tests a subsystem this client does not build and must stay excluded`,
+    assert.equal(
+      fs.existsSync(path.join(repoRoot, removed)),
+      false,
+      `${removed} is back; decide deliberately whether it should run`,
     );
     assert.ok(
-      fs.existsSync(path.join(repoRoot, quarantined)),
-      `${quarantined} is still on disk; drop the exclusion when the module is removed`,
+      !exclude.includes(removed),
+      `${removed} no longer exists, so excluding it is dead configuration`,
     );
   }
 });

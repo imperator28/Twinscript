@@ -1,355 +1,128 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Guidance for Claude Code (claude.ai/code) working in this repository.
 
-## Git Worktrees
+This file used to describe Sokuji — a multi-provider translation app with OpenAI,
+Gemini, Palabra.ai and Kizuna AI clients, a `ClientFactory`, Zustand stores, a
+35-language i18next UI and a browser extension. None of that is in this repository
+any more, and most of it was already unreachable while the description was still
+here. Treating it as current sent work to files the app never loads.
 
-Worktree directory: `.claude/worktrees/` (gitignored)
+## What this project is
 
-## Project Overview
+**Twinscript** (会意) is a Windows-first Electron desktop app that puts realtime
+English and Simplified Chinese captions on a bilingual engineering meeting. Audio
+is captured locally, transcription and translation go to OpenAI, and the result is
+shown either as always-on-top overlays or through a virtual camera that other apps
+join like a webcam.
 
-Sokuji is a real-time AI-powered translation application available as both an Electron desktop app and a browser extension. It provides live speech translation using OpenAI, Google Gemini, Palabra.ai, and Kizuna AI APIs with modern audio processing capabilities. It also supports OpenAI-compatible API endpoints for flexibility.
+One provider, one model, no hosted backend of its own. `api.openai.com` is the only
+host the caption process contacts.
 
-## Development Commands
+## Where the code is
 
-### Running the Application
+Everything the app loads is reachable from three entry points:
+
+| Entry | What it is |
+| --- | --- |
+| `electron/captions-main.js` | Main process. `package.json`'s `main` points at its build output. |
+| `electron/captions-preload.js` | The `window.captions` bridge. Its types live in `src/electron.d.ts`. |
+| `index.html` → `src/main.tsx` → `src/App.tsx` | Renderer. Picks a surface from `?surface=`. |
+
+- `electron/captions/` — main-process subsystems: session manager, window manager,
+  settings store, credential store, meeting records, cost meter, camera transport.
+- `src/captions/` — every renderer surface and all its logic. This is the UI.
+- `src/lib/modern-audio/` — capture: `ModernAudioRecorder`, `LoopbackRecorder`, and
+  the GTCRN noise-suppression worker.
+- `native/camera-companion/` — the Windows DirectShow virtual camera (C++).
+- `shared/caption-themes.json` — theme definitions read by both processes.
+
+Three renderer surfaces, selected by query parameter: `control` (the operator
+window), `caption` (an audience overlay), `camera-stage` (the frame source for the
+virtual camera).
+
+## Retained but not reachable
+
+`src/lib/local-inference/`, `sidecar/`, `model-packs/`, `public/workers/` and the
+sherpa-onnx / piper / vad WASM under `public/wasm/` are a local ASR/TTS/translation
+stack kept deliberately as a possible future path. **Nothing in the app reaches
+them.** Do not wire them into a caption path without being asked.
+
+One exception, and it matters: `src/lib/local-inference/workers/_shared/onnxruntime-all.ts`
+**is** live. `gtcrn-worker.ts` imports it for microphone noise suppression, which is
+why `ort` and `gtcrn` are the only two WASM directories `forge.config.js` packages.
+
+## Commands
+
 ```bash
-# Run Electron app in development mode
-npm run electron:dev
-
-# Run React app only (for browser extension development)
-npm run dev
-
-# Build Electron app for production
-npm run electron:build
-
-# Run tests
-npm run test
-
-# Run tests with UI
-npm run test:ui
-
-# Run specific test
-npm run test -- path/to/test
-```
-
-### Building and Packaging
-```bash
-# Build React app
+npm run dev           # Vite AND Electron — see the traps below
+npm test              # renderer (Vitest, src/captions/**/*.test.{ts,tsx})
+npm run test:captions # main process (node:test, *.test.cjs)
 npm run build
-
-# Package Electron app
-npm run package
-
-# Create distributable packages
-npm run make
+npm run make          # package for the current platform
+npm run w1:corpus     # 256-prompt screening corpus
 ```
 
-### Version Update Process
+## Traps that have each cost real time
 
-**All five version sites must land in a single `chore(release): vX.Y.Z` commit BEFORE the tag is created.** Earlier releases split root and extension version bumps into two separate commits with the tag on the root-only commit; the tag checkout then built the extension with the previous version. The release workflow checks out the tag verbatim, so every version-affecting file must be at the new version at the tagged commit.
+- **`npm run dev` launches Electron itself** through `vite-plugin-electron`'s
+  `onstart`. There is no separate start step, and killing Electron kills the dev
+  server. Launch it detached if it must outlive the shell that started it.
+- **The main-process build entry map in `vite.config.ts` is hand-maintained.** A
+  module required from a sibling as `./name` must also be listed there or it is
+  never emitted, and the app dies at launch with `Cannot find module './name'`.
+  `electron/captions/main-build-entries.test.cjs` guards bare sibling requires —
+  but not `./captions/name`, which rolldown inlines instead.
+- **`assets/` is not in the asar.** It ships via `extraResource` to
+  `process.resourcesPath/assets`, so no single relative path finds it both packaged
+  and unpackaged. See `electron/captions/app-icon.js`, and never resolve it from
+  `__dirname`.
+- **Never put a secret behind `VITE_`.** Anything so prefixed is inlined into
+  renderer JavaScript and ships. Keys live in the OS credential store via
+  `safeStorage`.
+- **The OpenAI `delay` parameter accepts more values than are usable.** Only
+  `minimal`, `low` and `medium` are offered; `high` and `xhigh` delay captions past
+  the point of being live, and `'default'` is rejected outright. The API accepting a
+  value is not evidence it belongs in the UI.
+- **The virtual camera CLSID must never change.** A new one orphans every
+  previously registered camera.
+- **The two test suites do not overlap on file extension**, deliberately. Vitest
+  owns `.ts`/`.tsx`, node:test owns `.cjs`. A file matched by both runs under the
+  wrong environment.
+- **`tsc --noEmit` is not clean.** Compare the error count before and after a
+  change rather than expecting zero.
 
-1. Update all five files in one go:
-   - `package.json`
-   - `extension/package.json`
-   - `extension/manifest.json`
-   - `package-lock.json` (run `npm install` at the root to regenerate)
-   - `extension/package-lock.json` (run `npm install` inside `extension/` to regenerate)
-2. Commit all five together: `git commit -m "chore(release): vX.Y.Z"`
-3. Create annotated tag on that commit: `git tag -a vX.Y.Z -m "Release vX.Y.Z"`
-4. Push: `git push origin main --follow-tags`
+## Conventions
 
-**Sanity check before pushing the tag:**
+- English only in comments, commits and docs.
+- Conventional commits (`feat:`, `fix:`, `docs:`, `chore:`).
+- TypeScript strict; `src/lib/modern-audio/` is JavaScript by inheritance.
+- Comments explain **why**, and earn their place where code looks wrong but isn't.
+- Settings changes need a `settingsVersion` bump and a migration in
+  `electron/captions/settings-store.js`, which normalizes on read *and* write.
+
+## Release
+
+All version sites must land in one `chore(release): vX.Y.Z` commit **before** the
+tag, because the release workflow checks out the tag verbatim. There are two:
+`package.json` and `package-lock.json`. `scripts/release/tag-version.js` owns the
+list and a test pins it, so a third site appearing without the tooling knowing is
+caught rather than discovered after a bad release.
 
 ```bash
-git show vX.Y.Z:package.json          | grep '"version"'
-git show vX.Y.Z:extension/package.json | grep '"version"'
-git show vX.Y.Z:extension/manifest.json | grep '"version"'
+git commit -m "chore(release): vX.Y.Z"
+git tag -a vX.Y.Z -m "Release vX.Y.Z"
+git push origin main --follow-tags
 ```
 
-All three must print the same new version. If they don't, `git tag -d vX.Y.Z` and re-tag on the correct commit before pushing.
+## Provenance
 
-## Architecture Overview
+Forked from Sokuji v0.34.5 (`0808d3b7`) and licensed under AGPL-3.0. See
+`docs/architecture/sokuji-reuse-map.md`. The DirectShow virtual camera is a
+clean-room implementation: no code from OBS or any other virtual camera is in this
+repository, and none may be added — OBS is GPL-2.0 and was used only as a consumer
+to validate against.
 
-### Dual Platform Architecture
-The codebase supports both Electron desktop app and Chrome/Edge browser extension from a shared React codebase:
-- **Shared code**: `src/` directory contains all React components and business logic
-- **Electron-specific**: `electron/` directory, virtual audio device management (Linux only)
-- **Extension-specific**: `extension/` directory, manifest.json, background scripts
+## Git worktrees
 
-### Key Architectural Components
-
-1. **Service Layer Pattern**
-   - `ServiceFactory` creates platform-specific implementations with singleton caching
-   - All services implement interfaces (IAudioService, ISettingsService)
-   - Platform detection via `src/utils/environment.ts` utilities
-
-2. **AI Client Architecture**
-   - `ClientFactory` creates provider-specific clients
-   - Providers: OpenAI, Gemini, PalabraAI, KizunaAI, OpenAI Compatible
-   - Each client implements `IClient` interface
-   - Real-time communication via WebSocket or REST APIs
-   - OpenAI Compatible provider allows custom API endpoints (Electron only)
-   - KizunaAI uses OpenAI-compatible API with backend-managed authentication
-
-3. **Audio Processing Pipeline**
-   ```
-   Input Device → ModernAudioRecorder → AI Provider → ModernAudioPlayer → Output Device
-   ```
-   - `ModernAudioRecorder`: Captures input with echo cancellation, supports AudioWorklet with ScriptProcessor fallback
-   - `ModernAudioPlayer`: Queue-based playback with event-driven processing and volume control
-   - Unified audio service across all platforms with virtual device support in Electron (Linux only)
-
-4. **State Management**
-   - **Zustand stores** in `src/stores/` for primary application state:
-     - `settingsStore.ts`: Provider settings, API keys, validation state, UI mode
-     - `sessionStore.ts`: Active session state and conversation items
-     - `audioStore.ts`: Audio device selection and playback state
-     - `logStore.ts`: Application logs and diagnostics
-   - React Context for specific features: OnboardingContext, UserProfileContext
-   - Zustand's `subscribeWithSelector` middleware for efficient re-renders
-   - Backend-managed API key integration for authenticated providers
-
-5. **Audio Service Management**
-   - `ModernBrowserAudioService` provides unified audio handling
-   - Cross-platform compatibility without virtual devices
-   - Automatic device switching and reconnection, including dynamic switching during active sessions
-
-## Important Patterns and Conventions
-
-### Code Organization
-- `src/components/` - Functional React components with TypeScript
-- `src/stores/` - Zustand state management stores
-- `src/services/` - Service layer with interface contracts
-- `src/services/clients/` - AI provider client implementations
-- `src/services/providers/` - Provider-specific configurations
-- `src/lib/modern-audio/` - Web Audio API modules (JavaScript, not TypeScript)
-- `src/utils/` - Shared utilities including environment detection
-- `src/contexts/` - React Context providers (OnboardingContext, UserProfileContext)
-
-### Error Handling
-- All API calls wrapped in try-catch blocks
-- Errors logged to logStore for user visibility via LogsPanel
-- Graceful degradation when features unavailable
-
-### Platform-Specific Code
-Use centralized utilities from `src/utils/environment.ts`:
-```typescript
-import { isElectron, isExtension, isWeb, getEnvironment } from '../utils/environment';
-
-// Preferred: use centralized detection
-if (isElectron()) {
-  // Electron-specific code
-} else if (isExtension()) {
-  // Browser extension code
-}
-
-// Get backend URL (respects VITE_BACKEND_URL env var)
-import { getBackendUrl, getApiUrl } from '../utils/environment';
-const apiUrl = getApiUrl(); // https://sokuji.kizuna.ai/api
-```
-
-### Zustand Store Patterns
-```typescript
-// Using optimized selectors (preferred - prevents unnecessary re-renders)
-const provider = useProvider();
-const setProvider = useSetProvider();
-
-// Direct store access for multiple values
-const { provider, uiLanguage, uiMode } = useSettingsStore();
-
-// Subscribing to changes outside React
-useSettingsStore.subscribe(
-  (state) => state.provider,
-  (provider) => console.log('Provider changed:', provider)
-);
-```
-
-### Audio Handling
-- Always use ModernAudioPlayer/ModernAudioRecorder classes
-- Audio playback uses queue-based system with event-driven processing
-- Passthrough audio uses dedicated 'passthrough' track ID for real-time monitoring (default volume: 30%)
-- AudioWorklet preferred for processing, falls back to ScriptProcessor for compatibility
-- Echo cancellation enabled by default with modern browser APIs
-
-## Testing and Quality
-
-### Testing Framework
-- Vitest for unit testing
-- Test files colocated with components (*.test.tsx)
-- Global test setup in `src/setupTests.ts`
-- jsdom environment for component testing
-
-### Code Style
-- TypeScript for type safety (strict mode enabled)
-- English-only for all comments and documentation
-- Conventional commit format for git commits
-- SASS for styling with deprecation warnings silenced
-
-## Build Configuration
-
-### Vite Configuration
-- Development server on port 5173
-- Output to `build/` directory
-- Base path relative for both Electron and extension
-- Source maps enabled for debugging
-
-### Environment Variables
-- `VITE_BACKEND_URL`: Backend API URL (default: `https://sokuji.kizuna.ai`)
-- `VITE_ENABLE_KIZUNA_AI`: Enable Kizuna AI provider in production (`true`/`false`)
-- Environment detection via `src/utils/environment.ts`
-
-### TypeScript Configuration
-- Target ES2020
-- Strict mode enabled
-- Module resolution: bundler
-- JSX: react-jsx
-
-### Electron Forge Configuration
-- Packaged with ASAR
-- Icons and branding in `assets/` directory
-- Debian package maker for Linux distribution
-- Automatic pruning of unnecessary files in production
-
-## Dependencies
-
-### Key Libraries
-- **zustand**: State management with `subscribeWithSelector` middleware
-- **@floating-ui/react**: Advanced tooltip positioning and floating elements
-- **i18next & react-i18next**: Internationalization framework
-- **openai-realtime-api**: OpenAI real-time API client (strongly-typed fork)
-- **@google/genai**: Google Gemini SDK
-- **livekit-client**: LiveKit SDK for Palabra AI WebRTC integration
-- **better-auth**: Authentication library for user sessions
-- **lucide-react**: Icon library
-- **ws**: WebSocket client for real-time communication
-
-### Internationalization
-- Complete translations for 35+ languages
-- English fallback for missing translations
-- Language detection via i18next-browser-languagedetector
-- **UI Language Quick Access**: 12 most common languages directly available
-
-## Common Development Tasks
-
-### Adding a New AI Provider
-1. Create the client class implementing `IClient` in `src/services/clients/`
-2. Create `XProviderConfig` in `src/services/providers/` extending `BaseProviderDescriptor`:
-   settings interface + defaults, `settingsSliceKey`, `createClient`, `validateAndFetchModels`,
-   `extractCredentials`, `buildSessionConfig`, language overrides if restricted;
-   set `supportsWebRTC = true` if the provider runs over WebRTC transport (it defaults
-   to `false`), and `i18nKey` if the locale key differs from the provider id
-3. Register it in `ProviderConfigFactory`'s static block (behind its feature flag)
-4. Add the enum value in `src/types/Provider.ts` and the settings slice + update action in `settingsStore.ts`
-5. Add `providers.<id>.name/.description` to locales
-The registry invariant test (`descriptorRegistry.test.ts`) fails loudly on anything missed.
-
-### Modifying Audio Pipeline
-1. Audio processing modules in `src/lib/modern-audio/` (JavaScript files)
-2. Test with both regular and passthrough audio
-3. Ensure echo cancellation is working properly
-4. Handle browser security restrictions and permissions
-5. Test AudioWorklet and ScriptProcessor fallback paths
-
-### Debugging Audio Issues
-- Check DevTools console for audio errors
-- Verify device permissions granted
-- Test echo cancellation settings in browser
-- Monitor LogsPanel for real-time diagnostics
-- Check AudioWorklet/ScriptProcessor processing callbacks
-- Watch for infinite loops in device switching - use deviceId in React dependencies, not device objects
-- Verify audio context state (suspended/running)
-
-### Dynamic Audio Device Switching
-1. Recording devices can be switched during active sessions without interrupting the session
-2. Implemented via `switchRecordingDevice` method in `ModernBrowserAudioService`
-3. MainPanel detects device changes via useEffect hook
-4. Important: Use `selectedInputDevice?.deviceId` string in React dependencies, not the full device object
-5. The service tracks current device with `currentRecordingDeviceId` and handles reconnection automatically
-
-## UI Components
-
-### Simple Mode Components
-- **SimpleConfigPanel**: 6-section configuration (account, language, translation, API key, mic, speaker)
-- **MainPanel**: Unified conversation panel with `uiMode`-driven layout (basic: bubble messages + status footer, advanced: bubble messages + waveform footer with controls)
-- **Tooltip**: @floating-ui/react powered tooltips with hover/click/focus triggers
-- **ConnectionStatus**: Real-time connection state indicator
-
-### UI Design System
-- Dark theme with consistent styling across components
-- Primary action color: `#10a37f` (green), Error state: `#e74c3c` (red)
-- Component styles defined in colocated SCSS files (e.g., `SimpleConfigPanel.scss`)
-- Lucide React icons with consistent sizing (14-16px)
-
-## Platform Requirements
-
-### Electron App
-- Works on all platforms (Windows, macOS, Linux)
-- Node.js LTS version
-- Electron 34+
-- Virtual audio devices require Linux with PulseAudio or PipeWire
-
-### Browser Extension
-- Chrome/Edge/Chromium browsers version 116+
-- Manifest V3 compatible
-- Side panel API support
-- Content scripts for video conferencing platforms (Google Meet, Teams, Zoom, etc.)
-
-## Extension-Specific Information
-
-### Content Scripts
-- Injected into supported video conferencing platforms
-- Virtual microphone injection for seamless integration
-- Separate content scripts for different platforms (zoom-content.js for Zoom)
-
-### Adding a Supported Meeting Platform
-1. Add one row to `extension/platforms.ts` (`PLATFORMS`): hostname, matchPattern
-   `https://<host>/*`, contentProfile (`standard` | `jitsi` | `zoom`), displayName,
-   shortName, icon (base64), and — if applicable — group/groupLabel, guidanceKey, pluginKey.
-2. If the platform needs a site plugin, add its plugin object to `site-plugins.js`
-   and register the key in that file's `PLUGIN_BY_KEY` **and** `HOST_TO_PLUGIN_KEY`
-   (this one map can't be generated — `site-plugins.js` runs in the page's MAIN
-   world and can't see the isolated-world registry global; a consistency test
-   parses the file and fails loudly if it drifts from the registry).
-3. Add `<guidanceKey>Title` / `<guidanceKey>Guidance` to `_locales/*/messages.json`.
-4. `manifest.json` stays hand-authored but is pinned by `extension/manifest.consistency.test.ts`
-   against `deriveContentScripts()` / `deriveSubtitleWebAccessibleMatches()` — update its
-   content_scripts and subtitle web_accessible_resources matches to match, or the test fails.
-
-popup, the subtitle overlay surface, background.js, and content.js's guidance lookup all
-derive from the registry automatically (via direct import for bundled surfaces, via the
-build-emitted `platforms.generated.js` for vanilla copied scripts). Only steps 2-4 above
-are still manual.
-
-### Web Accessible Resources
-- Worklets for audio processing
-- Device emulator for virtual devices
-- Site-specific plugins for platform integration
-
-### Security Policy
-- Strict CSP configuration for extension pages
-- Allowed connections to AI provider APIs (OpenAI, Google, Palabra, Kizuna AI, and OpenAI-compatible endpoints)
-- PostHog analytics integration for usage tracking
-
-## Authentication and API Key Management
-
-### Authentication System
-- **Better Auth Integration**: User authentication using Better Auth service
-- **Backend-Managed Keys**: Kizuna AI API keys are automatically managed by the backend
-- **Mixed Authentication**: Supports both user-managed and backend-managed API keys
-- **Cross-Platform**: Authentication works across Electron and browser extension
-
-### API Key Types
-1. **User-Managed Keys**: OpenAI, Gemini, Palabra AI, OpenAI Compatible - users input their own keys
-2. **Backend-Managed Keys**: Kizuna AI - keys fetched from authenticated backend service
-
-### Authentication Flow for Kizuna AI
-1. User signs in via Better Auth authentication
-2. `ApiKeyService` fetches API key from backend endpoint (`/api/user/api-key`)
-3. API key is cached for 5 minutes to reduce backend load
-4. Provider becomes available in UI only when authenticated and key is available
-
-### Key Services
-- **ApiKeyService**: Handles fetching API keys from backend with caching
-- **AuthContext**: Manages authentication state and token lifecycle (Better Auth)
-- **Service Integration**: All AI clients check authentication before operations
+Worktree directory: `.claude/worktrees/` (gitignored).

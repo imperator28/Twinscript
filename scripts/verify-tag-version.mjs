@@ -20,7 +20,8 @@ const {
 } = require('./release/tag-version.js');
 
 // Only the sites this release actually builds from. See the scope note in
-// release/tag-version.js for why extension/* is excluded.
+// release/tag-version.js for the history: extension/* used to be excluded here,
+// and has since been removed from the repository outright.
 const VERSION_FILES = ['package.json', 'package-lock.json'];
 
 function main() {

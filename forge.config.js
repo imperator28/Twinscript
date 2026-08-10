@@ -127,7 +127,7 @@ module.exports = {
     name: 'Twinscript',
     // Whitelist-based ignore: only include package.json, dist-electron/,
     // build/ (minus wasm/), and node_modules/ (pruned by Forge).
-    // Everything else (src/, public/, model-packs/, extension/, etc.) is excluded.
+    // Everything else (src/, public/, model-packs/, etc.) is excluded.
     ignore: (filePath) => {
       // Root is always included
       if (filePath === '') return false;

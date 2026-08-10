@@ -12,9 +12,17 @@
  *   statement about what is running. The same test asserts every named package
  *   is still a declared dependency.
  *
- * Deliberately *not* credited: `onnxruntime-web` and the `src/lib/local-inference`
- * workers. They came with the upstream fork and no caption path reaches them, so
- * listing them would describe software that never runs.
+ * `onnxruntime-web` was originally left out of this list on the grounds that no
+ * caption path reached it. That was wrong. `ModernAudioRecorder` spawns
+ * `src/lib/modern-audio/gtcrn/gtcrn-worker.ts` for noise suppression on the
+ * microphone, and that worker imports ONNX Runtime through the shim under
+ * `src/lib/local-inference/workers/_shared/`. forge.config.js says the same thing
+ * from the packaging side: `ort` and `gtcrn` are the only two WASM directories
+ * that ship. It runs on every session, so it is credited.
+ *
+ * The rest of `src/lib/local-inference` - the sherpa-onnx ASR, piper TTS and
+ * translation engines - is retained in the repository but genuinely unreachable
+ * from the app, and is not credited.
  *
  * Also deliberately not credited as a source: OBS. Its virtual camera was used
  * only as a consumer to validate ours against, and it is GPL-2.0 - none of its
@@ -48,6 +56,10 @@ export const CREDITS: readonly Credit[] = [
     body: "OpenAI's realtime speech-to-text and translation models, over a WebSocket session opened with ws.",
   },
   {
+    label: 'Audio cleanup',
+    body: 'GTCRN noise suppression on the microphone, running on ONNX Runtime Web.',
+  },
+  {
     label: 'Icons by',
     body: 'Lucide.',
   },
@@ -69,6 +81,7 @@ export const CREDITED_PACKAGES: readonly string[] = [
   'typescript',
   'ws',
   'lucide-react',
+  'onnxruntime-web',
 ];
 
 export const SIGNATURE = 'Designed by Jiyu';

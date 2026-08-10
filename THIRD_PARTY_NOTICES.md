@@ -1,6 +1,11 @@
 # Third-Party Notices
 
-This file lists the open-source models and libraries used in Sokuji's local inference features, along with their licenses.
+Licences for the open-source models and libraries in the local-inference stack
+under `src/lib/local-inference/`, `sidecar/` and `model-packs/`.
+
+That stack is retained but no caption path reaches it - see CLAUDE.md. The one
+exception is ONNX Runtime Web, which does run: the microphone's GTCRN noise
+suppression is built on it.
 
 ## Speech Recognition (ASR) Models
 

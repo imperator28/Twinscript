@@ -98,23 +98,26 @@ test('whitespace in a version field does not cause a false mismatch', () => {
   assert.equal(report.ok, true);
 });
 
-test('extension version sites are deliberately outside this check', () => {
-  // The extension is a separate upstream product at an unrelated version and is
-  // not built by the Windows release. If it were included, this repository could
-  // not release at all today. Pinned so the exclusion stays a decision rather
-  // than drifting into an oversight.
+test('the release has exactly two version sites', () => {
+  // This replaces a test that pinned the deliberate exclusion of
+  // extension/package.json and extension/manifest.json from the release. The
+  // extension has since been removed from the repository, so there is nothing
+  // left to exclude - but the scope still deserves pinning: a third version site
+  // appearing without the release tooling learning about it is how a tag ends up
+  // built from mismatched versions.
   const repoRoot = path.resolve(__dirname, '..', '..');
   const readVersion = (rel) =>
     JSON.parse(fs.readFileSync(path.join(repoRoot, rel), 'utf8')).version;
 
-  const rootVersion = readVersion('package.json');
-  const extensionVersion = readVersion('extension/package.json');
-  assert.notEqual(
-    rootVersion,
-    extensionVersion,
-    'if these ever match, re-read the scope note in tag-version.js before relying on it',
-  );
+  for (const gone of ['extension/package.json', 'extension/manifest.json']) {
+    assert.equal(
+      fs.existsSync(path.join(repoRoot, gone)),
+      false,
+      `${gone} is back; the release scope in tag-version.js has to be revisited`,
+    );
+  }
 
+  const rootVersion = readVersion('package.json');
   const report = checkTagVersion({
     tag: `v${rootVersion}`,
     sites: [

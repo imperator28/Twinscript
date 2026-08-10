@@ -11,7 +11,8 @@
 // SCOPE: the root package.json and package-lock.json only.
 //
 // CLAUDE.md documents a five-site parity rule that also covers
-// extension/package.json, extension/manifest.json and extension/package-lock.json.
+// extension/package.json, extension/manifest.json and extension/package-lock.json,
+// none of which exist any more - the extension was removed from this repository.
 // That rule belongs to the upstream Sokuji release, which ships the browser
 // extension. This Windows caption client deliberately does not build or ship
 // the extension - see the note at the top of .github/workflows/windows-ci.yml -

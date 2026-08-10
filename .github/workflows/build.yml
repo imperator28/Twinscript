@@ -1,8 +1,10 @@
 name: Build and Release
 
-# The inherited Sokuji release pipeline: Linux packages, macOS PKGs, the browser
-# extension, and the tagged Windows release. The Windows caption client's own
-# validation gate lives in windows-ci.yml and does not depend on any job here —
+# The inherited Sokuji release pipeline: Linux packages, macOS PKGs and the
+# tagged Windows release. The browser-extension job was removed with the
+# extension itself - it ran `cd extension` on every push to main and would now
+# fail. The Windows caption client's own validation gate lives in windows-ci.yml
+# and does not depend on any job here —
 # see docs/windows/implementation-guide.md (W0 item 6, W5) for the planned
 # consolidation into focused test / windows-build / windows-sign jobs.
 
@@ -162,36 +164,6 @@ jobs:
           VITE_ENABLE_ZOOM_AI: ${{ secrets.VITE_ENABLE_ZOOM_AI }}
           VITE_ENABLE_LOCAL_NATIVE: ${{ secrets.VITE_ENABLE_LOCAL_NATIVE }}
 
-      - name: Build Chrome Extension
-        if: matrix.os == 'ubuntu-latest' && matrix.arch != 'arm64'
-        run: |
-          cd extension
-          npm ci
-          # Build extension with production mode for releases
-          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
-            VERSION="${GITHUB_REF#refs/tags/v}"
-            NODE_ENV=production npm run build -- --mode production
-            cd dist
-            zip -r "../sokuji-extension-${VERSION}.zip" *
-            cd ..
-          else
-            npm run build
-            # Verify the build output exists
-            if [ ! -d "dist" ]; then
-              echo "Extension build failed: dist directory not found"
-              exit 1
-            fi
-          fi
-        env:
-          # Production environment variables for extension
-          VITE_BACKEND_URL: ${{ secrets.VITE_BACKEND_URL_PROD || 'https://sokuji-api.kizuna.ai' }}
-          POSTHOG_KEY: ${{ secrets.VITE_POSTHOG_KEY }}
-          VITE_ENABLE_VOLCENGINE_ST: ${{ secrets.VITE_ENABLE_VOLCENGINE_ST }}
-          VITE_ENABLE_VOLCENGINE_AST2: ${{ secrets.VITE_ENABLE_VOLCENGINE_AST2 }}
-          VITE_ENABLE_PALABRA_AI: ${{ secrets.VITE_ENABLE_PALABRA_AI }}
-          VITE_ENABLE_ZOOM_AI: ${{ secrets.VITE_ENABLE_ZOOM_AI }}
-          VITE_ENABLE_LOCAL_NATIVE: ${{ secrets.VITE_ENABLE_LOCAL_NATIVE }}
-
       # Release-specific steps
       - name: Generate changelog
         if: startsWith(github.ref, 'refs/tags/v') && matrix.name == 'linux-x64'
@@ -215,7 +187,6 @@ jobs:
             out/make-linux/*.AppImage
             out/make-linux/*.deb
             out/make-linux/latest-linux.yml
-            extension/sokuji-extension-*.zip
             CHANGELOG.md
 
       - name: Upload Linux ARM64 artifacts
@@ -364,7 +335,6 @@ jobs:
           find linux-x64-artifacts -name "*.deb" -exec cp {} release-assets/ \;
           find linux-x64-artifacts -name "*.AppImage" -exec cp {} release-assets/ \;
           find linux-x64-artifacts -name "latest-linux.yml" -exec cp {} release-assets/ \;
-          find linux-x64-artifacts -name "sokuji-extension-*.zip" -exec cp {} release-assets/ \;
           find linux-arm64-artifacts -name "*.deb" -exec cp {} release-assets/ \;
           find linux-arm64-artifacts -name "*.AppImage" -exec cp {} release-assets/ \;
           find linux-arm64-artifacts -name "latest-linux-arm64.yml" -exec cp {} release-assets/ \;

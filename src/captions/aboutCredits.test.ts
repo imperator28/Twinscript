@@ -45,9 +45,13 @@ describe('about credits', () => {
   it('mentions every credited package somewhere in the card', () => {
     // Guards the other direction: a package added to the list without a line to
     // appear on is credited nowhere.
-    const prose = CREDITS.map((credit) => credit.body).join(' ').toLowerCase();
+    // Compared with punctuation and spacing stripped, because a package is
+    // written as prose in the card: `onnxruntime-web` appears as "ONNX Runtime
+    // Web", and `lucide-react` as "Lucide".
+    const flatten = (value: string) => value.toLowerCase().replace(/[^a-z0-9]/g, '');
+    const prose = flatten(CREDITS.map((credit) => credit.body).join(' '));
     const missing = CREDITED_PACKAGES.filter((name) => {
-      const bare = name.replace(/-react$/, '');
+      const bare = flatten(name.replace(/-react$/, ''));
       return !prose.includes(bare);
     });
     expect(missing).toEqual([]);

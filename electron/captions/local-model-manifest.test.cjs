@@ -117,3 +117,11 @@ test('manifest rejects paths that normalize outside or alias another file', () =
 
   assert.throws(() => loadManifest({ json: unsafe, packaged: false }), { code: 'local_manifest_invalid' });
 });
+
+test('manifest rejects a file path that resolves to the model directory', () => {
+  const unsafe = exampleManifest();
+  unsafe.models[0].files[0].path = '.';
+  unsafe.models[0].launchPath = '.';
+
+  assert.throws(() => loadManifest({ json: unsafe, packaged: false }), { code: 'local_manifest_invalid' });
+});

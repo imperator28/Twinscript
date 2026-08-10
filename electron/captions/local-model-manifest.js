@@ -74,7 +74,7 @@ function validateManifest(manifest) {
       const declaredPath = String(file?.path || '').replaceAll('\\', '/');
       const normalized = path.posix.normalize(declaredPath);
       if (
-        !normalized || normalized !== declaredPath || normalized.startsWith('../') ||
+        !normalized || normalized === '.' || normalized !== declaredPath || normalized.startsWith('../') ||
         normalized.startsWith('/') || /[:*?"<>|\0-\x1f]/.test(normalized) ||
         filePaths.has(normalized.toLowerCase()) ||
         !isHttpsUrlWithHostname(file?.url) ||

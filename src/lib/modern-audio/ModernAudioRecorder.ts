@@ -399,6 +399,11 @@ export class ModernAudioRecorder extends BaseAudioRecorder {
       }, 100);
     }
 
+    // The ScriptProcessor fallback can hold a final interpolated sample at a
+    // callback boundary. Emit it while the recording callback is still live,
+    // then give a later resume a fresh transport timeline.
+    this.flushTransportResamplerToCallback();
+    this.resetTransportResampler();
     this.recording = false;
     return true;
   }

@@ -19,6 +19,12 @@ export abstract class BaseAudioRecorder {
   protected recording: boolean = false;
   protected onAudioData: ((data: { mono: Int16Array; raw: Int16Array }) => void) | null = null;
   protected _audioChunkCount: number = 0;
+  private transportResampleSourceRate = 0;
+  private transportResampleTargetRate = 0;
+  private transportResampleInputFrames = 0;
+  private transportResampleOutputFrames = 0;
+  private transportResampleLastSample = 0;
+  private transportResampleHasLastSample = false;
 
   constructor(sampleRate: number = 24000) {
     this.sampleRate = sampleRate;
@@ -221,35 +227,104 @@ export abstract class BaseAudioRecorder {
    * prompt and the API instead of at the microphone.
    *
    * Any future failure in the worklet path therefore degrades transport without
-   * corrupting the audio. The rates are read from the context rather than
-   * hardcoded, so a machine whose context refuses 48 kHz is also handled.
+   * corrupting the audio. Frame positions are retained between callbacks: a
+   * 44.1 kHz context does not divide evenly into the typical callback size, so
+   * restarting the conversion on each callback would gradually skew or drop the
+   * transport timeline.
    */
   protected resampleForTransport(input: Int16Array): Int16Array {
     const sourceRate = this.audioContext?.sampleRate ?? 0;
     const targetRate = this.sampleRate;
-    if (!sourceRate || !targetRate || sourceRate === targetRate) return input;
-    const ratio = sourceRate / targetRate;
-    // Never invent samples. A context slower than the target is a different
-    // problem, and upsampling here would hide it.
-    if (ratio < 1) return input;
-
-    const outputLength = Math.floor(input.length / ratio);
-    const output = new Int16Array(outputLength);
-    for (let i = 0; i < outputLength; i += 1) {
-      const start = Math.floor(i * ratio);
-      const end = Math.min(input.length, Math.floor((i + 1) * ratio));
-      if (end <= start) {
-        output[i] = input[Math.min(start, input.length - 1)] ?? 0;
-        continue;
-      }
-      // Averaged rather than point-decimated: dropping every other sample
-      // aliases, which is audible on sibilants and measurably worse to
-      // recognise.
-      let sum = 0;
-      for (let j = start; j < end; j += 1) sum += input[j];
-      output[i] = (sum / (end - start)) | 0;
+    if (!sourceRate || !targetRate) {
+      throw new Error('Cannot resample PCM without source and transport sample rates');
     }
-    return output;
+    if (sourceRate === targetRate) {
+      this.resetTransportResampler();
+      return input;
+    }
+
+    if (
+      this.transportResampleSourceRate !== sourceRate ||
+      this.transportResampleTargetRate !== targetRate
+    ) {
+      this.resetTransportResampler();
+      this.transportResampleSourceRate = sourceRate;
+      this.transportResampleTargetRate = targetRate;
+    }
+
+    const inputStart = this.transportResampleInputFrames;
+    const inputEnd = inputStart + input.length;
+    const ratio = sourceRate / targetRate;
+    const output: number[] = [];
+    const sourcePositionForOutput = (outputFrame: number) =>
+      sourceRate > targetRate
+        // Sampling at the centre preserves the previous 48 kHz → 24 kHz pair
+        // averaging behaviour while still allowing fractional rates.
+        ? (outputFrame + 0.5) * ratio - 0.5
+        : outputFrame * ratio;
+    const sampleAt = (frame: number) => {
+      if (frame === inputStart - 1 && this.transportResampleHasLastSample) {
+        return this.transportResampleLastSample;
+      }
+      return input[frame - inputStart];
+    };
+
+    while (true) {
+      const sourcePosition = sourcePositionForOutput(this.transportResampleOutputFrames);
+      const leftFrame = Math.floor(sourcePosition);
+      const rightFrame = Math.ceil(sourcePosition);
+      // Interpolation needs the right endpoint. Hold this output for the next
+      // callback when that endpoint falls on the callback boundary.
+      if (rightFrame >= inputEnd) break;
+      const left = sampleAt(leftFrame);
+      const right = sampleAt(rightFrame);
+      if (left === undefined || right === undefined) break;
+      output.push(Math.round(left + (right - left) * (sourcePosition - leftFrame)));
+      this.transportResampleOutputFrames += 1;
+    }
+
+    this.transportResampleInputFrames = inputEnd;
+    if (input.length) {
+      this.transportResampleLastSample = input[input.length - 1];
+      this.transportResampleHasLastSample = true;
+    }
+    return Int16Array.from(output);
+  }
+
+  /** Flush the final interpolated samples before a fallback recorder stops. */
+  protected flushTransportResampler(): Int16Array {
+    if (!this.transportResampleHasLastSample) return new Int16Array(0);
+    const ratio = this.transportResampleSourceRate / this.transportResampleTargetRate;
+    const output: number[] = [];
+    const sourcePositionForOutput = (outputFrame: number) =>
+      this.transportResampleSourceRate > this.transportResampleTargetRate
+        ? (outputFrame + 0.5) * ratio - 0.5
+        : outputFrame * ratio;
+
+    while (true) {
+      const sourcePosition = sourcePositionForOutput(this.transportResampleOutputFrames);
+      if (sourcePosition >= this.transportResampleInputFrames) break;
+      const leftFrame = Math.floor(sourcePosition);
+      if (leftFrame !== this.transportResampleInputFrames - 1) break;
+      output.push(this.transportResampleLastSample);
+      this.transportResampleOutputFrames += 1;
+    }
+    this.resetTransportResampler();
+    return Int16Array.from(output);
+  }
+
+  protected flushTransportResamplerToCallback(): void {
+    const tail = this.flushTransportResampler();
+    if (tail.length) this._processAudioData(tail);
+  }
+
+  protected resetTransportResampler(): void {
+    this.transportResampleSourceRate = 0;
+    this.transportResampleTargetRate = 0;
+    this.transportResampleInputFrames = 0;
+    this.transportResampleOutputFrames = 0;
+    this.transportResampleLastSample = 0;
+    this.transportResampleHasLastSample = false;
   }
 
   /**
@@ -259,6 +334,11 @@ export abstract class BaseAudioRecorder {
     if (!this.audioContext || !this.mediaStreamSource) {
       throw new Error('AudioContext and source required for ScriptProcessor');
     }
+
+    // A new graph is a new transport timeline. Deliver any held final sample
+    // first, then reset the fractional phase for the replacement context.
+    this.flushTransportResamplerToCallback();
+    this.resetTransportResampler();
 
     const bufferSize = PERFORMANCE_CONFIG.SCRIPT_PROCESSOR_BUFFER_SIZE;
     this.scriptProcessor = this.audioContext.createScriptProcessor(bufferSize, 1, 1);
@@ -332,6 +412,7 @@ export abstract class BaseAudioRecorder {
    * Start the recording (send start command to worklet and set flag)
    */
   protected startRecording(): void {
+    this.resetTransportResampler();
     this.recording = true;
     console.info(`${this.getLogPrefix()} Recording started`);
 
@@ -352,6 +433,8 @@ export abstract class BaseAudioRecorder {
       this.audioWorkletNode.port.postMessage({ type: 'stop' });
     }
 
+    this.flushTransportResamplerToCallback();
+    this.resetTransportResampler();
     this.recording = false;
   }
 
@@ -359,6 +442,8 @@ export abstract class BaseAudioRecorder {
    * Clean up all audio resources
    */
   protected async cleanup(): Promise<void> {
+    if (this.recording) this.flushTransportResamplerToCallback();
+    this.resetTransportResampler();
     // Stop all tracks
     if (this.stream) {
       const tracks = this.stream.getTracks();

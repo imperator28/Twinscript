@@ -56,7 +56,7 @@ describe('AudioCaptureController transport warnings', () => {
   });
 
   it('reports the compatibility warning when ScriptProcessor microphone capture starts with system capture', async () => {
-    const result = await new AudioCaptureController(() => {}, 'windows').start();
+    const result = await new AudioCaptureController(() => {}, 'win32').start();
 
     expect(result).toEqual({
       microphone: true,
@@ -68,7 +68,7 @@ describe('AudioCaptureController transport warnings', () => {
   it('combines the compatibility warning with the system capture failure warning', async () => {
     mocks.system.begin.mockResolvedValue(false);
 
-    const result = await new AudioCaptureController(() => {}, 'windows').start();
+    const result = await new AudioCaptureController(() => {}, 'win32').start();
 
     expect(result).toEqual({
       microphone: true,
@@ -76,7 +76,7 @@ describe('AudioCaptureController transport warnings', () => {
       warning: `${compatibilityWarning} System capture is unavailable.`,
     });
     expect(mocks.describeSystemCaptureFailure).toHaveBeenCalledWith({
-      platform: 'windows',
+      platform: 'win32',
       error: expect.any(Error),
     });
   });
@@ -84,7 +84,7 @@ describe('AudioCaptureController transport warnings', () => {
   it('does not report a compatibility warning when AudioWorklet microphone capture starts', async () => {
     mocks.microphone.getCaptureTransport.mockReturnValue('audio-worklet');
 
-    const result = await new AudioCaptureController(() => {}, 'windows').start();
+    const result = await new AudioCaptureController(() => {}, 'win32').start();
 
     expect(result).toEqual({
       microphone: true,

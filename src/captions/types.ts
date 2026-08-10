@@ -290,6 +290,15 @@ export interface CaptionSettings {
   duplicateWindowMs: number;
 }
 
+export interface LocalInferenceStatus {
+  runtimeReady: boolean;
+  requestedDevice: 'NPU' | 'GPU' | 'CPU';
+  models: {
+    'whisper-small': { ready: boolean; actualDevice: string | null };
+    'hy-mt2-1.8b': { ready: boolean; actualDevice: string | null };
+  };
+}
+
 export interface NativeCameraHealth {
   state:
     | 'unsupported'

@@ -42,6 +42,7 @@ contextBridge.exposeInMainWorld('captions', {
   requestMicrophoneAccess: () =>
     invoke('captions:microphone-request'),
   getSettings: () => invoke('captions:settings-get'),
+  getLocalInferenceStatus: () => invoke('captions:local-inference-status'),
   getGlossaryConfigurations: () =>
     invoke('captions:glossary-configurations'),
   getGlossaryTerms: () => invoke('captions:glossary-terms'),

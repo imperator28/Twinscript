@@ -108,6 +108,16 @@ function registerCaptionIpc({
     credentialStore.validate(value),
   );
   handle('captions:microphone-request', () => requestMicrophoneAccess());
+  handle('captions:local-inference-status', () =>
+    localInferenceSupervisor?.readiness?.() || ({
+      runtimeReady: false,
+      requestedDevice: 'NPU',
+      models: {
+        'whisper-small': { ready: false, actualDevice: null },
+        'hy-mt2-1.8b': { ready: false, actualDevice: null },
+      },
+    }),
+  );
   handle('captions:settings-get', () =>
     windows.settingsPayload
       ? windows.settingsPayload(settingsStore.get())

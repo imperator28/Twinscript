@@ -36,6 +36,7 @@ interface CaptionsAPI {
   validateCredential(value?: string): Promise<Result<{ valid: boolean; error?: string }>>;
   requestMicrophoneAccess(): Promise<Result<{ granted: boolean; status: string }>>;
   getSettings(): Promise<Result<Record<string, unknown>>>;
+  getLocalInferenceStatus(): Promise<Result<import('./captions/types').LocalInferenceStatus>>;
   getGlossaryConfigurations(): Promise<Result<
     import('./captions/types').GlossaryConfigurationSummary[]
   >>;

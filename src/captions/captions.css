@@ -723,6 +723,33 @@ input[type="range"] { width: 100%; accent-color: var(--accent); }
 .model-switch input:focus-visible + i { outline: 3px solid var(--focus-ring); outline-offset: 2px; }
 .model-switch input:disabled + i { opacity: .48; cursor: not-allowed; }
 .pipeline-acceleration { margin-top: var(--space-5); }
+.local-model-readiness {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+.local-model-readiness span {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text-secondary);
+  font-size: var(--size-xs);
+  font-weight: var(--weight-semibold);
+}
+.local-model-readiness i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-secondary);
+}
+.local-model-readiness .is-ready i { background: var(--success); }
+.local-model-readiness .is-missing i { background: var(--warning-text); }
+.field-note.is-warning { color: var(--warning-text); }
 .pipeline-summary {
   display: flex;
   align-items: center;

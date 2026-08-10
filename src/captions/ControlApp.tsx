@@ -86,6 +86,7 @@ import type {
   BackupState,
   MeetingRecordReview,
   NativeCameraHealth,
+  LocalInferenceStatus,
   SessionMetrics,
   SessionStatus,
   TargetText,
@@ -269,6 +270,8 @@ export function ControlApp() {
   });
   const [nativeCameraHealth, setNativeCameraHealth] =
     useState<NativeCameraHealth | null>(null);
+  const [localInference, setLocalInference] =
+    useState<LocalInferenceStatus | null>(null);
   // Persisted: an operator who chose to run without a microphone, or to capture the
   // stage in OBS rather than install the camera, should not be asked again on every
   // launch. Only advisories are ever dismissed - see reviewReadiness.
@@ -342,8 +345,9 @@ export function ControlApp() {
       window.captions.credentialStatus(),
       window.captions.getSessionStatus(),
       window.captions.listPendingMeetingRecords(),
+      window.captions.getLocalInferenceStatus?.() ?? Promise.resolve({ ok: false as const, error: { code: 'unavailable', message: 'Unavailable' } }),
       enumerateAudioDevices().catch(() => ({ inputs: [], outputs: [] })),
-    ]).then(([settingsResult, glossaryResult, credentialResult, sessionResult, pendingResult, deviceResult]) => {
+    ]).then(([settingsResult, glossaryResult, credentialResult, sessionResult, pendingResult, localInferenceResult, deviceResult]) => {
       if (settingsResult.ok) {
         const next = settingsResult.data as unknown as CaptionSettings;
         setSettingsState(next);
@@ -373,6 +377,7 @@ export function ControlApp() {
           setReviewOrigin('recovered');
         }
       }
+      if (localInferenceResult.ok) setLocalInference(localInferenceResult.data);
       setDevices(deviceResult);
       setMicrophoneId(deviceResult.inputs[0]?.deviceId || '');
     });
@@ -1932,7 +1937,11 @@ export function ControlApp() {
             <div className="pipeline-choice">
               <div className="pipeline-choice__heading">
                 <strong>Transcription model</strong>
-                <span>{settings.transcriptionModel === 'whisper-local' ? 'Private on this computer' : 'Cloud live transcription'}</span>
+                <span>{settings.transcriptionModel === 'whisper-local'
+                  ? localInference?.models['whisper-small'].ready
+                    ? `${localInference.models['whisper-small'].actualDevice || localInference.requestedDevice} ready`
+                    : 'Model not installed'
+                  : 'Cloud live transcription'}</span>
               </div>
               <div className="model-switch-row">
                 <span className={settings.transcriptionModel === 'openai-live' ? 'is-selected' : ''}>OpenAI live</span>
@@ -1955,7 +1964,11 @@ export function ControlApp() {
             <div className="pipeline-choice">
               <div className="pipeline-choice__heading">
                 <strong>Final translation model</strong>
-                <span>{settings.finalTranslationModel === 'hy-mt2-local' ? 'Private on this computer' : 'Luna is authoritative'}</span>
+                <span>{settings.finalTranslationModel === 'hy-mt2-local'
+                  ? localInference?.models['hy-mt2-1.8b'].ready
+                    ? `${localInference.models['hy-mt2-1.8b'].actualDevice || 'CPU'} ready`
+                    : 'Model not installed'
+                  : 'Luna is authoritative'}</span>
               </div>
               <div className="model-switch-row">
                 <span className={settings.finalTranslationModel === 'luna' ? 'is-selected' : ''}>Luna</span>
@@ -1988,6 +2001,30 @@ export function ControlApp() {
               Early local text is provisional. Your final translation model above always decides the saved caption.
               {!settings.provisionalTranslation && ' Early captions are currently turned off below.'}
             </p>
+            {(settings.transcriptionModel === 'whisper-local' ||
+              settings.finalTranslationModel === 'hy-mt2-local' ||
+              settings.localTranslationAcceleration) && (
+              <div className="local-model-readiness" aria-label="Local model readiness">
+                {settings.transcriptionModel === 'whisper-local' && (
+                  <span className={localInference?.models['whisper-small'].ready ? 'is-ready' : 'is-missing'}>
+                    <i aria-hidden="true" />
+                    Whisper {localInference ? (localInference.models['whisper-small'].ready ? 'ready' : 'not installed') : 'checking'}
+                  </span>
+                )}
+                {(settings.finalTranslationModel === 'hy-mt2-local' || settings.localTranslationAcceleration) && (
+                  <span className={localInference?.models['hy-mt2-1.8b'].ready ? 'is-ready' : 'is-missing'}>
+                    <i aria-hidden="true" />
+                    Hy-MT2 {localInference ? (localInference.models['hy-mt2-1.8b'].ready ? 'ready' : 'not installed') : 'checking'}
+                  </span>
+                )}
+              </div>
+            )}
+            {localInference && (
+              (settings.transcriptionModel === 'whisper-local' && !localInference.models['whisper-small'].ready) ||
+              ((settings.finalTranslationModel === 'hy-mt2-local' || settings.localTranslationAcceleration) && !localInference.models['hy-mt2-1.8b'].ready)
+            ) && (
+              <p className="field-note is-warning">A selected local model is unavailable. Twinscript will block meeting startup rather than switch to cloud.</p>
+            )}
             <div className="pipeline-summary" aria-label="Selected meeting pipeline">
               <span>{settings.transcriptionModel === 'whisper-local' ? 'Whisper local' : 'OpenAI live'}</span>
               <i aria-hidden="true">→</i>

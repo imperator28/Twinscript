@@ -72,6 +72,16 @@ function harness() {
     requestMicrophoneAccess: () => ({}),
     nativeCameraSupervisor: supervisor,
     nativeCameraInstaller: installer,
+    localInferenceSupervisor: {
+      readiness: () => ({
+        runtimeReady: true,
+        requestedDevice: 'NPU',
+        models: {
+          'whisper-small': { ready: true, actualDevice: null },
+          'hy-mt2-1.8b': { ready: false, actualDevice: null },
+        },
+      }),
+    },
   });
   const invoke = async (channel, senderId = 1) =>
     handlers.get(channel)({ sender: { id: senderId } });
@@ -104,4 +114,13 @@ test('the offscreen stage is a trusted narrow IPC sender', async () => {
   const { invoke } = harness();
   const result = await invoke('captions:native-camera-health-get', 4);
   assert.equal(result.ok, true);
+});
+
+test('local inference readiness is exposed through narrow IPC', async () => {
+  const { invoke } = harness();
+  const result = await invoke('captions:local-inference-status');
+  assert.equal(result.ok, true);
+  assert.equal(result.data.runtimeReady, true);
+  assert.equal(result.data.models['whisper-small'].ready, true);
+  assert.equal(result.data.models['hy-mt2-1.8b'].ready, false);
 });

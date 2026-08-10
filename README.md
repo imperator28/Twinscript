@@ -8,11 +8,35 @@
   Private, realtime English–Chinese subtitles for bilingual engineering meetings.
 </p>
 
-The macOS Phase 1 build includes separate microphone and meeting capture,
-`gpt-live-transcribe`, two audience-specific overlays, primary/shadow
-normalization profiles, cost controls, and opt-in encrypted replay.
-It also includes a 256-prompt scripted screening runner with blinded A/B
-preferences, 1–5 semantic scoring, and structured failure flags.
+Twinscript listens to a meeting on the operator's own machine and produces two
+audience views of it — English and Simplified Chinese — either as always-on-top
+overlays or as a virtual camera that other apps can join like any webcam.
+
+Audio and transcripts stay on the machine apart from the transcription request
+itself. `api.openai.com` is the only host the caption process contacts — the
+upstream fork's hosted auth and analytics are not reachable from any caption
+surface, and this project runs no server of its own.
+
+## What it does
+
+- **Two capture channels, kept separate.** The microphone and the meeting's own
+  output are transcribed independently, so a remote speaker is never attributed
+  to the operator.
+- **Realtime transcription and translation** through OpenAI
+  `gpt-live-transcribe` over a WebSocket session, with a caption-responsiveness
+  setting that trades latency against how often a line is revised.
+- **Two audience surfaces.** Overlays for in-room screens, or a virtual camera
+  for remote participants. On Windows the camera is a DirectShow filter this
+  project implements; it is installed on demand from Settings and asks for
+  administrator approval once.
+- **A glossary that reaches the model** — one-to-one term pairs, phrases to leave
+  untranslated, and contextual notes such as attendee names — all editable in
+  place.
+- **Cost control.** A per-session budget, live spend against it, and a one-press
+  raise mid-meeting.
+- **Meeting records.** Audio is held encrypted and only becomes playable if you
+  choose Keep; undecided meetings are asked about together, capped at the five
+  most recent.
 
 ## Run
 
@@ -21,8 +45,40 @@ npm install
 npm run dev
 ```
 
-Use **Demo Session** without an API key. For live mode, follow the safe key
-instructions below; never add a key to a `VITE_` variable.
+`npm run dev` starts Vite **and** launches Electron — there is no separate start
+step, and stopping Electron stops the dev server with it.
+
+An OpenAI API key is required; there is no offline or demo mode. The key is
+stored by the operating system's credential store (DPAPI on Windows, Keychain on
+macOS) and is never written to the repository, a dotfile, or a `VITE_` variable —
+anything prefixed `VITE_` is inlined into renderer JavaScript and would ship with
+the app. See [safe API key setup](docs/security/api-key-setup.md).
+
+## Tests
+
+```bash
+npm test              # renderer and shared logic (Vitest)
+npm run test:captions # main process (node:test)
+npm run build
+```
+
+The two suites deliberately do not overlap: Vitest owns `.ts`/`.tsx`, node:test
+owns `.cjs`. A file picked up by both would run under the wrong environment.
+
+## Platforms
+
+| | Status |
+| --- | --- |
+| Windows 11 x64 | Primary target. Overlays and the DirectShow virtual camera. |
+| macOS | Phase 1 build: capture, overlays, and the screening runner. No virtual camera. |
+
+## Validation
+
+A deterministic 256-prompt screening corpus lives in
+`src/captions/screeningCorpus.ts` and runs with `npm run w1:corpus`. Half the
+prompts code-switch, and 240 carry a critical number, unit, date, ID, material or
+finish — the things a bilingual engineering meeting cannot afford to have
+paraphrased.
 
 Planning and setup:
 

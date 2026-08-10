@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "cases": [
+    {
+      "id": "en-zh-tolerance",
+      "sourceLanguage": "English",
+      "targetLanguage": "Chinese",
+      "source": "Alex, hold the shaft tolerance to ±0.2 mm during DVT.",
+      "requiredTerms": ["Alex", "±0.2 mm", "DVT"]
+    },
+    {
+      "id": "en-zh-voltage",
+      "sourceLanguage": "English",
+      "targetLanguage": "Chinese",
+      "source": "Priya confirmed the sensor uses 24 VDC.",
+      "requiredTerms": ["Priya", "24 VDC"]
+    },
+    {
+      "id": "en-zh-mixed",
+      "sourceLanguage": "English",
+      "targetLanguage": "Chinese",
+      "source": "Ming said the DVT build is ready, 但是 connector 还需要复查。",
+      "requiredTerms": ["Ming", "DVT", "connector"]
+    },
+    {
+      "id": "zh-en-tolerance",
+      "sourceLanguage": "Chinese",
+      "targetLanguage": "English",
+      "source": "Alex，DVT 阶段请把轴的公差保持在 ±0.2 mm。",
+      "requiredTerms": ["Alex", "±0.2 mm", "DVT"]
+    },
+    {
+      "id": "zh-en-voltage",
+      "sourceLanguage": "Chinese",
+      "targetLanguage": "English",
+      "source": "Priya 确认传感器使用 24 VDC。",
+      "requiredTerms": ["Priya", "24 VDC"]
+    },
+    {
+      "id": "zh-en-mixed",
+      "sourceLanguage": "Chinese",
+      "targetLanguage": "English",
+      "source": "Ming 说 DVT build is ready，但是 connector 还需要复查。",
+      "requiredTerms": ["Ming", "DVT", "connector"]
+    }
+  ]
+}

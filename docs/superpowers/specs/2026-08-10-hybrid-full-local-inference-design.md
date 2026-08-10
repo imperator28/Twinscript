@@ -10,7 +10,7 @@
 
 ## Summary
 
-Twinscript keeps its current cloud pipeline as the default main track and adds independent transcription and translation model choices. Users can combine OpenAI live transcription or local Whisper with Luna or local Hy-MT2. A separate local-translation-acceleration switch can show a provisional Hy-MT2 result while the selected final translation model completes.
+Twinscript keeps its current cloud pipeline as the default main track and adds independent transcription and translation model choices. Users can combine OpenAI live transcription or local Whisper with Luna or local Hy-MT2. The existing early-caption setting continues to decide whether provisional translation is shown. A separate local-translation-acceleration switch chooses Hy-MT2 as that provisional engine while the selected final translation model completes.
 
 The selected final translation model is always authoritative. A provisional local result never changes which engine owns the final persisted translation.
 
@@ -51,22 +51,22 @@ Settings expose three controls while no meeting is running.
 
 ### Local translation acceleration
 
-- **Off** — only the selected final translation model runs.
-- **On** — Hy-MT2 may produce cancellable provisional translations while an utterance is still changing. The selected final translation model still produces the authoritative result.
+- **Off** — when early captions are enabled, the selected final translation model also produces provisional translations, preserving today's Luna behavior.
+- **On** — when early captions are enabled, Hy-MT2 produces cancellable provisional translations while an utterance is still changing. The selected final translation model still produces the authoritative result.
 
-Acceleration defaults to off. Existing installations migrate to OpenAI live transcription, Luna final translation, and acceleration off.
+Acceleration defaults to off. Existing installations migrate to OpenAI live transcription, Luna final translation, and acceleration off without changing their existing `provisionalTranslation` preference.
 
 ## Supported combinations
 
 | Transcription | Final translation | Acceleration | Result |
 |---|---|---:|---|
-| OpenAI | Luna | Off | Current main track; no local models are loaded |
+| OpenAI | Luna | Off | Current main track; Luna provides provisional and final output when early captions are enabled |
 | OpenAI | Luna | On | Hy-MT2 preview followed by authoritative Luna output |
-| OpenAI | Hy-MT2 | Off | Cloud transcript followed by authoritative local translation |
+| OpenAI | Hy-MT2 | Off | Cloud transcript with Hy-MT2 provisional and authoritative translation |
 | OpenAI | Hy-MT2 | On | Cancellable Hy-MT2 previews followed by an authoritative Hy-MT2 final pass |
-| Whisper | Luna | Off | Audio stays local; finalized transcript text is sent to Luna |
+| Whisper | Luna | Off | Audio stays local; Luna receives transcript text for provisional and final translation |
 | Whisper | Luna | On | Local transcript and Hy-MT2 preview followed by authoritative Luna output |
-| Whisper | Hy-MT2 | Off | Fully local authoritative transcription and translation |
+| Whisper | Hy-MT2 | Off | Fully local Hy-MT2 provisional and authoritative translation |
 | Whisper | Hy-MT2 | On | Fully local provisional and authoritative translation |
 
 Only Whisper plus Hy-MT2 qualifies for the UI statement that no meeting audio or text leaves the computer. Whisper plus Luna keeps audio local but sends finalized transcript text and bounded context to OpenAI.
@@ -115,10 +115,12 @@ The existing Luna normalizer becomes the `luna` implementation. `LocalHyMt2Backe
 
 ### Translation policy
 
-`TranslationPolicy` owns provisional and authoritative-result rules:
+`TranslationPolicy` owns provisional and authoritative-result rules. The combination table assumes the existing early-caption preference is enabled; when it is disabled, no provisional backend runs.
 
-- Acceleration off schedules no provisional request.
-- Acceleration on debounces changing text and permits at most one running provisional request per utterance.
+- Early captions disabled schedules no provisional request.
+- Early captions enabled with acceleration off uses the selected final translation backend for provisional requests.
+- Early captions enabled with acceleration on uses Hy-MT2 for provisional requests.
+- Provisional translation debounces changing text and permits at most one running request per utterance.
 - A new transcript revision cancels or invalidates the previous provisional request.
 - A finalized utterance cancels its provisional work and schedules exactly one request with the selected final translation backend.
 - If Hy-MT2 is both accelerator and final backend, its final pass is a distinct priority request over the finalized source text.
@@ -227,7 +229,7 @@ Provisional translations remain memory-only and are never exported as final meet
 
 ## Testing and release gates
 
-The integration suite covers all eight combinations of transcription engine, final translation engine, and acceleration state.
+The integration suite covers all sixteen combinations of transcription engine, final translation engine, acceleration state, and the existing early-caption preference.
 
 Required gates are:
 

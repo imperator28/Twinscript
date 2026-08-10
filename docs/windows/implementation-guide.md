@@ -516,7 +516,7 @@ github.repository == 'kizuna-ai-lab/sokuji'
 ```
 
 on the Windows signing job. Consequently, tagged builds in
-`imperator28/bilingualmeetingcaption` cannot produce the signed artifact
+`imperator28/Twinscript` cannot produce the signed artifact
 expected by the release job.
 
 Before the first release:

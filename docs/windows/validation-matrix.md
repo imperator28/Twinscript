@@ -341,7 +341,7 @@ The signing rows below stay in the matrix for a future public release.
 
 | Check | Pass condition |
 | --- | --- |
-| Repository workflow | Signing job runs for `imperator28/bilingualmeetingcaption`, not only upstream Sokuji. **Resolved by `windows-release.yml`.** `build.yml` cannot release here at all: its `sign-windows` job is gated on the upstream repository, `release` needs that job, and a skipped dependency skips its dependents — so tagging produces no release through `build.yml`. |
+| Repository workflow | Signing job runs for `imperator28/Twinscript`, not only upstream Sokuji. **Resolved by `windows-release.yml`.** `build.yml` cannot release here at all: its `sign-windows` job is gated on the upstream repository, `release` needs that job, and a skipped dependency skips its dependents — so tagging produces no release through `build.yml`. |
 | Tag/version agreement | **Automated.** `node scripts/verify-tag-version.mjs "$GITHUB_REF"` fails the release if the tag and the built version disagree. Root `package.json` and `package-lock.json` only — the extension is a separate upstream product at an unrelated version and is deliberately excluded. |
 | Secret handling | Signing material exists only in the protected CI environment. **Workflow reads provider credentials from a `windows-signing` GitHub environment; nothing is in repository secrets.** Pending real credentials. |
 | Signature coverage | Installer, app EXE, camera companion, and registration components verify successfully. **Automated** by `npm run verify:signatures`; fails on an empty scan, missing installer, unmapped status, tampering, untrusted root, or unexpected signer. Pending real signatures. |

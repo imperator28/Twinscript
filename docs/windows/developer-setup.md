@@ -68,8 +68,8 @@ git add --renormalize public/wasm/ort/
 In PowerShell:
 
 ```powershell
-git clone https://github.com/imperator28/bilingualmeetingcaption.git
-Set-Location bilingualmeetingcaption
+git clone https://github.com/imperator28/Twinscript.git
+Set-Location Twinscript
 git switch codex/phase-0-phase-1
 node --version
 npm --version

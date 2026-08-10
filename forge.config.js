@@ -192,10 +192,18 @@ module.exports = {
         exe: 'twinscript.exe',
         description: 'Private realtime English and Chinese meeting captions',
         setupIcon: 'assets/icon.ico',
-        // Add/Remove Programs fetches this over HTTP. It must resolve in this
-        // repository, not the upstream Sokuji one.
+        // Add/Remove Programs fetches this over HTTP, unauthenticated. It must
+        // resolve in this repository, not the upstream Sokuji one.
+        //
+        // Two reasons it does not resolve yet, neither fixable here:
+        //   - the repository is private, so raw.githubusercontent.com returns 404
+        //     to the anonymous fetch Windows makes;
+        //   - `main` still holds the fork's icon, since the replacement landed on
+        //     a feature branch.
+        // Both clear on their own - going public, and merging - and until then the
+        // installed-programs list shows a generic icon rather than a wrong one.
         iconUrl:
-          'https://raw.githubusercontent.com/imperator28/bilingualmeetingcaption/main/assets/icon.ico',
+          'https://raw.githubusercontent.com/imperator28/Twinscript/main/assets/icon.ico',
         noMsi: true
       }
     },

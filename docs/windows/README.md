@@ -9,7 +9,7 @@
 **Last verified:** 2026-08-01 (W4 production implementation automated checks
 verified on Windows 11 build 26200 x64; manual validation remains — see
 [evidence](evidence/2026-08-01-w4-production/README.md))
-**Repository:** `imperator28/bilingualmeetingcaption`  
+**Repository:** `imperator28/Twinscript`  
 **Primary target:** Windows 11 22H2 or newer, x64  
 **Current branch:** `codex/phase-0-phase-1`
 

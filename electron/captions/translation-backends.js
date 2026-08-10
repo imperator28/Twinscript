@@ -6,6 +6,25 @@ const LANGUAGE_NAMES = {
   zh: 'Chinese',
 };
 
+const ENGINEERING_LITERAL_PATTERN =
+  /±?\d+(?:\.\d+)?\s*(?:mm|cm|µm|um|nm|kg|mg|VDC|VAC|mA|A|V|W|kW|Hz|kHz|MHz|GHz|°C|°F|N(?:·?m)?|%)\b|\b[A-Z][A-Z0-9-]{1,11}\b/gu;
+
+function localProtectedTokens(sourceText, configured = []) {
+  const source = String(sourceText || '');
+  const result = [];
+  const keys = new Set();
+  const add = (value) => {
+    const token = String(value || '').trim();
+    const key = token.toLocaleLowerCase('en-US');
+    if (!token || keys.has(key) || !source.includes(token)) return;
+    keys.add(key);
+    result.push(token);
+  };
+  configured.forEach(add);
+  for (const match of source.matchAll(ENGINEERING_LITERAL_PATTERN)) add(match[0]);
+  return result.slice(0, 40);
+}
+
 class LocalHyMt2Backend {
   constructor({ client, sessionId }) {
     this.client = client;
@@ -17,6 +36,8 @@ class LocalHyMt2Backend {
     sourceLanguage,
     target,
     final,
+    glossary,
+    protectedTokens,
     signal,
     utteranceId = crypto.randomUUID(),
     sourceRevision = 0,
@@ -30,6 +51,8 @@ class LocalHyMt2Backend {
         sourceLanguage: LANGUAGE_NAMES[sourceLanguage] || sourceLanguage || 'Auto',
         targetLanguage: LANGUAGE_NAMES[target] || target,
         text: sourceText,
+        glossary,
+        protectedTokens: localProtectedTokens(sourceText, protectedTokens),
       },
       { signal },
     );
@@ -64,6 +87,7 @@ class TranslationBackendFactory {
 }
 
 module.exports = {
+  localProtectedTokens,
   LocalHyMt2Backend,
   TranslationBackendFactory,
 };

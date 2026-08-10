@@ -61,3 +61,27 @@ test('translation factory preserves the existing Luna normalizer', () => {
 
   assert.ok(factory.create('luna', {}) instanceof LunaNormalizer);
 });
+
+test('Hy-MT2 automatically protects engineering literals and forwards glossary context', async () => {
+  let sent;
+  const backend = new LocalHyMt2Backend({
+    client: {
+      request: async (_type, payload) => {
+        sent = payload;
+        return { text: 'Priya 确认使用 24 VDC。' };
+      },
+    },
+    sessionId: 's1',
+  });
+
+  await backend.normalize({
+    sourceText: 'Priya confirmed DVT uses 24 VDC at ±0.2 mm.',
+    target: 'zh',
+    final: true,
+    protectedTokens: ['Priya'],
+    glossary: [{ en: 'sensor', zh: '传感器' }],
+  });
+
+  assert.deepEqual(sent.protectedTokens, ['Priya', 'DVT', '24 VDC', '±0.2 mm']);
+  assert.deepEqual(sent.glossary, [{ en: 'sensor', zh: '传感器' }]);
+});

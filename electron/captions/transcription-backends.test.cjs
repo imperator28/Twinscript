@@ -65,3 +65,24 @@ test('transcription factory preserves the existing cloud class', () => {
 
   assert.ok(factory.create('openai-live', {}) instanceof CloudSession);
 });
+
+test('local Whisper finish flushes, stops the channel, and detaches its listener', async () => {
+  const calls = [];
+  const listener = {};
+  const client = {
+    request: async (type) => { calls.push(type); return {}; },
+    on: (type, callback) => { listener[type] = callback; },
+    off: (type, callback) => {
+      calls.push(`off:${type}:${callback === listener[type]}`);
+    },
+  };
+  const backend = new LocalWhisperBackend({
+    client,
+    channel: 'microphone',
+    sessionId: 's1',
+  });
+
+  await backend.finish();
+
+  assert.deepEqual(calls, ['asr.flush', 'asr.stop', 'off:event:true']);
+});

@@ -78,11 +78,15 @@ class LocalWhisperBackend {
 
   async finish() {
     await this.drain();
-    const message = await this.client.request('asr.flush', {
-      sessionId: this.sessionId,
-      channel: this.channel,
-    });
-    this.accept(message);
+    try {
+      const message = await this.client.request('asr.flush', {
+        sessionId: this.sessionId,
+        channel: this.channel,
+      });
+      this.accept(message);
+    } finally {
+      await this.close();
+    }
   }
 
   async close() {

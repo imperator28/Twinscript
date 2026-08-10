@@ -25,6 +25,9 @@ const {
   LocalInferenceSupervisor,
 } = require('./captions/local-inference-supervisor');
 const {
+  resolveLocalInferencePaths,
+} = require('./captions/local-inference-paths');
+const {
   MeetingRecordController,
 } = require('./captions/meeting-record-controller');
 const { registerCaptionIpc } = require('./captions/register-caption-ipc');
@@ -400,10 +403,18 @@ app.whenReady().then(async () => {
 
   const credentialStore = new CredentialStore({ app, safeStorage });
   const evaluationRecorder = new EvaluationRecorder({ app, safeStorage });
+  const localInferencePaths = resolveLocalInferencePaths({
+    isPackaged: app.isPackaged,
+    resourcesPath: process.resourcesPath,
+    appPath: app.getAppPath(),
+    userDataPath: app.getPath('userData'),
+  });
   localInferenceSupervisor = new LocalInferenceSupervisor({
     isPackaged: app.isPackaged,
     resourcesPath: process.resourcesPath,
     appPath: app.getAppPath(),
+    ...localInferencePaths,
+    whisperDevice: 'NPU',
   });
   meetingRecordController = new MeetingRecordController({
     app,

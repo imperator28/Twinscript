@@ -96,7 +96,13 @@ function pruneElectronLocales(buildPath, platform) {
 module.exports = {
   packagerConfig: {
     asar: true,
-    extraResource: ['assets', 'resources'],
+    extraResource: [
+      'assets',
+      'resources',
+      ...(fs.existsSync(path.join(__dirname, 'artifacts', 'local-inference-host'))
+        ? ['artifacts/local-inference-host']
+        : []),
+    ],
     icon: process.platform === 'win32' ? 'assets/icon.ico' : 'assets/icon',
     appBundleId: 'com.jiyu.twinscript',
     // Prefer the stable self-signed local identity created by

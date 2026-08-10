@@ -59,6 +59,35 @@ test('catalog requires model launch details and safe declared metadata', () => {
   }
 });
 
+test('catalog requires canonical bounded runtime and model version segments', () => {
+  for (const mutate of [
+    (manifest) => { manifest.runtimeVersion = ''; },
+    (manifest) => { manifest.runtimeVersion = '..'; },
+    (manifest) => { manifest.runtimeVersion = '2026/2.1'; },
+    (manifest) => { manifest.runtimeVersion = 'a'.repeat(129); },
+    (manifest) => { manifest.runtimeVersion = 2026; },
+    (manifest) => { manifest.models[0].version = '..'; },
+    (manifest) => { manifest.models[0].version = 'release/1'; },
+    (manifest) => { manifest.models[0].version = 'CON'; },
+    (manifest) => { manifest.models[0].version = 'LPT9.bin'; },
+    (manifest) => { manifest.models[0].version = 'release '; },
+    (manifest) => { manifest.models[0].version = 'a'.repeat(129); },
+    (manifest) => { manifest.models[0].version = 1; },
+  ]) {
+    const manifest = exampleManifest();
+    mutate(manifest);
+    assert.throws(() => validateManifest(manifest), { code: 'local_manifest_invalid' });
+  }
+});
+
+test('catalog requires parseable HTTPS file URLs with hostnames', () => {
+  for (const url of ['https://', 'not a URL', 'http://models.example.invalid/file.bin']) {
+    const manifest = exampleManifest();
+    manifest.models[0].files[0].url = url;
+    assert.throws(() => validateManifest(manifest), { code: 'local_manifest_invalid' });
+  }
+});
+
 test('packaged manifests require a valid Ed25519 signature', () => {
   const { publicKey } = crypto.generateKeyPairSync('ed25519');
   assert.throws(() => loadManifest({

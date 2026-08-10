@@ -1,6 +1,6 @@
 # Local model catalog artifacts
 
-Production catalogs contain exactly these three files:
+The three required production security artifacts are:
 
 - `model-manifest.json`
 - `model-manifest.sig`

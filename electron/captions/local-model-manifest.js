@@ -2,6 +2,29 @@ const crypto = require('crypto');
 const path = require('path');
 
 const ALLOWED_MODEL_IDS = ['whisper-small', 'hy-mt2-1.8b'];
+const MAX_VERSION_LENGTH = 128;
+const WINDOWS_DEVICE_NAME = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/i;
+
+function isSafeVersionSegment(value) {
+  return (
+    typeof value === 'string' &&
+    value.length > 0 &&
+    value.length <= MAX_VERSION_LENGTH &&
+    /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(value) &&
+    !value.endsWith('.') &&
+    !WINDOWS_DEVICE_NAME.test(value)
+  );
+}
+
+function isHttpsUrlWithHostname(value) {
+  if (typeof value !== 'string') return false;
+  try {
+    const url = new URL(value);
+    return url.protocol === 'https:' && Boolean(url.hostname);
+  } catch {
+    return false;
+  }
+}
 
 function canonicalValue(value) {
   if (Array.isArray(value)) return value.map(canonicalValue);
@@ -24,13 +47,17 @@ function invalidManifest(message) {
 }
 
 function validateManifest(manifest) {
-  if (manifest?.schemaVersion !== 1 || !Array.isArray(manifest.models)) {
+  if (
+    manifest?.schemaVersion !== 1 ||
+    !isSafeVersionSegment(manifest.runtimeVersion) ||
+    !Array.isArray(manifest.models)
+  ) {
     throw invalidManifest('Unsupported local model manifest');
   }
   const ids = new Set();
   for (const model of manifest.models) {
     if (
-      !model?.id || !model.version || !Array.isArray(model.files) || !model.files.length ||
+      !model?.id || !isSafeVersionSegment(model.version) || !Array.isArray(model.files) || !model.files.length ||
       !['displayName', 'purpose', 'license', 'source'].every((field) => (
         typeof model[field] === 'string' && model[field].trim()
       )) ||
@@ -50,7 +77,7 @@ function validateManifest(manifest) {
         !normalized || normalized !== declaredPath || normalized.startsWith('../') ||
         normalized.startsWith('/') || /[:*?"<>|\0-\x1f]/.test(normalized) ||
         filePaths.has(normalized.toLowerCase()) ||
-        !/^https:\/\//.test(file?.url || '') ||
+        !isHttpsUrlWithHostname(file?.url) ||
         !Number.isSafeInteger(file?.size) || file.size < 0 ||
         !/^[a-f0-9]{64}$/i.test(file?.sha256 || '')
       ) {

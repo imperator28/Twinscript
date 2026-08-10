@@ -40,6 +40,27 @@ test('local Whisper maps protocol output to the existing transcript event', () =
   });
 });
 
+test('local Whisper namespaces utterance IDs by native host generation', () => {
+  const events = [];
+  const backend = new LocalWhisperBackend({
+    client: { request: async () => ({}) },
+    channel: 'microphone',
+    sessionId: 's1',
+    onEvent: (event) => events.push(event),
+  });
+
+  backend.accept({
+    type: 'asr.result', channel: 'microphone', utteranceId: 's1:microphone:1',
+    generation: 1, text: 'before restart', final: true,
+  });
+  backend.accept({
+    type: 'asr.result', channel: 'microphone', utteranceId: 's1:microphone:1',
+    generation: 2, text: 'after restart', final: true,
+  });
+
+  assert.notEqual(events[0].itemId, events[1].itemId);
+});
+
 test('local Whisper forwards the existing 24 kHz PCM audio contract', async () => {
   const calls = [];
   const backend = new LocalWhisperBackend({
@@ -116,4 +137,35 @@ test('local Whisper finish flushes, stops the channel, and detaches its listener
   await backend.finish();
 
   assert.deepEqual(calls, ['asr.flush', 'asr.stop', 'off:event:true']);
+});
+
+test('local Whisper finish aborts a hung audio request and drops queued chunks', async () => {
+  const events = [];
+  const client = {
+    request: (type, _payload, { signal } = {}) => {
+      if (type !== 'asr.audio') return Promise.resolve({});
+      return new Promise((_resolve, reject) => {
+        signal?.addEventListener('abort', () => reject(
+          Object.assign(new Error('aborted'), { code: 'local_request_aborted' }),
+        ), { once: true });
+      });
+    },
+    on() {}, off() {},
+  };
+  const backend = new LocalWhisperBackend({
+    client,
+    channel: 'microphone',
+    sessionId: 's1',
+    finishTimeoutMs: 15,
+    onEvent: (event) => events.push(event),
+  });
+  for (let index = 0; index < 10; ++index) {
+    backend.appendAudio(new Int16Array(2400).fill(index + 1));
+  }
+
+  await backend.finish();
+
+  assert.equal(backend.audioQueue.length, 0);
+  assert.equal(backend.queuedSamples, 0);
+  assert.ok(events.some((event) => event.code === 'local_asr_shutdown_timeout'));
 });

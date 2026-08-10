@@ -31,6 +31,7 @@ class LlamaTranslationServer {
     allocatePort = allocateLoopbackPort,
     startupTimeoutMs = 120_000,
     requestTimeoutMs = 30_000,
+    maxRestarts = 1,
   }) {
     this.binaryPath = binaryPath;
     this.modelPath = modelPath;
@@ -39,6 +40,8 @@ class LlamaTranslationServer {
     this.allocatePort = allocatePort;
     this.startupTimeoutMs = startupTimeoutMs;
     this.requestTimeoutMs = requestTimeoutMs;
+    this.maxRestarts = maxRestarts;
+    this.restartCount = 0;
     this.child = null;
     this.port = 0;
     this.started = false;
@@ -50,6 +53,12 @@ class LlamaTranslationServer {
   async start() {
     if (this.started) return this.health();
     if (this.startPromise) return this.startPromise;
+    if (this.restartCount > this.maxRestarts) {
+      throw llamaError(
+        'local_translation_restart_exhausted',
+        'Local Hy-MT2 server already restarted once after an unexpected exit',
+      );
+    }
     this.startPromise = this.startProcess();
     try {
       return await this.startPromise;
@@ -77,6 +86,12 @@ class LlamaTranslationServer {
     this.child = child;
     let spawnError = null;
     child.once?.('error', (error) => { spawnError = error; });
+    child.once?.('close', () => {
+      if (this.child !== child) return;
+      this.child = null;
+      if (this.started) this.restartCount += 1;
+      this.started = false;
+    });
     child.stderr?.on('data', (chunk) => {
       this.stderr = `${this.stderr}${chunk.toString('utf8')}`.slice(-8_000);
     });
@@ -97,6 +112,12 @@ class LlamaTranslationServer {
           { signal: AbortSignal.timeout(2_000) },
         );
         if (response.ok) {
+          if (child.exitCode != null || this.child !== child) {
+            throw llamaError(
+              'local_translation_host_closed',
+              'llama.cpp exited while reporting startup health',
+            );
+          }
           this.started = true;
           this.loadMs = performance.now() - startedAt;
           return this.health();

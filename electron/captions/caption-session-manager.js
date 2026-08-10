@@ -85,6 +85,7 @@ class CaptionSessionManager {
     appVersion,
     coordinatorFactory,
     schedulerFactory,
+    transcriptionDrainTimeoutMs = 12_000,
     finalizationDrainTimeoutMs = 30_000,
   }) {
     this.credentialStore = credentialStore;
@@ -116,6 +117,7 @@ class CaptionSessionManager {
       coordinatorFactory || ((options) => new TranscriptCoordinator(options));
     this.schedulerFactory =
       schedulerFactory || ((options) => new PriorityTaskQueue(options));
+    this.transcriptionDrainTimeoutMs = transcriptionDrainTimeoutMs;
     this.finalizationDrainTimeoutMs = finalizationDrainTimeoutMs;
     this.reset();
   }
@@ -1145,13 +1147,31 @@ class CaptionSessionManager {
     this.provisionalCallsByItem.clear();
     this.screeningPromptByItem.clear();
     const sessions = [...this.sessions.values()];
-    await Promise.allSettled(
+    const drainingTranscription = Promise.allSettled(
       sessions.map((session) =>
         typeof session.finish === 'function'
           ? session.finish()
           : Promise.resolve(session.close()),
       ),
     );
+    let transcriptionTimer;
+    const transcriptionTimedOut = await Promise.race([
+      drainingTranscription.then(() => false),
+      new Promise((resolve) => {
+        transcriptionTimer = setTimeout(() => resolve(true), this.transcriptionDrainTimeoutMs);
+        transcriptionTimer.unref?.();
+      }),
+    ]);
+    clearTimeout(transcriptionTimer);
+    if (transcriptionTimedOut) {
+      for (const session of sessions) session.cancelPending?.();
+      this.onStatus({
+        state: 'degraded',
+        sessionId: this.sessionId,
+        code: 'transcription_shutdown_timeout',
+        message: 'Transcription did not finish before the bounded shutdown timeout',
+      });
+    }
     this.sessions.clear();
     this.coordinator?.flush();
     // Emit any sentence still waiting for a continuation before tearing down. The

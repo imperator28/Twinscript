@@ -42,13 +42,37 @@ async function main() {
       channel: 'microphone',
     });
     const pcm = fs.readFileSync(process.env.TWINSCRIPT_WHISPER_PCM24);
+    const sourceSamples = new Int16Array(
+      pcm.buffer,
+      pcm.byteOffset,
+      pcm.byteLength / Int16Array.BYTES_PER_ELEMENT,
+    );
+    const sourceRms = Math.sqrt(
+      sourceSamples.reduce((sum, sample) => sum + (sample / 32768) ** 2, 0) /
+        sourceSamples.length,
+    );
+    const quietTargetRms = 0.003;
+    const quietScale = Math.min(1, quietTargetRms / sourceRms);
+    const quietPcm = Buffer.alloc(pcm.length);
+    for (let index = 0; index < sourceSamples.length; ++index) {
+      quietPcm.writeInt16LE(Math.round(sourceSamples[index] * quietScale), index * 2);
+    }
+    const preRoll = await client.request('asr.audio', {
+      sessionId: 'native-app-smoke',
+      channel: 'microphone',
+      encoding: 'pcm_s16le',
+      sampleRate: 24000,
+      capturedAt: Date.now(),
+      audio: Buffer.alloc(6000 * 2).toString('base64'),
+    });
+    assert.equal(preRoll.accepted, true);
     const partialTranscript = await client.request('asr.audio', {
       sessionId: 'native-app-smoke',
       channel: 'microphone',
       encoding: 'pcm_s16le',
       sampleRate: 24000,
       capturedAt: Date.now(),
-      audio: pcm.toString('base64'),
+      audio: quietPcm.toString('base64'),
     });
     const transcript = await client.request('asr.audio', {
       sessionId: 'native-app-smoke',
@@ -59,6 +83,7 @@ async function main() {
       audio: Buffer.alloc(12000 * 2).toString('base64'),
     });
     assert.equal(partialTranscript.final, false);
+    assert.ok(partialTranscript.audioDurationMs >= 2700, 'leading pre-roll must be retained');
     assert.match(transcript.text, /How are you doing today/i);
     assert.equal(transcript.final, true);
     assert.equal(transcript.actualDevice, 'NPU');
@@ -75,7 +100,13 @@ async function main() {
     assert.match(translation.text, /24 VDC/);
     assert.equal(translation.authoritative, true);
     assert.equal(translation.actualDevice, 'CPU');
-    console.log(JSON.stringify({ ready, partialTranscript, transcript, translation }, null, 2));
+    console.log(JSON.stringify({
+      ready,
+      whisperInputRms: { source: sourceRms, validated: quietTargetRms },
+      partialTranscript,
+      transcript,
+      translation,
+    }, null, 2));
   } finally {
     await supervisor.dispose();
   }

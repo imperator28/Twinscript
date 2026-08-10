@@ -36,6 +36,7 @@ UtteranceDecision UtteranceGate::observe(
   const bool speech = rms >= speech_threshold_;
   if (!speech && !speech_seen_) return {};
 
+  const bool speech_started = speech && !speech_seen_;
   speech_seen_ = speech_seen_ || speech;
   buffered_samples_ += input.size();
   if (speech) silence_samples_ = 0;
@@ -45,6 +46,7 @@ UtteranceDecision UtteranceGate::observe(
       speech_seen_ &&
           (silence_samples_ >= trailing_silence_samples_ ||
            buffered_samples_ >= maximum_utterance_samples_),
+      speech_started,
   };
 }
 

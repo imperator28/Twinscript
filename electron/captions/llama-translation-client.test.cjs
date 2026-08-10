@@ -132,3 +132,43 @@ test('translation forwards an already-aborted caller signal', async () => {
   }, { signal: caller.signal }), { name: 'AbortError' });
   assert.equal(forwardedSignal.aborted, true);
 });
+
+test('llama.cpp exit clears readiness and the next translation restarts once', async () => {
+  const children = [];
+  let completions = 0;
+  const server = new LlamaTranslationServer({
+    binaryPath: 'llama-server.exe',
+    modelPath: 'hy-mt2.gguf',
+    allocatePort: async () => 8080 + children.length,
+    spawn: () => {
+      const spawned = child();
+      children.push(spawned);
+      return spawned;
+    },
+    fetchImpl: async (url) => {
+      if (url.endsWith('/health')) return { ok: true, status: 200 };
+      completions += 1;
+      return {
+        ok: true,
+        json: async () => ({ choices: [{ message: { content: `result ${completions}` } }] }),
+      };
+    },
+  });
+
+  await server.start();
+  children[0].exitCode = 1;
+  children[0].emit('close', 1);
+  assert.equal(server.health().ready, false);
+
+  const result = await server.translate('translate.final', {
+    targetLanguage: 'Chinese', text: 'restart me',
+  });
+  assert.equal(children.length, 2);
+  assert.equal(result.text, 'result 1');
+
+  children[1].exitCode = 1;
+  children[1].emit('close', 1);
+  await assert.rejects(server.translate('translate.final', {
+    targetLanguage: 'Chinese', text: 'do not restart forever',
+  }), { code: 'local_translation_restart_exhausted' });
+});

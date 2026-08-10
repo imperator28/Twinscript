@@ -36,9 +36,20 @@ TEST_CASE("utterance gate finalizes speech after bounded trailing silence") {
 
   const auto speech = gate.observe(std::vector<std::int16_t>(24000, 1200));
   REQUIRE(speech.append);
+  REQUIRE(speech.speech_started);
   REQUIRE_FALSE(speech.finalize);
   REQUIRE(gate.observe(std::vector<std::int16_t>(6000, 0)).finalize == false);
   REQUIRE(gate.observe(std::vector<std::int16_t>(6000, 0)).finalize == true);
+}
+
+TEST_CASE("utterance gate accepts quiet speech and identifies its onset") {
+  twinscript::UtteranceGate gate{24000, 0.001, 500, 20000};
+  REQUIRE_FALSE(gate.observe(std::vector<std::int16_t>(6000, 0)).append);
+
+  const auto quiet_speech = gate.observe(std::vector<std::int16_t>(2400, 100));
+  REQUIRE(quiet_speech.append);
+  REQUIRE(quiet_speech.speech_started);
+  REQUIRE_FALSE(quiet_speech.finalize);
 }
 
 TEST_CASE("utterance gate force-finalizes continuous speech before the audio cap") {

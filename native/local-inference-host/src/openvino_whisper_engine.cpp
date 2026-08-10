@@ -32,7 +32,8 @@ class OpenVinoWhisperEngine::Impl {
     std::size_t sequence{};
     std::size_t revision{};
     std::size_t last_decoded_samples{};
-    UtteranceGate gate{24000, 0.01, 500, 20000};
+    UtteranceGate gate{24000, 0.001, 500, 20000};
+    std::vector<std::int16_t> pre_roll;
   };
 
   Impl(
@@ -130,6 +131,7 @@ nlohmann::json OpenVinoWhisperEngine::start(
   state.revision = 0;
   state.last_decoded_samples = 0;
   state.gate.reset();
+  state.pre_roll.clear();
   return {{"channel", channel}, {"state", "started"}};
 }
 
@@ -142,7 +144,19 @@ nlohmann::json OpenVinoWhisperEngine::append(const AsrRequest& request) {
   }
   const auto decision = state.gate.observe(request.samples);
   if (!decision.append) {
+    state.pre_roll.insert(
+        state.pre_roll.end(), request.samples.begin(), request.samples.end());
+    constexpr std::size_t maximum_pre_roll_samples = 12000;
+    if (state.pre_roll.size() > maximum_pre_roll_samples) {
+      state.pre_roll.erase(
+          state.pre_roll.begin(),
+          state.pre_roll.end() - maximum_pre_roll_samples);
+    }
     return { {"channel", request.channel}, {"accepted", true} };
+  }
+  if (decision.speech_started && !state.pre_roll.empty()) {
+    impl_->segmenter.append(request.channel, state.pre_roll);
+    state.pre_roll.clear();
   }
   impl_->segmenter.append(request.channel, request.samples);
   const auto audio = impl_->segmenter.samples(request.channel);
@@ -153,6 +167,7 @@ nlohmann::json OpenVinoWhisperEngine::append(const AsrRequest& request) {
     state.revision = 0;
     state.last_decoded_samples = 0;
     state.gate.reset();
+    state.pre_roll.clear();
     return response;
   }
   constexpr std::size_t decode_interval = 32000;
@@ -171,12 +186,17 @@ nlohmann::json OpenVinoWhisperEngine::flush(
   auto audio = impl_->segmenter.take(channel);
   auto& state = impl_->channels[std::string(channel)];
   if (state.session.empty()) state.session = session;
-  if (audio.empty()) return {{"channel", channel}, {"state", "flushed"}};
+  if (audio.empty()) {
+    state.gate.reset();
+    state.pre_roll.clear();
+    return {{"channel", channel}, {"state", "flushed"}};
+  }
   auto response = impl_->result(std::string(channel), true, audio);
   ++state.sequence;
   state.revision = 0;
   state.last_decoded_samples = 0;
   state.gate.reset();
+  state.pre_roll.clear();
   return response;
 }
 

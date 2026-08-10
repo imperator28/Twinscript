@@ -12,6 +12,7 @@ namespace twinscript {
 struct UtteranceDecision {
   bool append{};
   bool finalize{};
+  bool speech_started{};
 };
 
 class UtteranceGate {

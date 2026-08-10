@@ -25,8 +25,9 @@
   on the validation machine after the OpenVINO plugin process crashed during discovery.
 - Audit result: the development review build now bounds local audio backlog and shutdown,
   finalizes Whisper utterances during sustained capture, automatically restarts the native
-  host once, verifies packaged runtime hashes/model markers, and avoids even the renderer's
-  credential-status query in full-local mode.
+  host once without reusing app-facing utterance IDs, recovers the Hy-MT2 sidecar once,
+  retains quiet-speech pre-roll, verifies packaged runtime hashes/model markers, and avoids
+  even the renderer's credential-status query in full-local mode.
 - Remaining release gates: a signed hosted model manifest/download surface and the
   60-minute simultaneous-residency soak. The development review build uses pinned local
   model snapshots and a hash-verified staged runtime; it is not yet a clean-install

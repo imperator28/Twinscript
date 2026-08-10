@@ -1332,6 +1332,28 @@ test('stop aborts and proceeds when a final translation never settles', async ()
   assert.equal(manager.active, false);
 });
 
+test('stop cancels and proceeds when transcription finish never settles', async () => {
+  let cancelled = false;
+  const statuses = [];
+  const manager = new CaptionSessionManager({
+    credentialStore: {},
+    settingsStore: {},
+    transcriptionDrainTimeoutMs: 10,
+    onStatus: (status) => statuses.push(status),
+  });
+  manager.active = true;
+  manager.sessions.set('microphone', {
+    finish: () => new Promise(() => {}),
+    cancelPending: () => { cancelled = true; },
+  });
+
+  await manager.stop();
+
+  assert.equal(cancelled, true);
+  assert.ok(statuses.some((status) => status.code === 'transcription_shutdown_timeout'));
+  assert.equal(manager.active, false);
+});
+
 test('stop accepts a final transcript emitted while transports drain', async () => {
   const recorded = [];
   const manager = new CaptionSessionManager({

@@ -59,12 +59,13 @@ the app, not only through isolated model scripts:
 
 - Staged runtime integrity: 66 files verified against the generated SHA-256 manifest.
 - Whisper official sample: `How are you doing today?` transcribed exactly on `NPU`.
-- Sustained-stream validation produced a provisional result in 812.6 ms and then a
-  final result in 362.3 ms after 500 ms of trailing silence for the same 2.46 s
-  24 kHz utterance. Continuous speech is force-finalized at 20 seconds, before the
-  30-second native audio cap.
-- Latest Hy-MT2 authoritative translation through the Electron supervisor: 574.5 ms.
-- Latest Hy-MT2 server load: 1,722.3 ms; reported device `CPU`.
+- Quiet sustained-stream validation scaled the source from 0.0279 RMS to 0.003 RMS,
+  retained a separately submitted 250 ms pre-roll, produced a provisional result in
+  772.7 ms, and then a final result in 364.0 ms after 500 ms of trailing silence.
+  Continuous speech is force-finalized at 20 seconds, before the 30-second native
+  audio cap.
+- Latest Hy-MT2 authoritative translation through the Electron supervisor: 518.0 ms.
+- Latest Hy-MT2 server load: 1,735.9 ms; reported device `CPU`.
 - Protected engineering literal smoke: `24 VDC` survived the English-to-Chinese result
   exactly.
 - Both child processes completed a clean supervised shutdown.
@@ -77,13 +78,21 @@ the app, not only through isolated model scripts:
 - Hy-MT2 requests have a 30-second timeout, and session shutdown has a separate
   bounded finalization drain that aborts unresolved work before continuing.
 - An unexpected native-host exit triggers one supervised restart while the stable
-  app-facing client retains its event listeners. Stale generation replies are rejected.
+  app-facing client retains its event listeners. Stale generation replies are rejected,
+  and host generation is included in app-facing utterance identity so a restarted
+  process cannot overwrite an earlier caption or persistence key.
+- Local transcription finish has a five-second cancellation bound, plus a separate
+  12-second session-manager backstop. It clears queued chunks and aborts the in-flight
+  request instead of serially waiting through per-chunk timeouts.
+- The Hy-MT2 sidecar clears readiness on unexpected exit, restarts on the next request,
+  and fails explicitly after that one recovery attempt rather than retaining a dead
+  `started` state or restarting forever.
 - Runtime readiness verifies all 66 staged files against their SHA-256 manifest.
   Packaged model readiness requires the pinned version directory and the model
   manager's completed verification marker.
 - A fully local Settings load does not query credential status. Session startup also
   retains the fail-closed privacy test: no cloud constructor or credential read occurs.
-- Native CTest passed 16/16, the complete Node suite passed 468/468, and the renderer
+- Native CTest passed 17/17, the complete Node suite passed 472/472, and the renderer
   suite passed 312/312. The production build and Windows package completed, the
   packaged copy of all 66 runtime files verified, and the packaged control window
   launched, survived startup, and exited its eight-process tree cleanly after WM_CLOSE.

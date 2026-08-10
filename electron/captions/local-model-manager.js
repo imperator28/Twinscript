@@ -100,9 +100,9 @@ class LocalModelManager {
       const failure = this.failures.get(model.id) || null;
       let phase;
       if (operation) phase = operation.phase;
-      else if (markerReady) phase = 'ready';
       else if (failure?.phase === 'repair-needed') phase = 'repair-needed';
       else if (failure) phase = 'failed';
+      else if (markerReady) phase = 'ready';
       else if (this._hasArtifacts(model)) phase = 'repair-needed';
       else phase = 'not-installed';
       const counts = this._byteCounts(model);
@@ -267,7 +267,7 @@ class LocalModelManager {
       await fsp.rm(destination, { force: true });
       await fsp.rename(partial, destination);
       completedBytes += file.size;
-      this._emit(model.id, 'downloading', completedBytes, totalBytes);
+      if (downloadedBytes !== file.size) this._emit(model.id, 'downloading', completedBytes, totalBytes);
     }
   }
 
@@ -331,9 +331,14 @@ class LocalModelManager {
 
   async remove(modelId) {
     return this._withMutation(modelId, 'not-installed', async (model) => {
-      await fsp.rm(this.modelDirectory(model), { recursive: true, force: true });
-      this.failures.delete(model.id);
-      return this.status().models[model.id];
+      try {
+        await fsp.rm(this.modelDirectory(model), { recursive: true, force: true });
+        this.failures.delete(model.id);
+        return this.status().models[model.id];
+      } catch (error) {
+        this._recordFailure(model.id, error);
+        throw error;
+      }
     });
   }
 }

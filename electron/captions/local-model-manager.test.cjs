@@ -2,6 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const crypto = require('node:crypto');
 const fs = require('node:fs');
+const fsp = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
 
@@ -62,6 +63,11 @@ test('status exposes both approved models with lifecycle metadata while preservi
     downloadBytes: 5, installedBytes: 0, downloadedBytes: 0, phase: 'not-installed', ready: false,
     repairRecommended: false, error: null,
   });
+  assert.deepEqual(status.models['hy-mt2-1.8b'], {
+    id: 'hy-mt2-1.8b', displayName: 'HY-MT2 1.8B', purpose: 'Translation', expectedDevice: 'GPU', version: 'translator-v1',
+    downloadBytes: 5, installedBytes: 0, downloadedBytes: 0, phase: 'not-installed', ready: false,
+    repairRecommended: false, error: null,
+  });
   fs.rmSync(root, { recursive: true, force: true });
 });
 
@@ -78,9 +84,14 @@ test('download streams chunks, emits downloading/verifying/ready progress, and b
 
   assert.equal(manager.status().models['whisper-small'].ready, true);
   assert.deepEqual(fs.readFileSync(path.join(root, 'whisper-small', 'whisper-v1', 'model.bin')), bytes);
-  assert.ok(progress.some((event) => event.phase === 'downloading' && event.downloadedBytes > 0));
-  assert.ok(progress.some((event) => event.phase === 'verifying'));
-  assert.equal(progress.at(-1).phase, 'ready');
+  assert.deepEqual(
+    progress.map(({ phase, downloadedBytes }) => [phase, downloadedBytes]),
+    [
+      ['downloading', 0], ['downloading', 2], ['downloading', 4], ['downloading', 6],
+      ['downloading', 8], ['downloading', 10], ['downloading', 12], ['downloading', 14],
+      ['verifying', 0], ['verifying', 14], ['ready', 14],
+    ],
+  );
   fs.rmSync(root, { recursive: true, force: true });
 });
 
@@ -143,6 +154,64 @@ test('transient download failures preserve partials but hash-mismatched partials
   manager.fetchImpl = async () => streamResponse(Buffer.alloc(bytes.length, 'x'));
   await assert.rejects(manager.download('whisper-small'), { code: 'local_model_hash_mismatch' });
   assert.equal(fs.existsSync(partial), false);
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
+test('a retained download failure overrides a stale same-size ready marker', async () => {
+  const bytes = Buffer.from('verified-model');
+  const { root, manager } = managerFor({ bytes, fetchImpl: async () => streamResponse(bytes) });
+  await manager.download('whisper-small');
+  const destination = path.join(root, 'whisper-small', 'whisper-v1', 'model.bin');
+  fs.writeFileSync(destination, Buffer.alloc(bytes.length, 'x'));
+  manager.fetchImpl = async () => { throw new Error('network down'); };
+
+  await assert.rejects(manager.download('whisper-small'), { code: 'local_model_download_failed' });
+
+  const row = manager.status().models['whisper-small'];
+  assert.equal(row.ready, false);
+  assert.equal(row.phase, 'failed');
+  assert.equal(row.error.code, 'local_model_download_failed');
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
+test('explicit verify hashes an unmarked complete model and writes a ready marker', async () => {
+  const bytes = Buffer.from('verified-model');
+  const { root, manager } = managerFor({ bytes });
+  const directory = path.join(root, 'whisper-small', 'whisper-v1');
+  fs.mkdirSync(directory, { recursive: true });
+  fs.writeFileSync(path.join(directory, 'model.bin'), bytes);
+
+  const row = await manager.verify('whisper-small');
+
+  assert.equal(row.ready, true);
+  assert.equal(row.phase, 'ready');
+  assert.equal(JSON.parse(fs.readFileSync(path.join(directory, '.verified.json'), 'utf8')).files['model.bin'], digest(bytes));
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
+test('a write failure preserves an existing verified model and marker', async () => {
+  const bytes = Buffer.from('verified-model');
+  const { root, manager } = managerFor({ bytes, fetchImpl: async () => streamResponse(bytes) });
+  await manager.download('whisper-small');
+  const directory = path.join(root, 'whisper-small', 'whisper-v1');
+  const destination = path.join(directory, 'model.bin');
+  const marker = path.join(directory, '.verified.json');
+  const previousMarker = fs.readFileSync(marker);
+  const originalWriteFile = fsp.writeFile;
+  fsp.writeFile = async (filePath, ...args) => {
+    if (String(filePath).includes('.verified.json.')) throw Object.assign(new Error('disk full'), { code: 'ENOSPC' });
+    return originalWriteFile(filePath, ...args);
+  };
+  try {
+    await assert.rejects(manager.download('whisper-small'), { code: 'ENOSPC' });
+  } finally {
+    fsp.writeFile = originalWriteFile;
+  }
+
+  assert.deepEqual(fs.readFileSync(destination), bytes);
+  assert.deepEqual(fs.readFileSync(marker), previousMarker);
+  assert.equal(manager.status().models['whisper-small'].ready, false);
+  assert.equal(manager.status().models['whisper-small'].phase, 'failed');
   fs.rmSync(root, { recursive: true, force: true });
 });
 
@@ -215,6 +284,27 @@ test('remove deletes only the selected model version and clears its failure stat
   assert.equal(row.phase, 'not-installed');
   assert.equal(fs.existsSync(path.join(root, 'whisper-small', 'whisper-v1')), false);
   assert.equal(manager.status().models['hy-mt2-1.8b'].ready, true);
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
+test('remove retains a filesystem failure in the model status', async () => {
+  const { root, manager } = managerFor({ bytes: Buffer.from('model') });
+  const directory = path.join(root, 'whisper-small', 'whisper-v1');
+  const originalRm = fsp.rm;
+  fsp.rm = async (filePath, options) => {
+    if (path.resolve(filePath) === path.resolve(directory)) throw Object.assign(new Error('access denied'), { code: 'EACCES' });
+    return originalRm(filePath, options);
+  };
+  try {
+    await assert.rejects(manager.remove('whisper-small'), { code: 'EACCES' });
+  } finally {
+    fsp.rm = originalRm;
+  }
+
+  const row = manager.status().models['whisper-small'];
+  assert.equal(row.phase, 'failed');
+  assert.equal(row.ready, false);
+  assert.equal(row.error.code, 'EACCES');
   fs.rmSync(root, { recursive: true, force: true });
 });
 

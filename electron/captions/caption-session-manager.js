@@ -8,12 +8,16 @@ const {
 const { CostMeter } = require('./cost-meter');
 const { LiveTranscriptionSession } = require('./live-transcription-session');
 const { OpenAINormalizer } = require('./openai-normalizer');
+const { resolveProcessingConfiguration } = require('./processing-configuration');
 const {
   compileGlossaryRequestContext,
 } = require('./glossary-request-context');
 const { PriorityTaskQueue } = require('./priority-task-queue');
 const { buildQualitySignals } = require('./quality-signals');
 const { TranscriptCoordinator } = require('./transcript-coordinator');
+const { createTranslationPolicy } = require('./translation-policy');
+const { TranscriptionBackendFactory } = require('./transcription-backends');
+const { TranslationBackendFactory } = require('./translation-backends');
 
 const PROVISIONAL_INITIAL_DELAY_MS = 650;
 const PROVISIONAL_CADENCE_MS = 1800;
@@ -73,6 +77,8 @@ class CaptionSessionManager {
     onEvaluation = () => {},
     transcriptionFactory,
     normalizerFactory,
+    transcriptionBackendFactory,
+    translationBackendFactory,
     evaluationRecorder,
     meetingRecordController,
     localInferenceSupervisor,
@@ -91,6 +97,16 @@ class CaptionSessionManager {
       ((options) => new LiveTranscriptionSession(options));
     this.normalizerFactory =
       normalizerFactory || ((options) => new OpenAINormalizer(options));
+    this.transcriptionBackendFactory = transcriptionBackendFactory || (
+      transcriptionFactory
+        ? { create: (_model, options) => this.transcriptionFactory(options) }
+        : new TranscriptionBackendFactory()
+    );
+    this.translationBackendFactory = translationBackendFactory || (
+      normalizerFactory
+        ? { create: (_model, options) => this.normalizerFactory(options) }
+        : new TranslationBackendFactory()
+    );
     this.evaluationRecorder = evaluationRecorder;
     this.meetingRecordController = meetingRecordController;
     this.localInferenceSupervisor = localInferenceSupervisor;
@@ -116,7 +132,12 @@ class CaptionSessionManager {
     this.lastProvisionalAtByItem = new Map();
     this.shadowControllers = new Set();
     this.primaryNormalizer = null;
+    this.previewTranslator = null;
+    this.finalTranslator = null;
     this.shadowNormalizer = null;
+    this.processing = null;
+    this.translationPolicy = null;
+    this.localClient = null;
     this.cost = null;
     this.active = false;
     this.shadowActive = false;
@@ -172,6 +193,8 @@ class CaptionSessionManager {
     // and a session that cannot start is a worse failure than one running unnormalized
     // settings.
     this.settings = stored && typeof stored === 'object' ? stored : requested;
+    this.processing = resolveProcessingConfiguration(this.settings);
+    this.translationPolicy = createTranslationPolicy(this.settings);
     this.startedAt = Date.now();
     this.active = true;
     this.shadowActive = Boolean(this.settings.shadowEnabled);
@@ -229,10 +252,33 @@ class CaptionSessionManager {
       return this.snapshot();
     }
 
-    const apiKey = await this.credentialStore.get();
-    if (!apiKey) {
-      this.active = false;
-      throw new Error('Add an OpenAI API key before starting a live session');
+    let apiKey = null;
+    if (this.processing.requiresCredential) {
+      apiKey = await this.credentialStore.get();
+      if (!apiKey) {
+        this.active = false;
+        throw new Error('Add an OpenAI API key before starting a live session');
+      }
+    }
+
+    const localModels = new Set();
+    if (this.processing.transcription === 'whisper-local') {
+      localModels.add('whisper-small');
+    }
+    if (
+      this.translationPolicy.finalBackend === 'hy-mt2-local' ||
+      this.translationPolicy.previewBackend === 'hy-mt2-local'
+    ) {
+      localModels.add('hy-mt2-1.8b');
+    }
+    if (localModels.size) {
+      try {
+        await this.localInferenceSupervisor.prepare([...localModels], this.sessionId);
+        this.localClient = this.localInferenceSupervisor.client();
+      } catch (error) {
+        this.active = false;
+        throw error;
+      }
     }
 
     try {
@@ -254,34 +300,66 @@ class CaptionSessionManager {
         ...(entry.aliases || []),
       ]),
     ];
-    const normalizerOptions = {
+    const cloudNormalizerOptions = {
       apiKey,
       scheduler: this.normalizationScheduler,
     };
-    this.primaryNormalizer = this.normalizerFactory({
-      ...normalizerOptions,
-      onUsage: (usage) => {
-        this.cost.addTextUsage(usage, 'primary');
-        this.emitMetrics();
-      },
-    });
-    this.shadowNormalizer = this.normalizerFactory({
-      ...normalizerOptions,
+    const finalOptions = this.translationPolicy.finalBackend === 'hy-mt2-local'
+      ? { client: this.localClient, sessionId: this.sessionId }
+      : {
+          ...cloudNormalizerOptions,
+          onUsage: (usage) => {
+            this.cost.addTextUsage(usage, 'primary');
+            this.emitMetrics();
+          },
+        };
+    this.finalTranslator = this.translationBackendFactory.create(
+      this.translationPolicy.finalBackend,
+      finalOptions,
+    );
+    this.primaryNormalizer = this.finalTranslator;
+    if (!this.translationPolicy.previewBackend) {
+      this.previewTranslator = null;
+    } else if (this.translationPolicy.previewBackend === this.translationPolicy.finalBackend) {
+      this.previewTranslator = this.finalTranslator;
+    } else {
+      this.previewTranslator = this.translationBackendFactory.create(
+        this.translationPolicy.previewBackend,
+        this.translationPolicy.previewBackend === 'hy-mt2-local'
+          ? { client: this.localClient, sessionId: this.sessionId }
+          : {
+              ...cloudNormalizerOptions,
+              onUsage: (usage) => {
+                this.cost.addTextUsage(usage, 'primary');
+                this.emitMetrics();
+              },
+            },
+      );
+    }
+    this.shadowActive = Boolean(this.shadowActive && apiKey);
+    this.shadowNormalizer = this.shadowActive ? this.normalizerFactory({
+      ...cloudNormalizerOptions,
       onUsage: (usage) => {
         this.cost.addTextUsage(usage, 'shadow');
         this.emitMetrics();
       },
-    });
+    }) : null;
 
     for (const channel of ['microphone', 'system']) {
-      const session = this.transcriptionFactory({
+      const session = this.transcriptionBackendFactory.create(
+        this.processing.transcription,
+        {
         channel,
         apiKey,
+        client: this.localClient,
+        sessionId: this.sessionId,
         settings: this.settings,
         keywords: glossaryKeywords,
         onUsage: ({ audioMs }) => {
-          this.cost.addAudio(audioMs);
-          this.emitMetrics();
+          if (this.processing.transcription === 'openai-live') {
+            this.cost.addAudio(audioMs);
+            this.emitMetrics();
+          }
         },
         onEvent: (event) => this.handleTranscriptionEvent(event),
       });
@@ -322,7 +400,7 @@ class CaptionSessionManager {
         ).toString('base64'),
       });
     }
-    session.appendAudio(pcm);
+    session.appendAudio(pcm, Number.isFinite(capturedAt) ? capturedAt : Date.now());
     this.meetingRecordController?.writeAudioChunk(
       channel,
       pcm,
@@ -417,9 +495,11 @@ class CaptionSessionManager {
       transcriptStatus: transcript.final ? 'final' : 'provisional',
       profile: this.settings.primaryProfile,
       normalizationModel:
-        this.settings.primaryProfile === 'quality'
-          ? 'gpt-5.6-luna'
-          : 'gpt-5.4-nano',
+        this.translationPolicy?.finalBackend === 'hy-mt2-local'
+          ? 'hy-mt2-1.8b'
+          : this.settings.primaryProfile === 'quality'
+            ? 'gpt-5.6-luna'
+            : 'gpt-5.4-nano',
       fastPath: this.settings.fastPath,
     });
     if (previous) {
@@ -539,6 +619,10 @@ class CaptionSessionManager {
   }
 
   async normalizePrimary(key, caption, final) {
+    const translator = final
+      ? this.finalTranslator || this.primaryNormalizer
+      : this.previewTranslator || this.primaryNormalizer;
+    if (!translator) return;
     const controller = new AbortController();
     this.abortControllers.set(key, controller);
     const targets =
@@ -557,8 +641,9 @@ class CaptionSessionManager {
         if (!this.cost.canSpend()) return;
         try {
           this.recordNormalizationContext(requestContext.metrics);
-          const result = await this.primaryNormalizer.normalize({
+          const result = await translator.normalize({
             sourceText: caption.sourceText,
+            sourceLanguage: caption.sourceLanguage,
             target,
             profile: this.settings.primaryProfile,
             final,
@@ -566,6 +651,11 @@ class CaptionSessionManager {
             protectedTokens: requestContext.protectedTokens,
             signal: controller.signal,
             priority: final ? 10 : 0,
+            utteranceId: key,
+            sourceRevision: Math.max(
+              caption.english?.revision || 0,
+              caption.chinese?.revision || 0,
+            ),
           });
           if (
             controller.signal.aborted ||
@@ -584,12 +674,13 @@ class CaptionSessionManager {
           });
           updated.sourceLanguage = result.sourceLanguage;
           updated.provider.normalizationModel = result.model;
+          if (final) updated.provider.finalNormalizationModel = result.model;
           updated.usage = {
             ...updated.usage,
             normalizationTokensIn:
-              updated.usage.normalizationTokensIn + result.usage.inputTokens,
+              updated.usage.normalizationTokensIn + (result.usage?.inputTokens || 0),
             normalizationTokensOut:
-              updated.usage.normalizationTokensOut + result.usage.outputTokens,
+              updated.usage.normalizationTokensOut + (result.usage?.outputTokens || 0),
             normalizationCalls: updated.usage.normalizationCalls + 1,
             estimatedCostUsd: this.cost.snapshot().totalUsd,
           };

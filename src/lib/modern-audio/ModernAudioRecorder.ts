@@ -358,6 +358,10 @@ export class ModernAudioRecorder extends BaseAudioRecorder {
       });
     };
     this.audioChunks = [];
+    // A late ScriptProcessor callback can arrive after pause and repopulate the
+    // converter's fractional state. Every new recording therefore begins with
+    // a fresh transport timeline before its first callback is accepted.
+    this.resetTransportResampler();
 
     console.info(`${this.getLogPrefix()} Recording started`);
 

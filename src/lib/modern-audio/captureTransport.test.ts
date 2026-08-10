@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { BaseAudioRecorder } from './BaseAudioRecorder';
+import { ModernAudioRecorder } from './ModernAudioRecorder';
 
 const HERE = __dirname;
 const RECORDER = join(HERE, 'BaseAudioRecorder.ts');
@@ -31,6 +32,21 @@ class RecorderHarness extends BaseAudioRecorder {
     this.scriptProcessor?.onaudioprocess?.({
       inputBuffer: { getChannelData: () => input },
     } as unknown as AudioProcessingEvent);
+  }
+}
+
+class ModernRecorderHarness extends ModernAudioRecorder {
+  setMediaRecorderForTest(mediaRecorder: unknown) {
+    (this as unknown as { mediaRecorder: unknown }).mediaRecorder = mediaRecorder;
+  }
+
+  primeFallbackPhase(input: Int16Array) {
+    this.audioContext = { sampleRate: 48000 } as AudioContext;
+    this.resampleForTransport(input);
+  }
+
+  emitFallback(input: Int16Array) {
+    this._processAudioData(this.resampleForTransport(input));
   }
 }
 
@@ -142,5 +158,32 @@ describe('ScriptProcessor transport resampling', () => {
     expect(emitted).toHaveLength(1);
     expect(emitted[0]).toHaveLength(240);
     expect(Array.from(emitted[0])).toEqual(Array(240).fill(16383));
+  });
+
+  it('starts a fresh fallback timeline after pause and record', async () => {
+    const recorder = new ModernRecorderHarness({ sampleRate: 24000 });
+    const emitted: Int16Array[] = [];
+    const mediaRecorder = {
+      state: 'inactive' as 'inactive' | 'recording',
+      start: vi.fn(() => {
+        mediaRecorder.state = 'recording';
+      }),
+      stop: vi.fn(() => {
+        mediaRecorder.state = 'inactive';
+      }),
+    };
+    recorder.setMediaRecorderForTest(mediaRecorder);
+
+    await recorder.record(({ mono }) => emitted.push(mono));
+    await recorder.pause();
+    // A queued fallback callback may arrive after pause. `record()` must not
+    // let that stale phase influence the first resumed recording frame.
+    recorder.primeFallbackPhase(new Int16Array([0, 0, 0]));
+
+    await recorder.record(({ mono }) => emitted.push(mono));
+    recorder.emitFallback(new Int16Array([0, 100, 200, 300]));
+
+    expect(emitted).toHaveLength(1);
+    expect(Array.from(emitted[0])).toEqual([50, 250]);
   });
 });

@@ -75,6 +75,7 @@ class CaptionSessionManager {
     normalizerFactory,
     evaluationRecorder,
     meetingRecordController,
+    localInferenceSupervisor,
     appVersion,
     coordinatorFactory,
     schedulerFactory,
@@ -92,6 +93,7 @@ class CaptionSessionManager {
       normalizerFactory || ((options) => new OpenAINormalizer(options));
     this.evaluationRecorder = evaluationRecorder;
     this.meetingRecordController = meetingRecordController;
+    this.localInferenceSupervisor = localInferenceSupervisor;
     this.appVersion = appVersion;
     this.coordinatorFactory =
       coordinatorFactory || ((options) => new TranscriptCoordinator(options));

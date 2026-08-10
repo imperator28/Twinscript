@@ -62,6 +62,7 @@ function registerCaptionIpc({
   requestMicrophoneAccess,
   nativeCameraSupervisor = null,
   nativeCameraInstaller = null,
+  localInferenceSupervisor = null,
 }) {
   const handle = (channel, action) => {
     ipcMain.handle(

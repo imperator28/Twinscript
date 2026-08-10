@@ -22,6 +22,9 @@ const {
 const { CredentialStore } = require('./captions/credential-store');
 const { EvaluationRecorder } = require('./captions/evaluation-recorder');
 const {
+  LocalInferenceSupervisor,
+} = require('./captions/local-inference-supervisor');
+const {
   MeetingRecordController,
 } = require('./captions/meeting-record-controller');
 const { registerCaptionIpc } = require('./captions/register-caption-ipc');
@@ -72,6 +75,7 @@ let captionWindows = null;
 let sessionManager = null;
 let meetingRecordController = null;
 let nativeCameraSupervisor = null;
+let localInferenceSupervisor = null;
 let shutdownPromise = null;
 let shutdownComplete = false;
 
@@ -396,6 +400,11 @@ app.whenReady().then(async () => {
 
   const credentialStore = new CredentialStore({ app, safeStorage });
   const evaluationRecorder = new EvaluationRecorder({ app, safeStorage });
+  localInferenceSupervisor = new LocalInferenceSupervisor({
+    isPackaged: app.isPackaged,
+    resourcesPath: process.resourcesPath,
+    appPath: app.getAppPath(),
+  });
   meetingRecordController = new MeetingRecordController({
     app,
     safeStorage,
@@ -418,6 +427,7 @@ app.whenReady().then(async () => {
       captionWindows.broadcastControl('captions:evaluation', result),
     evaluationRecorder,
     meetingRecordController,
+    localInferenceSupervisor,
     appVersion: app.getVersion(),
   });
   const requestMicrophoneAccess = async () => {
@@ -449,6 +459,7 @@ app.whenReady().then(async () => {
     requestMicrophoneAccess,
     nativeCameraSupervisor,
     nativeCameraInstaller,
+    localInferenceSupervisor,
   });
   captionWindows.broadcastControl(
     'captions:pending-meeting-records',
@@ -477,6 +488,7 @@ app.on('before-quit', (event) => {
   shutdownPromise = (async () => {
     await captionWindows?.stopCameraOutput();
     await sessionManager?.stop();
+    await localInferenceSupervisor?.dispose();
     meetingRecordController?.destroy();
   })()
     .catch((error) => {

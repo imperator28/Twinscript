@@ -174,6 +174,23 @@ test('a retained download failure overrides a stale same-size ready marker', asy
   fs.rmSync(root, { recursive: true, force: true });
 });
 
+test('a failed replacement of a same-size corrupt model invalidates its marker for a new manager', async () => {
+  const bytes = Buffer.from('verified-model');
+  const { root, manager } = managerFor({ bytes, fetchImpl: async () => streamResponse(bytes) });
+  await manager.download('whisper-small');
+  fs.writeFileSync(path.join(root, 'whisper-small', 'whisper-v1', 'model.bin'), Buffer.alloc(bytes.length, 'x'));
+  manager.fetchImpl = async () => { throw new Error('network down'); };
+
+  await assert.rejects(manager.download('whisper-small'), { code: 'local_model_download_failed' });
+
+  const reloaded = new LocalModelManager({ manifest: manager.manifest, root });
+  const row = reloaded.status().models['whisper-small'];
+  assert.equal(row.ready, false);
+  assert.equal(row.phase, 'repair-needed');
+  assert.equal(fs.existsSync(path.join(root, 'whisper-small', 'whisper-v1', '.verified.json')), false);
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
 test('explicit verify hashes an unmarked complete model and writes a ready marker', async () => {
   const bytes = Buffer.from('verified-model');
   const { root, manager } = managerFor({ bytes });

@@ -216,6 +216,9 @@ class LocalModelManager {
         this._emit(model.id, 'downloading', completedBytes, totalBytes);
         continue;
       }
+      let existing = null;
+      try { existing = await fsp.stat(destination); } catch { /* no existing destination */ }
+      if (existing?.isFile() && existing.size === file.size) await this._invalidateMarker(model);
       let offset = 0;
       try {
         offset = (await fsp.stat(partial)).size;

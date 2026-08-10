@@ -66,8 +66,26 @@ test('fails closed when a packaged catalog signature is modified or missing', ()
     assert.equal(result.available, false);
     assert.equal(result.root, root);
     assert.equal(result.manifest, null);
+    assert.equal(result.error.code, 'local_catalog_unavailable');
     assert.equal(result.error.message, 'Local model downloads are unavailable in this build.');
   }
+});
+
+test('fails closed with a public error code when the catalog root is missing', () => {
+  const resourcesPath = temporaryDirectory();
+  const root = path.join(resourcesPath, 'resources', 'local-models');
+
+  const result = loadLocalModelCatalog({ isPackaged: true, resourcesPath, appPath: 'ignored' });
+
+  assert.deepEqual(result, {
+    available: false,
+    root,
+    manifest: null,
+    error: {
+      code: 'local_catalog_unavailable',
+      message: 'Local model downloads are unavailable in this build.',
+    },
+  });
 });
 
 test('loads an unsigned development fixture from the application path', () => {

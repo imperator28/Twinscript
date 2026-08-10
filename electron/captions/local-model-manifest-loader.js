@@ -17,12 +17,12 @@ function loadLocalModelCatalog({ isPackaged, resourcesPath, appPath, fsImpl = fs
       : undefined;
     const manifest = loadManifest({ json, signature, publicKey, packaged: Boolean(isPackaged) });
     return { available: true, root, manifest, error: null };
-  } catch (error) {
+  } catch {
     return {
       available: false,
       root,
       manifest: null,
-      error: { code: error?.code || 'local_catalog_unavailable', message: CATALOG_ERROR_MESSAGE },
+      error: { code: 'local_catalog_unavailable', message: CATALOG_ERROR_MESSAGE },
     };
   }
 }

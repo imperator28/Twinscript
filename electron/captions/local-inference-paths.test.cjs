@@ -3,6 +3,15 @@ const test = require('node:test');
 
 const { resolveLocalInferencePaths } = require('./local-inference-paths');
 
+function catalog() {
+  return {
+    runtimeVersion: '2026.8.10',
+    models: [
+      { id: 'whisper-small', version: 'whisper-v2', launchPath: '.' },
+      { id: 'hy-mt2-1.8b', version: 'hymt2-v2', launchPath: 'weights/model.gguf' },
+    ],
+  };
+}
 
 test('development paths use staged runtime and validated local model artifacts', () => {
   const paths = resolveLocalInferencePaths({
@@ -10,12 +19,14 @@ test('development paths use staged runtime and validated local model artifacts',
     resourcesPath: 'unused',
     appPath: 'C:\\repo',
     userDataPath: 'C:\\user',
+    manifest: catalog(),
   });
   assert.equal(paths.executablePath,
     'C:\\repo\\artifacts\\local-inference-host\\twinscript-local-inference.exe');
   assert.equal(paths.whisperModelPath,
-    'C:\\repo\\native\\local-inference-host\\models\\whisper-small');
-  assert.match(paths.hyMt2ModelPath, /source-snapshots\\hy-mt2-1\.8b-gguf\\Hy-MT2-1\.8B-Q4_K_M\.gguf$/);
+    'C:\\repo\\native\\local-inference-host\\models\\whisper-small\\whisper-v2');
+  assert.equal(paths.hyMt2ModelPath,
+    'C:\\repo\\native\\local-inference-host\\models\\hy-mt2-1.8b\\hymt2-v2\\weights\\model.gguf');
 });
 
 test('packaged paths keep runtime in resources and downloaded weights in user data', () => {
@@ -24,9 +35,25 @@ test('packaged paths keep runtime in resources and downloaded weights in user da
     resourcesPath: 'C:\\Program Files\\Twinscript\\resources',
     appPath: 'unused',
     userDataPath: 'C:\\Users\\me\\AppData\\Roaming\\Twinscript',
+    manifest: catalog(),
   });
   assert.match(paths.executablePath, /resources\\local-inference-host\\twinscript-local-inference\.exe$/);
   assert.match(paths.llamaBinaryPath, /resources\\local-inference-host\\llama\\llama-server\.exe$/);
-  assert.match(paths.whisperModelPath, /local-models\\whisper-small\\973afd24965f72e36ca33b3055d56a652f456b4d$/);
-  assert.match(paths.hyMt2ModelPath, /local-models\\hy-mt2-1\.8b\\1cd5208700acedef4ef93019b6cfc148b8522d45\\Hy-MT2-1\.8B-Q4_K_M\.gguf$/);
+  assert.match(paths.whisperModelPath, /local-models\\whisper-small\\whisper-v2$/);
+  assert.match(paths.hyMt2ModelPath, /local-models\\hy-mt2-1\.8b\\hymt2-v2\\weights\\model\.gguf$/);
+});
+
+test('runtime paths remain defined while catalog-dependent model paths fail closed', () => {
+  const paths = resolveLocalInferencePaths({
+    isPackaged: true,
+    resourcesPath: 'C:\\Program Files\\Twinscript\\resources',
+    appPath: 'unused',
+    userDataPath: 'C:\\Users\\me\\AppData\\Roaming\\Twinscript',
+    manifest: null,
+  });
+
+  assert.match(paths.executablePath, /local-inference-host\\twinscript-local-inference\.exe$/);
+  assert.match(paths.llamaBinaryPath, /local-inference-host\\llama\\llama-server\.exe$/);
+  assert.equal(paths.whisperModelPath, null);
+  assert.equal(paths.hyMt2ModelPath, null);
 });

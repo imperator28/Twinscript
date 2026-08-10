@@ -100,6 +100,7 @@ class LocalInferenceSupervisor extends EventEmitter {
     translationServer = null,
     exists = fs.existsSync,
     artifactReady = null,
+    modelReady = null,
   } = {}) {
     super();
     this.spawnImpl = spawn;
@@ -118,6 +119,7 @@ class LocalInferenceSupervisor extends EventEmitter {
     this.hyMt2ModelPath = hyMt2ModelPath;
     this.exists = exists;
     this.artifactReady = artifactReady;
+    this.modelReady = modelReady;
     this.runtimeIntegrity = null;
     this.lastModels = new Map();
     this.translationServer = translationServer || (
@@ -223,7 +225,9 @@ class LocalInferenceSupervisor extends EventEmitter {
         ? this.artifactReady('runtime', this.executablePath)
         : verifyRuntimeManifest(this.executablePath);
     }
-    const whisperReady = this.artifactReady
+    const whisperReady = this.isPackaged
+      ? Boolean(this.modelReady?.('whisper-small'))
+      : this.artifactReady
       ? this.artifactReady('whisper-small', this.whisperModelPath)
       : Boolean(this.whisperModelPath && (
           this.isPackaged
@@ -231,7 +235,9 @@ class LocalInferenceSupervisor extends EventEmitter {
             : hasDevelopmentModel(this.whisperModelPath, REQUIRED_WHISPER_FILES)
         ));
     const hyMt2File = this.hyMt2ModelPath ? path.basename(this.hyMt2ModelPath) : '';
-    const hyMt2Ready = this.artifactReady
+    const hyMt2Ready = this.isPackaged
+      ? Boolean(this.modelReady?.('hy-mt2-1.8b'))
+      : this.artifactReady
       ? this.artifactReady('hy-mt2-1.8b', this.hyMt2ModelPath)
       : Boolean(
           this.llamaBinaryPath && this.exists(this.llamaBinaryPath) &&

@@ -39,6 +39,18 @@ const os = require('node:os');
 const path = require('node:path');
 const { EventEmitter } = require('node:events');
 
+test('caption session activity remains locked while shutdown finalizes', () => {
+  const manager = new CaptionSessionManager({ credentialStore: {}, settingsStore: {} });
+  assert.equal(manager.isActive(), false);
+
+  manager.active = true;
+  assert.equal(manager.isActive(), true);
+
+  manager.active = false;
+  manager.finalizingStop = true;
+  assert.equal(manager.isActive(), true);
+});
+
 test('routes dominant English, Chinese, and mixed-script utterances', () => {
   assert.equal(classifyScript('Can we move DVT to September?'), 'en');
   assert.equal(classifyScript('这个支架需要修改公差。'), 'zh');

@@ -176,6 +176,10 @@ class CaptionSessionManager {
     this.finalizingStop = false;
   }
 
+  isActive() {
+    return this.active || this.finalizingStop;
+  }
+
   async start(request = {}) {
     if (this.active) await this.stop();
     this.reset();

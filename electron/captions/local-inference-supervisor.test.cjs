@@ -144,6 +144,42 @@ test('readiness reports runtime and each local model independently', () => {
   });
 });
 
+test('packaged model readiness delegates to the lifecycle service', () => {
+  const calls = [];
+  const supervisor = new LocalInferenceSupervisor({
+    isPackaged: true,
+    executablePath: 'host.exe',
+    whisperModelPath: 'whisper',
+    hyMt2ModelPath: 'hy.gguf',
+    modelReady: (modelId) => {
+      calls.push(modelId);
+      return modelId === 'whisper-small';
+    },
+    artifactReady: () => true,
+  });
+
+  const readiness = supervisor.readiness();
+
+  assert.equal(readiness.models['whisper-small'].ready, true);
+  assert.equal(readiness.models['hy-mt2-1.8b'].ready, false);
+  assert.deepEqual(calls, ['whisper-small', 'hy-mt2-1.8b']);
+});
+
+test('packaged model readiness fails closed when the lifecycle service is unavailable', () => {
+  const supervisor = new LocalInferenceSupervisor({
+    isPackaged: true,
+    executablePath: 'host.exe',
+    whisperModelPath: 'whisper',
+    hyMt2ModelPath: 'hy.gguf',
+    artifactReady: () => true,
+  });
+
+  const readiness = supervisor.readiness();
+
+  assert.equal(readiness.models['whisper-small'].ready, false);
+  assert.equal(readiness.models['hy-mt2-1.8b'].ready, false);
+});
+
 test('runtime readiness verifies the staged manifest hash', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'twinscript-runtime-'));
   const executable = path.join(root, 'twinscript-local-inference.exe');

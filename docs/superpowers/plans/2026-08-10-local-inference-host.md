@@ -1,12 +1,21 @@
 # Local Inference Host Implementation Plan
 
+> **Implementation note (2026-08-10):** Feasibility changed the translation adapter,
+> without changing the protocol or application boundary. The production supervisor now
+> runs the C++ OpenVINO GenAI host for Whisper on `NPU` and a private loopback
+> `llama-server` process for Hy-MT2 on `CPU`. `HybridLocalInferenceClient` presents both
+> processes behind protocol v1. The OpenVINO Hy-MT2 adapter described in Task 5 is not
+> implemented because the `hunyuan_v1_dense` architecture could not be exported by the
+> validated OpenVINO toolchain. See the feasibility report for the exact revisions,
+> hashes, and measurements.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Build a self-contained Windows native process that serves bounded Whisper ASR and Hy-MT2 translation requests using the device allocation proven by the feasibility plan.
 
-**Architecture:** A C++ executable owns OpenVINO GenAI pipelines and exposes a versioned JSON-lines protocol over stdin/stdout. Engine interfaces and a fake implementation make protocol, cancellation, priority, and lifecycle behavior testable without model weights; OpenVINO adapters are added only after the contract is stable.
+**Architecture:** A C++ executable owns the OpenVINO GenAI Whisper pipeline and exposes a versioned JSON-lines protocol over stdin/stdout. A supervised loopback llama.cpp server owns Hy-MT2 translation. Engine interfaces and fake implementations make protocol, cancellation, priority, and lifecycle behavior testable without model weights; hardware adapters are added only after the contract is stable.
 
-**Tech Stack:** C++20, CMake 3.20+, Visual Studio 2022, OpenVINO Runtime/GenAI 2026.x, nlohmann/json, Catch2, Node test runner, PowerShell
+**Tech Stack:** C++20, CMake 3.20+, Visual Studio 2022, OpenVINO Runtime/GenAI 2026.3, llama.cpp b9940, nlohmann/json, Catch2, Node test runner, PowerShell
 
 ---
 

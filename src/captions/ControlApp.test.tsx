@@ -65,6 +65,9 @@ const settings = {
   shadowEnabled: false,
   fastPath: true,
   provisionalTranslation: true,
+  transcriptionModel: 'openai-live' as const,
+  finalTranslationModel: 'luna' as const,
+  localTranslationAcceleration: false,
   vadEnabled: true,
   vadThreshold: 0.012,
   delayProfile: 'low',
@@ -504,6 +507,51 @@ describe('meeting caption controls', () => {
     expect(
       await screen.findByRole('heading', { name: 'Connection' }),
     ).toBeInTheDocument();
+  });
+
+  it('does not request a cloud credential when both selected models are local', async () => {
+    window.captions.getSettings = () =>
+      Promise.resolve({
+        ok: true as const,
+        data: {
+          ...settings,
+          transcriptionModel: 'whisper-local' as const,
+          finalTranslationModel: 'hy-mt2-local' as const,
+        },
+      });
+    window.captions.credentialStatus = () =>
+      Promise.resolve({
+        ok: true as const,
+        data: { available: false, source: 'missing', encryptionAvailable: true },
+      });
+
+    render(<ControlApp />);
+
+    expect(await screen.findByRole('button', { name: /Start session/i })).toBeEnabled();
+    expect(screen.queryByText('Add your OpenAI API key')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+    expect(await screen.findByText(/No API key is read when a meeting starts/i)).toBeVisible();
+  });
+
+  it('controls transcription, final translation and early local acceleration independently', async () => {
+    render(<ControlApp />);
+    await screen.findByRole('button', { name: /Start session/i });
+    fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+
+    fireEvent.click(screen.getByRole('switch', { name: 'Use local Whisper transcription' }));
+    await waitFor(() => expect(window.captions.setSettings).toHaveBeenCalledWith({
+      transcriptionModel: 'whisper-local',
+    }));
+
+    fireEvent.click(screen.getByRole('switch', { name: 'Use local Hy-MT2 for final translation' }));
+    await waitFor(() => expect(window.captions.setSettings).toHaveBeenCalledWith({
+      finalTranslationModel: 'hy-mt2-local',
+    }));
+
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Use local Hy-MT2 for early translation' }));
+    await waitFor(() => expect(window.captions.setSettings).toHaveBeenCalledWith({
+      localTranslationAcceleration: true,
+    }));
   });
 
   it('offers an explicit day/night switch that overrides the system', async () => {

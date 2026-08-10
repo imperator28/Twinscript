@@ -1091,8 +1091,12 @@ export function ControlApp() {
   const budgetPressed = active && budgetRatio >= 0.8;
   // One place decides what is missing and how much it matters, so the checklist the
   // operator reads and the Start button they press cannot disagree.
+  const usesCloudModels =
+    settings.transcriptionModel === 'openai-live' ||
+    settings.finalTranslationModel === 'luna';
   const readiness = reviewReadiness({
     advisoriesDismissed: advisoriesDismissed,
+    credentialRequired: usesCloudModels,
     credentialAvailable: Boolean(credential?.available),
     microphoneAvailable: devices.inputs.length > 0,
     outputMode: settings.outputMode,
@@ -2036,7 +2040,7 @@ export function ControlApp() {
           </article>
 
           <article className="card">
-            <p className="eyebrow">OPENAI</p><h2>Connection</h2>
+            <p className="eyebrow">{usesCloudModels ? 'OPENAI' : 'CLOUD OPTION'}</p><h2>Connection</h2>
             <p className="supporting-copy">
               {settings.transcriptionModel === 'openai-live' || settings.finalTranslationModel === 'luna'
                 ? 'Your selected pipeline uses an OpenAI model. The API key is stored securely by this computer and is never shown after saving.'
@@ -2057,7 +2061,7 @@ export function ControlApp() {
                 </button>
               </div>
             )}
-            <label className="field"><span>{credential?.available ? 'Replace API key' : 'API key'}</span><input ref={apiKeyInput} type="password" autoComplete="off" value={keyInput} onChange={(event) => setKeyInput(event.target.value)} placeholder="sk-…" /></label>
+            <label className="field"><span>{credential?.available ? 'Replace API key' : usesCloudModels ? 'API key' : 'API key (optional)'}</span><input ref={apiKeyInput} type="password" autoComplete="off" value={keyInput} onChange={(event) => setKeyInput(event.target.value)} placeholder="sk-…" /></label>
             <div className="button-row">
               <button className="button button--primary" disabled={busy || !keyInput.trim()} onClick={() => void saveKey()}>Validate & save</button>
               {credential?.available && <button className="button button--secondary" disabled={busy} onClick={() => void testSavedKey()}>Test saved key</button>}
@@ -2143,7 +2147,7 @@ export function ControlApp() {
               <button className="button button--secondary" disabled={active || busy} onClick={() => void importGlossary()}>Import glossary</button>
               <button className="button button--quiet" disabled={busy} onClick={() => void exportGlossary()}>Export configuration</button>
             </div>
-            <p className="field-note">Import is processed locally. Only active terms are supplied to OpenAI while a live session is running.</p>
+            <p className="field-note">Import is processed locally. Only active terms are supplied to the selected translation engine while a live session is running.</p>
 
             {/* The viewer. The card previously reported "138 built-in terms" and nothing
                 else, so there was no way to check whether a term was already covered,
@@ -2199,7 +2203,7 @@ export function ControlApp() {
                         }`}
                   </p>
                   <p className="field-note">
-                    The first {effectiveGlossary.activeLimit} terms are sent to OpenAI each
+                    The first {effectiveGlossary.activeLimit} terms are sent to the selected translation engine each
                     session; the rest stay stored. Your own entries sort ahead of built-in
                     ones.
                   </p>
@@ -2456,8 +2460,11 @@ export function ControlApp() {
             two places showing the same figure is how they come to disagree. */}
         {!active && (
           <span>
-            Estimated session cost <strong>${sessionCost.toFixed(3)}</strong> / $
-            {sessionBudget.toFixed(2)}
+            {usesCloudModels ? (
+              <>Estimated session cost <strong>${sessionCost.toFixed(3)}</strong> / ${sessionBudget.toFixed(2)}</>
+            ) : (
+              <>Local pipeline <strong>no API inference cost</strong></>
+            )}
           </span>
         )}
         <span>
@@ -2465,13 +2472,17 @@ export function ControlApp() {
           {/* The only menu item with no in-app equivalent, so it moves here rather
               than disappearing with the hidden menu bar. It also belongs next to the
               sentence about how this app handles audio. */}
-          <a
-            href="https://developers.openai.com/api/docs/guides/your-data"
-            target="_blank"
-            rel="noreferrer"
-          >
-            OpenAI data controls
-          </a>
+          {usesCloudModels ? (
+            <a
+              href="https://developers.openai.com/api/docs/guides/your-data"
+              target="_blank"
+              rel="noreferrer"
+            >
+              OpenAI data controls
+            </a>
+          ) : (
+            <span>Speech and translations stay on this computer.</span>
+          )}
         </span>
       </footer>
     </main>

@@ -53,7 +53,7 @@ export const CREDITS: readonly Credit[] = [
   },
   {
     label: 'Captions by',
-    body: "OpenAI's realtime speech-to-text and translation models, over a WebSocket session opened with ws.",
+    body: "OpenAI's realtime models over a WebSocket opened with ws, or local Whisper and Hy-MT2 through the native inference host, according to your selected pipeline.",
   },
   {
     label: 'Audio cleanup',

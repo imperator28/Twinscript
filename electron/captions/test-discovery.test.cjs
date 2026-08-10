@@ -20,6 +20,7 @@ const vitestConfig = fs.readFileSync(
 // runner and would fail silently, which is what the second test below catches.
 const NODE_TEST_GLOBS = Object.freeze([
   'electron/captions/*.test.cjs',
+  'native/local-inference-host/tests/*.test.cjs',
   'scripts/release/*.test.cjs',
 ]);
 const NODE_TEST_DIRS = Object.freeze(

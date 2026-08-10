@@ -1,5 +1,34 @@
 # Translation Pipeline and Native Drafts Implementation Plan
 
+> **2026-08-10 implementation review:** This plan is retained as historical context,
+> but its local-execution design is superseded by
+> [the hybrid/full-local design](../specs/2026-08-10-hybrid-full-local-inference-design.md),
+> [the Windows feasibility plan](2026-08-10-windows-npu-model-feasibility.md), and
+> [the app-integration plan](2026-08-10-hybrid-full-local-app-integration.md).
+> Do not implement the Windows ML/C# draft-only tasks below. The validated allocation is
+> Whisper small on the Intel NPU through OpenVINO GenAI and Hy-MT2-1.8B Q4 on CPU through
+> llama.cpp. The current cloud live-transcription + Luna pipeline remains the default;
+> transcription and final translation are independently selectable, and local Hy-MT2
+> preview acceleration never changes which final model is authoritative.
+
+## Review outcome
+
+- Retained: the current cloud route as the main track, bounded/cancellable provisional
+  work, glossary protection, and Luna authority when Luna is selected.
+- Expanded: local Whisper transcription, local Hy-MT2 final translation, all four
+  cloud/local combinations, and an optional local Hy-MT2 preview path.
+- Privacy rule: Whisper + Hy-MT2 startup does not read cloud credentials or construct a
+  cloud client; an unavailable local dependency blocks startup instead of silently
+  falling back to cloud.
+- Hardware result: Whisper is verified on `NPU`; Hy-MT2 could not be exported through
+  the current OpenVINO toolchain and is verified with llama.cpp on `CPU`. GPU is disabled
+  on the validation machine after the OpenVINO plugin process crashed during discovery.
+- Remaining release gates: a signed hosted model manifest/download surface and the
+  60-minute simultaneous-residency soak. The development review build uses pinned local
+  model snapshots and a hash-verified staged runtime.
+
+See `docs/validation/windows-local-inference-feasibility.md` for measured evidence.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Keep Luna finals current under load and add optional, cancellable on-device draft translation through Windows NPU and macOS Translation framework backends.

@@ -37,8 +37,13 @@ try {
   )) {
     $process.StandardInput.WriteLine($request)
     $process.StandardInput.Flush()
-    $reply = $process.StandardOutput.ReadLineAsync().WaitAsync([TimeSpan]::FromSeconds(10)).Result |
-      ConvertFrom-Json
+    # Windows ships Windows PowerShell 5.1, whose .NET Framework Task does not
+    # expose WaitAsync. Keep the timeout without requiring PowerShell 7.
+    $readTask = $process.StandardOutput.ReadLineAsync()
+    if (-not $readTask.Wait([TimeSpan]::FromSeconds(10))) {
+      throw "Timed out waiting for local host reply"
+    }
+    $reply = $readTask.Result | ConvertFrom-Json
     if ($reply.protocolVersion -ne 1 -or $reply.type -eq "error") {
       throw "Invalid host reply: $($reply | ConvertTo-Json -Compress)"
     }

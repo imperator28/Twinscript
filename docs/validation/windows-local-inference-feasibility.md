@@ -52,8 +52,29 @@
 - zh-en-voltage: PASS (691.0 ms) — Priya confirmed that the sensor uses 24 VDC.
 - zh-en-mixed: PASS (1,096.1 ms) — Ming said the DVT build is ready, but the connector still needs to be reviewed.
 
+## Application-boundary evidence
+
+The staged runtime was exercised through the same Electron supervisor and client used by
+the app, not only through isolated model scripts:
+
+- Staged runtime integrity: 66 files verified against the generated SHA-256 manifest.
+- Whisper official sample: `How are you doing today?` transcribed exactly on `NPU`.
+- Latest Whisper inference through the Electron supervisor: 660.3 ms for 2.05 s of
+  synthesized 24 kHz speech.
+- Latest Hy-MT2 authoritative translation through the Electron supervisor: 548.2 ms.
+- Latest Hy-MT2 server load: 1,732.2 ms; reported device `CPU`.
+- Protected engineering literal smoke: `24 VDC` survived the English-to-Chinese result
+  exactly.
+- Both child processes completed a clean supervised shutdown.
+
+The measurements are smoke-test observations on the validation machine, not latency
+service-level guarantees.
+
 ## Remaining validation
 
 - The 60-minute simultaneous-residency soak remains a release validation gate.
 - OpenVINO GPU is disabled on this machine because isolated plugin discovery exits with an access violation.
 - Energy counters were not sampled; energy is diagnostic and does not change the allocation.
+- Packaged model acquisition is not yet a release-ready user flow. Manifest verification,
+  resumable download, hash checking, and meeting-active mutation blocking are implemented,
+  but hosted converted Whisper artifacts and the release signing key are not yet available.

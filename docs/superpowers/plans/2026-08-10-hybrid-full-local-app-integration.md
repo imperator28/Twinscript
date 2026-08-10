@@ -1,5 +1,13 @@
 # Hybrid and Full-Local Application Integration Implementation Plan
 
+> **Implementation status (2026-08-10):** The development review path is implemented.
+> The cloud defaults are unchanged; Settings exposes independent transcription and final
+> translation switches plus optional local preview acceleration. The Electron supervisor
+> launches the staged Whisper NPU host and Hy-MT2 llama.cpp server only when selected,
+> reports actual devices, and fails closed for unavailable local dependencies. The
+> remaining production-distribution work is a signed hosted model manifest/download UI;
+> the 60-minute simultaneous-residency soak remains a release validation gate.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add independently selectable cloud/local transcription and final-translation engines plus optional Hy-MT2 preview acceleration, while keeping the current OpenAI-plus-Luna experience as the default main track.

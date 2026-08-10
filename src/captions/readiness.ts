@@ -5,7 +5,9 @@
 // the window - directly in the header of a fresh install, where pressing it simply
 // failed. The three prerequisites (an API key, microphone access, and in camera
 // mode an installed virtual camera) were each discoverable only by failing, and one
-// of them lived on a different tab. This module names them so the panel can show
+// of them lived on a different tab. Cloud credentials are conditional because a
+// fully local Whisper -> Hy-MT2 route must never read or require them. This module
+// names the applicable prerequisites so the panel can show
 // them in order instead.
 //
 // Severity is deliberately not uniform. Only a missing API key stops everything, so
@@ -38,6 +40,8 @@ export interface ReadinessInput {
    * nothing on screen explaining why.
    */
   advisoriesDismissed?: boolean;
+  /** Whether either selected authoritative stage uses an OpenAI model. */
+  credentialRequired: boolean;
   /** A usable API key is present in secure storage. */
   credentialAvailable: boolean;
   /** At least one input device is enumerable, which requires granted permission. */
@@ -69,17 +73,21 @@ export interface ReadinessReview {
 }
 
 export function reviewReadiness(input: ReadinessInput): ReadinessReview {
-  const steps: ReadinessStep[] = [
-    {
+  const steps: ReadinessStep[] = [];
+
+  if (input.credentialRequired) {
+    steps.push({
       id: 'credential',
       title: 'Add your OpenAI API key',
       detail:
-        'Speech is transcribed and translated by OpenAI, so nothing can be captioned without a key.',
+        'A selected transcription or translation stage uses OpenAI, so that route cannot run without a key.',
       done: input.credentialAvailable,
       severity: 'blocking',
       action: 'Add key',
-    },
-    {
+    });
+  }
+
+  steps.push({
       id: 'microphone',
       title: 'Allow microphone access',
       detail:
@@ -87,8 +95,7 @@ export function reviewReadiness(input: ReadinessInput): ReadinessReview {
       done: input.microphoneAvailable,
       severity: 'advisory',
       action: 'Allow access',
-    },
-  ];
+    });
 
   // Only relevant in camera mode. In on-screen mode the camera is not part of the
   // path at all, and listing it would be noise the operator has to learn to ignore.

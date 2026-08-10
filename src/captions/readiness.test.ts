@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { reviewReadiness, type ReadinessInput } from './readiness';
 
 const ready: ReadinessInput = {
+  credentialRequired: true,
   credentialAvailable: true,
   microphoneAvailable: true,
   outputMode: 'overlays',
@@ -22,6 +23,18 @@ describe('reviewReadiness', () => {
     const review = reviewReadiness({ ...ready, credentialAvailable: false });
     expect(review.canStart).toBe(false);
     expect(review.outstanding.map((step) => step.id)).toEqual(['credential']);
+  });
+
+  it('does not request or require a cloud credential for a fully local pipeline', () => {
+    const review = reviewReadiness({
+      ...ready,
+      credentialRequired: false,
+      credentialAvailable: false,
+    });
+
+    expect(review.canStart).toBe(true);
+    expect(review.steps.map((step) => step.id)).toEqual(['microphone']);
+    expect(review.outstanding).toEqual([]);
   });
 
   it('does not block Start for a missing microphone', () => {

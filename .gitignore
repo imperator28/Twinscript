@@ -132,3 +132,6 @@ __pycache__/
 
 # W4 native camera companion build output (MSBuild refuses to build under %TEMP%).
 native/camera-companion/build/
+native/local-inference-host/.venv/
+native/local-inference-host/models/
+/artifacts/local-inference/

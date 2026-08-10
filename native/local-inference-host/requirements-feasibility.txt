@@ -1,0 +1,6 @@
+openvino>=2026.1,<2027
+openvino-genai>=2026.1,<2027
+optimum-intel[openvino]>=1.26,<2
+huggingface-hub>=0.34,<1
+numpy>=2.1,<3
+soundfile>=0.13,<1

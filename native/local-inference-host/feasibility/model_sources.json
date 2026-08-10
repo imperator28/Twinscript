@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "models": {
+    "whisper-small": {
+      "repo": "openai/whisper-small",
+      "revision": "main",
+      "task": "automatic-speech-recognition-with-past",
+      "weight_format": "int8"
+    },
+    "hy-mt2-1.8b": {
+      "repo": "tencent/Hy-MT2-1.8B",
+      "revision": "main",
+      "task": "text-generation-with-past",
+      "weight_format": "int4"
+    }
+  }
+}

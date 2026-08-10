@@ -101,7 +101,7 @@ type CredentialState = {
 };
 
 const DEFAULT_SETTINGS: CaptionSettings = {
-  settingsVersion: 10,
+  settingsVersion: 14,
   layout: 'stacked',
   outputMode: 'overlays',
   primaryProfile: 'economy',
@@ -109,6 +109,9 @@ const DEFAULT_SETTINGS: CaptionSettings = {
   shadowEnabled: false,
   fastPath: true,
   provisionalTranslation: true,
+  transcriptionModel: 'openai-live',
+  finalTranslationModel: 'luna',
+  localTranslationAcceleration: false,
   vadEnabled: false,
   vadThreshold: 0.012,
   delayProfile: 'low',
@@ -1921,9 +1924,87 @@ export function ControlApp() {
             </p>
           </article>
 
+          <article className="card pipeline-card">
+            <p className="eyebrow">PROCESSING ROUTE</p><h2>Meeting pipeline</h2>
+            <p className="supporting-copy">
+              Choose transcription and final translation independently. These choices are locked when a meeting starts.
+            </p>
+            <div className="pipeline-choice">
+              <div className="pipeline-choice__heading">
+                <strong>Transcription model</strong>
+                <span>{settings.transcriptionModel === 'whisper-local' ? 'Private on this computer' : 'Cloud live transcription'}</span>
+              </div>
+              <div className="model-switch-row">
+                <span className={settings.transcriptionModel === 'openai-live' ? 'is-selected' : ''}>OpenAI live</span>
+                <label className="model-switch">
+                  <input
+                    type="checkbox"
+                    role="switch"
+                    aria-label="Use local Whisper transcription"
+                    disabled={active}
+                    checked={settings.transcriptionModel === 'whisper-local'}
+                    onChange={(event) => void saveSettings({
+                      transcriptionModel: event.target.checked ? 'whisper-local' : 'openai-live',
+                    })}
+                  />
+                  <i aria-hidden="true" />
+                </label>
+                <span className={settings.transcriptionModel === 'whisper-local' ? 'is-selected' : ''}>Whisper local</span>
+              </div>
+            </div>
+            <div className="pipeline-choice">
+              <div className="pipeline-choice__heading">
+                <strong>Final translation model</strong>
+                <span>{settings.finalTranslationModel === 'hy-mt2-local' ? 'Private on this computer' : 'Luna is authoritative'}</span>
+              </div>
+              <div className="model-switch-row">
+                <span className={settings.finalTranslationModel === 'luna' ? 'is-selected' : ''}>Luna</span>
+                <label className="model-switch">
+                  <input
+                    type="checkbox"
+                    role="switch"
+                    aria-label="Use local Hy-MT2 for final translation"
+                    disabled={active}
+                    checked={settings.finalTranslationModel === 'hy-mt2-local'}
+                    onChange={(event) => void saveSettings({
+                      finalTranslationModel: event.target.checked ? 'hy-mt2-local' : 'luna',
+                    })}
+                  />
+                  <i aria-hidden="true" />
+                </label>
+                <span className={settings.finalTranslationModel === 'hy-mt2-local' ? 'is-selected' : ''}>Hy-MT2 local</span>
+              </div>
+            </div>
+            <label className="toggle pipeline-acceleration">
+              <input
+                type="checkbox"
+                disabled={active}
+                checked={settings.localTranslationAcceleration}
+                onChange={(event) => void saveSettings({ localTranslationAcceleration: event.target.checked })}
+              />
+              <span>Use local Hy-MT2 for early translation</span>
+            </label>
+            <p className="field-note">
+              Early local text is provisional. Your final translation model above always decides the saved caption.
+              {!settings.provisionalTranslation && ' Early captions are currently turned off below.'}
+            </p>
+            <div className="pipeline-summary" aria-label="Selected meeting pipeline">
+              <span>{settings.transcriptionModel === 'whisper-local' ? 'Whisper local' : 'OpenAI live'}</span>
+              <i aria-hidden="true">→</i>
+              <span>{settings.finalTranslationModel === 'hy-mt2-local' ? 'Hy-MT2 local' : 'Luna'}</span>
+              {settings.transcriptionModel === 'whisper-local' && settings.finalTranslationModel === 'hy-mt2-local' && (
+                <em>Fully local</em>
+              )}
+            </div>
+          </article>
+
           <article className="card">
             <p className="eyebrow">OPENAI</p><h2>Connection</h2>
-            <p className="supporting-copy">Your API key is stored securely by this computer and is never shown after saving.</p>
+            <p className="supporting-copy">
+              {settings.transcriptionModel === 'openai-live' || settings.finalTranslationModel === 'luna'
+                ? 'Your selected pipeline uses an OpenAI model. The API key is stored securely by this computer and is never shown after saving.'
+                : 'Your selected pipeline is fully local. No API key is read when a meeting starts.'}
+            </p>
             {(credentialIssue || credential?.repairRecommended) && (
               <div className="credential-recovery" role="alert">
                 <div>

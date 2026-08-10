@@ -580,7 +580,7 @@ test('legacy caption settings migrate to product-safe runtime defaults', () => {
     }),
   );
   const settings = new SettingsStore({ getPath: () => userData }).get();
-  assert.equal(settings.settingsVersion, 13);
+  assert.equal(settings.settingsVersion, 14);
   assert.equal(settings.vadEnabled, false);
   assert.equal(Object.hasOwn(settings, 'captionPaceMs'), false);
   assert.equal(settings.shadowEnabled, false);
@@ -597,7 +597,7 @@ test('legacy caption settings migrate to product-safe runtime defaults', () => {
   const persisted = JSON.parse(
     fs.readFileSync(path.join(userData, 'caption-settings.json'), 'utf8'),
   );
-  assert.equal(persisted.settingsVersion, 13);
+  assert.equal(persisted.settingsVersion, 14);
   assert.equal(persisted.shadowEnabled, false);
   assert.equal(persisted.recordEvaluation, false);
   assert.equal(persisted.autoSaveTranscript, true);
@@ -909,7 +909,7 @@ test('v7 glossary and theme settings migrate without losing custom terms', () =>
     }),
   );
   const settings = new SettingsStore({ getPath: () => userData }).get();
-  assert.equal(settings.settingsVersion, 13);
+  assert.equal(settings.settingsVersion, 14);
   assert.equal(settings.glossaryConfigurationId, 'universal-engineering');
   assert.equal(settings.customGlossaryConfiguration.terms[0].en, 'project falcon');
   assert.equal(settings.glossary[0].en, 'project falcon');

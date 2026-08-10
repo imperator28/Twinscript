@@ -251,6 +251,9 @@ export interface CaptionSettings {
   shadowEnabled: boolean;
   fastPath: boolean;
   provisionalTranslation: boolean;
+  transcriptionModel: 'openai-live' | 'whisper-local';
+  finalTranslationModel: 'luna' | 'hy-mt2-local';
+  localTranslationAcceleration: boolean;
   vadEnabled: boolean;
   vadThreshold: number;
   delayProfile: 'minimal' | 'low' | 'default';

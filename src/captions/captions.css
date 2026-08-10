@@ -648,6 +648,103 @@ input[type="range"] { width: 100%; accent-color: var(--accent); }
 }
 .toggle input[type='checkbox']:disabled { opacity: .48; cursor: not-allowed; }
 .toggle--compact { min-height: var(--target); font-size: var(--size-sm); }
+.pipeline-card { position: relative; overflow: hidden; }
+.pipeline-choice {
+  display: grid;
+  gap: var(--space-3);
+  margin-top: var(--space-5);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--border);
+}
+.pipeline-choice__heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+.pipeline-choice__heading strong { font-size: var(--size-body); }
+.pipeline-choice__heading span {
+  color: var(--text-secondary);
+  font-size: var(--size-sm);
+  text-align: right;
+}
+.model-switch-row {
+  display: grid;
+  grid-template-columns: minmax(92px, 1fr) auto minmax(92px, 1fr);
+  align-items: center;
+  gap: var(--space-3);
+  color: var(--text-secondary);
+  font-size: var(--size-sm);
+  font-weight: var(--weight-semibold);
+}
+.model-switch-row > span:last-child { text-align: right; }
+.model-switch-row > span.is-selected { color: var(--text); }
+.model-switch {
+  position: relative;
+  display: inline-grid;
+  width: 52px;
+  height: 28px;
+  cursor: pointer;
+}
+.model-switch input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: inherit;
+}
+.model-switch i {
+  display: block;
+  width: 52px;
+  height: 28px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: var(--surface-muted);
+  transition: background-color var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out);
+}
+.model-switch i::after {
+  content: '';
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--text-secondary);
+  box-shadow: var(--shadow-card);
+  transition: transform var(--dur-fast) var(--ease-out),
+    background-color var(--dur-fast) var(--ease-out);
+}
+.model-switch input:checked + i { border-color: var(--accent); background: var(--accent-quiet); }
+.model-switch input:checked + i::after { transform: translateX(24px); background: var(--accent); }
+.model-switch input:focus-visible + i { outline: 3px solid var(--focus-ring); outline-offset: 2px; }
+.model-switch input:disabled + i { opacity: .48; cursor: not-allowed; }
+.pipeline-acceleration { margin-top: var(--space-5); }
+.pipeline-summary {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+  padding: 10px var(--space-3);
+  border-radius: var(--radius);
+  background: var(--accent-quiet);
+  color: var(--text);
+  font-size: var(--size-sm);
+  font-weight: var(--weight-semibold);
+}
+.pipeline-summary i { color: var(--accent); font-style: normal; }
+.pipeline-summary em {
+  margin-left: auto;
+  color: var(--accent);
+  font-size: var(--size-xs);
+  font-style: normal;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
 /* Was bare 14px bold blue text with no padding, no radius and no hover, hard against
    the card's right edge - it read as unstyled markup rather than a control, and at
    full body weight it competed with the h2 beside it.

@@ -49,6 +49,14 @@ function normalizeLayout(value) {
   return value === 'side-by-side' ? 'side-by-side' : 'stacked';
 }
 
+function normalizeTranscriptionModel(value) {
+  return value === 'whisper-local' ? 'whisper-local' : 'openai-live';
+}
+
+function normalizeFinalTranslationModel(value) {
+  return value === 'hy-mt2-local' ? 'hy-mt2-local' : 'luna';
+}
+
 /**
  * The transcription API's accepted `delay` values.
  *
@@ -98,7 +106,7 @@ function normalizeContextNotes(value) {
 }
 
 const DEFAULT_SETTINGS = Object.freeze({
-  settingsVersion: 13,
+  settingsVersion: 14,
   glossaryContextNotes: [],
   layout: 'stacked',
   outputMode: 'overlays',
@@ -107,6 +115,9 @@ const DEFAULT_SETTINGS = Object.freeze({
   shadowEnabled: false,
   fastPath: true,
   provisionalTranslation: true,
+  transcriptionModel: 'openai-live',
+  finalTranslationModel: 'luna',
+  localTranslationAcceleration: false,
   vadEnabled: false,
   vadThreshold: 0.012,
   delayProfile: 'low',
@@ -242,6 +253,28 @@ class SettingsStore {
         if (layout !== next.layout) migrated = true;
         next.layout = layout;
       }
+      if (!parsed.settingsVersion || parsed.settingsVersion < 14) {
+        next.transcriptionModel = DEFAULT_SETTINGS.transcriptionModel;
+        next.finalTranslationModel = DEFAULT_SETTINGS.finalTranslationModel;
+        next.localTranslationAcceleration = DEFAULT_SETTINGS.localTranslationAcceleration;
+        migrated = true;
+      } else {
+        const transcriptionModel = normalizeTranscriptionModel(next.transcriptionModel);
+        const finalTranslationModel = normalizeFinalTranslationModel(
+          next.finalTranslationModel,
+        );
+        const localTranslationAcceleration = next.localTranslationAcceleration === true;
+        if (
+          transcriptionModel !== next.transcriptionModel ||
+          finalTranslationModel !== next.finalTranslationModel ||
+          localTranslationAcceleration !== next.localTranslationAcceleration
+        ) {
+          migrated = true;
+        }
+        next.transcriptionModel = transcriptionModel;
+        next.finalTranslationModel = finalTranslationModel;
+        next.localTranslationAcceleration = localTranslationAcceleration;
+      }
       // v12 repaired the rejected 'default'; v13 also withdraws 'high' and 'xhigh', which
       // the API accepts but which stop captions tracking the conversation. Repaired on read
       // AND written back, or the value returns on the next launch.
@@ -309,6 +342,17 @@ class SettingsStore {
     if (Object.hasOwn(cleanPatch, 'layout')) {
       next.layout = normalizeLayout(next.layout);
     }
+    if (Object.hasOwn(cleanPatch, 'transcriptionModel')) {
+      next.transcriptionModel = normalizeTranscriptionModel(next.transcriptionModel);
+    }
+    if (Object.hasOwn(cleanPatch, 'finalTranslationModel')) {
+      next.finalTranslationModel = normalizeFinalTranslationModel(
+        next.finalTranslationModel,
+      );
+    }
+    if (Object.hasOwn(cleanPatch, 'localTranslationAcceleration')) {
+      next.localTranslationAcceleration = next.localTranslationAcceleration === true;
+    }
     if (Object.hasOwn(cleanPatch, 'delayProfile')) {
       next.delayProfile = normalizeDelayProfile(next.delayProfile);
     }
@@ -355,4 +399,6 @@ module.exports = {
   normalizeCaptionOverlayHeight,
   normalizeOutputMode,
   normalizeLayout,
+  normalizeTranscriptionModel,
+  normalizeFinalTranslationModel,
 };

@@ -56,4 +56,23 @@ class ITranslationEngine {
       std::stop_token) = 0;
 };
 
+class IEngineFacade {
+ public:
+  virtual ~IEngineFacade() = default;
+  virtual nlohmann::json capabilities() const = 0;
+  virtual nlohmann::json health() const = 0;
+  virtual nlohmann::json prepare(const std::vector<std::string>& models) = 0;
+  virtual nlohmann::json asr_start(
+      std::string_view session,
+      std::string_view channel) = 0;
+  virtual nlohmann::json transcribe(const AsrRequest& request) = 0;
+  virtual nlohmann::json asr_flush(
+      std::string_view session,
+      std::string_view channel) = 0;
+  virtual nlohmann::json asr_stop(
+      std::string_view session,
+      std::string_view channel) = 0;
+  virtual nlohmann::json translate(const TranslationRequest& request) = 0;
+};
+
 }  // namespace twinscript

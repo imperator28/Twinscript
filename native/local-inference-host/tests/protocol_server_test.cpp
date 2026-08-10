@@ -75,3 +75,38 @@ TEST_CASE("audio outside the 24 kHz contract is rejected") {
   REQUIRE(reply.at("type") == "error");
   REQUIRE(reply.at("code") == "invalid_audio_contract");
 }
+
+TEST_CASE("valid audio is decoded before engine dispatch") {
+  auto engines = twinscript::FakeEngines{};
+  auto server = twinscript::ProtocolServer{engines};
+  auto reply = server.handle({
+      {"protocolVersion", 1},
+      {"type", "asr.audio"},
+      {"requestId", "r5"},
+      {"sessionId", "s1"},
+      {"channel", "microphone"},
+      {"encoding", "pcm_s16le"},
+      {"sampleRate", 24000},
+      {"capturedAt", 1},
+      {"audio", "AQD//w=="},
+  });
+
+  REQUIRE(reply.at("type") == "asr.result");
+  REQUIRE(engines.last_sample_count() == 2);
+}
+
+TEST_CASE("ASR lifecycle requests are dispatched to the selected engine") {
+  auto engines = twinscript::FakeEngines{};
+  auto server = twinscript::ProtocolServer{engines};
+  for (const auto* type : {"asr.start", "asr.flush", "asr.stop"}) {
+    auto reply = server.handle({
+        {"protocolVersion", 1},
+        {"type", type},
+        {"requestId", type},
+        {"sessionId", "s1"},
+        {"channel", "microphone"},
+    });
+    REQUIRE(reply.at("type") != "error");
+  }
+  REQUIRE(engines.lifecycle_count() == 3);
+}

@@ -30,7 +30,16 @@ nlohmann::json FakeEngines::health() const {
   };
 }
 
-nlohmann::json FakeEngines::translate(const TranslationRequest& request) const {
+nlohmann::json FakeEngines::prepare(const std::vector<std::string>&) {
+  return {{"models", capabilities()}};
+}
+
+nlohmann::json FakeEngines::asr_start(std::string_view, std::string_view channel) {
+  ++lifecycle_count_;
+  return {{"channel", channel}, {"state", "started"}};
+}
+
+nlohmann::json FakeEngines::translate(const TranslationRequest& request) {
   return {
       {"utteranceId", request.utterance_id},
       {"sourceRevision", request.source_revision},
@@ -44,7 +53,8 @@ nlohmann::json FakeEngines::translate(const TranslationRequest& request) const {
   };
 }
 
-nlohmann::json FakeEngines::transcribe(const AsrRequest& request) const {
+nlohmann::json FakeEngines::transcribe(const AsrRequest& request) {
+  last_sample_count_ = request.samples.size();
   return {
       {"channel", request.channel},
       {"utteranceId", request.request_id},
@@ -56,6 +66,20 @@ nlohmann::json FakeEngines::transcribe(const AsrRequest& request) const {
       {"actualDevice", "CPU"},
       {"inferenceMs", 0.0},
   };
+}
+
+nlohmann::json FakeEngines::asr_flush(std::string_view, std::string_view channel) {
+  ++lifecycle_count_;
+  return {
+      {"channel", channel}, {"utteranceId", "flush"}, {"text", ""},
+      {"final", true}, {"model", "whisper-small"}, {"runtime", "fake"},
+      {"requestedDevice", "NPU"}, {"actualDevice", "CPU"}, {"inferenceMs", 0.0},
+  };
+}
+
+nlohmann::json FakeEngines::asr_stop(std::string_view, std::string_view channel) {
+  ++lifecycle_count_;
+  return {{"channel", channel}, {"state", "stopped"}};
 }
 
 }  // namespace twinscript

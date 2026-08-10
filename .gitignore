@@ -135,4 +135,6 @@ native/camera-companion/build/
 native/local-inference-host/.venv/
 native/local-inference-host/models/
 native/local-inference-host/build/
+native/local-inference-host/build-*/
 /artifacts/local-inference/
+/artifacts/local-inference-host/

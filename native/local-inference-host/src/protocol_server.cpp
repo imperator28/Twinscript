@@ -1,6 +1,8 @@
 #include "protocol_server.h"
 
 #include <cstdint>
+#include <array>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -11,6 +13,50 @@ namespace {
 bool has_string(const nlohmann::json& value, const char* key) {
   return value.contains(key) && value.at(key).is_string() &&
          !value.at(key).get_ref<const std::string&>().empty();
+}
+
+std::vector<std::uint8_t> decode_base64(const std::string& encoded) {
+  static const auto table = [] {
+    std::array<int, 256> values{};
+    values.fill(-1);
+    const std::string alphabet =
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    for (std::size_t index = 0; index < alphabet.size(); ++index) {
+      values[static_cast<unsigned char>(alphabet[index])] = static_cast<int>(index);
+    }
+    return values;
+  }();
+  if (encoded.empty() || encoded.size() % 4 != 0) {
+    throw std::invalid_argument("audio is not valid base64");
+  }
+  std::vector<std::uint8_t> decoded;
+  decoded.reserve(encoded.size() / 4 * 3);
+  for (std::size_t offset = 0; offset < encoded.size(); offset += 4) {
+    int values[4]{};
+    for (int index = 0; index < 4; ++index) {
+      const char character = encoded[offset + index];
+      if (character == '=') {
+        values[index] = 0;
+      } else {
+        values[index] = table[static_cast<unsigned char>(character)];
+        if (values[index] < 0) throw std::invalid_argument("audio is not valid base64");
+      }
+    }
+    const bool pad_two = encoded[offset + 2] == '=';
+    const bool pad_three = encoded[offset + 3] == '=';
+    if ((pad_two && !pad_three) ||
+        ((pad_two || pad_three) && offset + 4 != encoded.size())) {
+      throw std::invalid_argument("audio is not valid base64");
+    }
+    decoded.push_back(static_cast<std::uint8_t>((values[0] << 2) | (values[1] >> 4)));
+    if (!pad_two) {
+      decoded.push_back(static_cast<std::uint8_t>((values[1] << 4) | (values[2] >> 2)));
+    }
+    if (!pad_three) {
+      decoded.push_back(static_cast<std::uint8_t>((values[2] << 6) | values[3]));
+    }
+  }
+  return decoded;
 }
 
 }  // namespace
@@ -61,7 +107,31 @@ nlohmann::json ProtocolServer::handle(const nlohmann::json& request) {
   if (type == "model.prepare") {
     auto reply = envelope(request, "model.ready");
     reply["generation"] = 1;
-    reply["models"] = engines_.capabilities();
+    std::vector<std::string> models;
+    if (request.contains("models") && request.at("models").is_array()) {
+      for (const auto& model : request.at("models")) {
+        if (model.is_string()) models.push_back(model);
+      }
+    }
+    reply.update(engines_.prepare(models));
+    return reply;
+  }
+  if (type == "asr.start" || type == "asr.flush" || type == "asr.stop") {
+    if (!has_string(request, "channel")) {
+      return error(request, "invalid_audio_contract", "channel is required");
+    }
+    nlohmann::json payload;
+    std::string response_type = "health";
+    if (type == "asr.start") {
+      payload = engines_.asr_start(request.at("sessionId"), request.at("channel"));
+    } else if (type == "asr.flush") {
+      payload = engines_.asr_flush(request.at("sessionId"), request.at("channel"));
+      response_type = payload.contains("text") ? "asr.result" : "health";
+    } else {
+      payload = engines_.asr_stop(request.at("sessionId"), request.at("channel"));
+    }
+    auto reply = envelope(request, response_type);
+    reply.update(payload);
     return reply;
   }
   if (type == "translate.preview" || type == "translate.final") {
@@ -101,15 +171,32 @@ nlohmann::json ProtocolServer::handle(const nlohmann::json& request) {
     if (request.at("audio").get_ref<const std::string&>().size() > 640000) {
       return error(request, "audio_too_large", "decoded audio may not exceed 480000 bytes");
     }
+    std::vector<std::uint8_t> decoded;
+    try {
+      decoded = decode_base64(request.at("audio"));
+    } catch (const std::exception& exception) {
+      return error(request, "invalid_audio_contract", exception.what());
+    }
+    if (decoded.size() > 480000 || decoded.size() % sizeof(std::int16_t) != 0) {
+      return error(request, "invalid_audio_contract", "decoded audio must contain bounded pcm_s16le samples");
+    }
+    std::vector<std::int16_t> samples(decoded.size() / sizeof(std::int16_t));
+    for (std::size_t index = 0; index < samples.size(); ++index) {
+      samples[index] = static_cast<std::int16_t>(
+          static_cast<std::uint16_t>(decoded[index * 2]) |
+          (static_cast<std::uint16_t>(decoded[index * 2 + 1]) << 8));
+    }
     const AsrRequest audio{
         .session_id = request.at("sessionId"),
         .request_id = request.at("requestId"),
         .channel = request.at("channel"),
-        .samples = {},
+        .samples = std::move(samples),
         .captured_at = request.at("capturedAt"),
     };
     auto reply = envelope(request, "asr.result");
-    reply.update(engines_.transcribe(audio));
+    const auto payload = engines_.transcribe(audio);
+    if (!payload.contains("text")) reply["type"] = "health";
+    reply.update(payload);
     return reply;
   }
   if (type == "request.cancel") {

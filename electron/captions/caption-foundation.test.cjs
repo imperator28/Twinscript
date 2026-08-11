@@ -80,6 +80,32 @@ test('session start waits for an in-flight local model mutation before becoming 
   await manager.stop();
 });
 
+test('a shutdown failure releases the local model admission lease before rethrowing', async () => {
+  const gate = new LocalModelAdmissionGate();
+  const manager = new CaptionSessionManager({
+    credentialStore: {},
+    settingsStore: {},
+    admissionGate: gate,
+    meetingRecordController: {
+      stopSession: async () => {
+        throw new Error('records unavailable');
+      },
+    },
+  });
+  manager.sessionAdmissionRelease = await gate.acquireSession();
+  manager.active = true;
+  manager.mode = 'live';
+
+  await assert.rejects(manager.stop(), /records unavailable/);
+  assert.equal(gate.isSessionActive(), false);
+
+  const releaseNextSession = await gate.acquireSession();
+  releaseNextSession();
+  let mutated = false;
+  await gate.runMutation(async () => { mutated = true; });
+  assert.equal(mutated, true);
+});
+
 test('routes dominant English, Chinese, and mixed-script utterances', () => {
   assert.equal(classifyScript('Can we move DVT to September?'), 'en');
   assert.equal(classifyScript('这个支架需要修改公差。'), 'zh');

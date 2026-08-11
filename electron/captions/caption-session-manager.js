@@ -1157,87 +1157,89 @@ class CaptionSessionManager {
     if (!this.active) return this.snapshot();
     this.active = false;
     this.finalizingStop = true;
-    for (const timer of this.pendingTimers.values()) clearTimeout(timer);
-    for (const timer of this.mockTimers) clearTimeout(timer);
-    this.pendingTimers.clear();
-    this.mockTimers = [];
-    this.provisionalCallsByItem.clear();
-    this.screeningPromptByItem.clear();
-    const sessions = [...this.sessions.values()];
-    const drainingTranscription = Promise.allSettled(
-      sessions.map((session) =>
-        typeof session.finish === 'function'
-          ? session.finish()
-          : Promise.resolve(session.close()),
-      ),
-    );
-    let transcriptionTimer;
-    const transcriptionTimedOut = await Promise.race([
-      drainingTranscription.then(() => false),
-      new Promise((resolve) => {
-        transcriptionTimer = setTimeout(() => resolve(true), this.transcriptionDrainTimeoutMs);
-        transcriptionTimer.unref?.();
-      }),
-    ]);
-    clearTimeout(transcriptionTimer);
-    if (transcriptionTimedOut) {
-      for (const session of sessions) session.cancelPending?.();
-      this.onStatus({
-        state: 'degraded',
-        sessionId: this.sessionId,
-        code: 'transcription_shutdown_timeout',
-        message: 'Transcription did not finish before the bounded shutdown timeout',
-      });
-    }
-    this.sessions.clear();
-    this.coordinator?.flush();
-    // Emit any sentence still waiting for a continuation before tearing down. The
-    // speaker has stopped, so a trailing fragment is the last thing they said and
-    // discarding it would silently lose the end of the meeting.
-    this.coordinator?.flushHeld();
-    this.coordinator?.reset();
-    const pendingFinalizations = Promise.allSettled([...this.pendingFinalizations]);
-    let drainTimer;
-    const drainTimedOut = await Promise.race([
-      pendingFinalizations.then(() => false),
-      new Promise((resolve) => {
-        drainTimer = setTimeout(() => resolve(true), this.finalizationDrainTimeoutMs);
-        drainTimer.unref?.();
-      }),
-    ]);
-    clearTimeout(drainTimer);
-    if (drainTimedOut) {
+    try {
+      for (const timer of this.pendingTimers.values()) clearTimeout(timer);
+      for (const timer of this.mockTimers) clearTimeout(timer);
+      this.pendingTimers.clear();
+      this.mockTimers = [];
+      this.provisionalCallsByItem.clear();
+      this.screeningPromptByItem.clear();
+      const sessions = [...this.sessions.values()];
+      const drainingTranscription = Promise.allSettled(
+        sessions.map((session) =>
+          typeof session.finish === 'function'
+            ? session.finish()
+            : Promise.resolve(session.close()),
+        ),
+      );
+      let transcriptionTimer;
+      const transcriptionTimedOut = await Promise.race([
+        drainingTranscription.then(() => false),
+        new Promise((resolve) => {
+          transcriptionTimer = setTimeout(() => resolve(true), this.transcriptionDrainTimeoutMs);
+          transcriptionTimer.unref?.();
+        }),
+      ]);
+      clearTimeout(transcriptionTimer);
+      if (transcriptionTimedOut) {
+        for (const session of sessions) session.cancelPending?.();
+        this.onStatus({
+          state: 'degraded',
+          sessionId: this.sessionId,
+          code: 'transcription_shutdown_timeout',
+          message: 'Transcription did not finish before the bounded shutdown timeout',
+        });
+      }
+      this.sessions.clear();
+      this.coordinator?.flush();
+      // Emit any sentence still waiting for a continuation before tearing down. The
+      // speaker has stopped, so a trailing fragment is the last thing they said and
+      // discarding it would silently lose the end of the meeting.
+      this.coordinator?.flushHeld();
+      this.coordinator?.reset();
+      const pendingFinalizations = Promise.allSettled([...this.pendingFinalizations]);
+      let drainTimer;
+      const drainTimedOut = await Promise.race([
+        pendingFinalizations.then(() => false),
+        new Promise((resolve) => {
+          drainTimer = setTimeout(() => resolve(true), this.finalizationDrainTimeoutMs);
+          drainTimer.unref?.();
+        }),
+      ]);
+      clearTimeout(drainTimer);
+      if (drainTimedOut) {
+        for (const controller of this.abortControllers.values()) controller.abort();
+        for (const controller of this.shadowControllers) controller.abort();
+        this.onStatus({
+          state: 'degraded',
+          sessionId: this.sessionId,
+          code: 'translation_shutdown_timeout',
+          message: 'Translation did not finish before the bounded shutdown timeout',
+        });
+      }
+      this.finalizingStop = false;
       for (const controller of this.abortControllers.values()) controller.abort();
       for (const controller of this.shadowControllers) controller.abort();
+      this.abortControllers.clear();
+      this.shadowControllers.clear();
+      await this.evaluationRecorder?.stop();
+      if (this.mode === 'live' && this.meetingRecordController) {
+        this.meetingRecord = await this.meetingRecordController.stopSession({
+          appVersion: this.appVersion,
+          estimatedCostUsd: this.cost?.snapshot().totalUsd,
+        });
+      }
       this.onStatus({
-        state: 'degraded',
+        state: 'stopped',
         sessionId: this.sessionId,
-        code: 'translation_shutdown_timeout',
-        message: 'Translation did not finish before the bounded shutdown timeout',
+        metrics: this.cost?.snapshot(),
+        reason,
+        meetingRecord: this.meetingRecord,
       });
+      return this.snapshot();
+    } finally {
+      this.releaseSessionAdmission();
     }
-    this.finalizingStop = false;
-    for (const controller of this.abortControllers.values()) controller.abort();
-    for (const controller of this.shadowControllers) controller.abort();
-    this.abortControllers.clear();
-    this.shadowControllers.clear();
-    await this.evaluationRecorder?.stop();
-    if (this.mode === 'live' && this.meetingRecordController) {
-      this.meetingRecord = await this.meetingRecordController.stopSession({
-        appVersion: this.appVersion,
-        estimatedCostUsd: this.cost?.snapshot().totalUsd,
-      });
-    }
-    this.onStatus({
-      state: 'stopped',
-      sessionId: this.sessionId,
-      metrics: this.cost?.snapshot(),
-      reason,
-      meetingRecord: this.meetingRecord,
-    });
-    const snapshot = this.snapshot();
-    this.releaseSessionAdmission();
-    return snapshot;
   }
 
   releaseSessionAdmission() {

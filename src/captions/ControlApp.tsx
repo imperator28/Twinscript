@@ -68,6 +68,7 @@ import {
   type ThemePreference,
 } from './theme';
 import { TwinscriptLogo } from './TwinscriptLogo';
+import { LocalModelInstallCard, type LocalModelAction } from './LocalModelInstallCard';
 import {
   APP_LICENSE,
   APP_LICENSE_URL,
@@ -86,7 +87,8 @@ import type {
   BackupState,
   MeetingRecordReview,
   NativeCameraHealth,
-  LocalInferenceStatus,
+  LocalModelId,
+  LocalModelStatus,
   SessionMetrics,
   SessionStatus,
   TargetText,
@@ -275,8 +277,8 @@ export function ControlApp() {
   });
   const [nativeCameraHealth, setNativeCameraHealth] =
     useState<NativeCameraHealth | null>(null);
-  const [localInference, setLocalInference] =
-    useState<LocalInferenceStatus | null>(null);
+  const [localModels, setLocalModels] = useState<LocalModelStatus | null>(null);
+  const [busyModel, setBusyModel] = useState<LocalModelId | null>(null);
   // Persisted: an operator who chose to run without a microphone, or to capture the
   // stage in OBS rather than install the camera, should not be asked again on every
   // launch. Only advisories are ever dismissed - see reviewReadiness.
@@ -292,6 +294,8 @@ export function ControlApp() {
   const audio = useRef(new AudioCaptureController());
   const microphonePreview = useRef(new MicrophonePreviewController());
   const apiKeyInput = useRef<HTMLInputElement>(null);
+  const whisperModelRow = useRef<HTMLElement>(null);
+  const translationModelRow = useRef<HTMLElement>(null);
   const operationId = useRef(0);
   const active = sessionActive;
 
@@ -345,6 +349,7 @@ export function ControlApp() {
       }),
       window.captions.onPreviewVisibility(setPreviewVisibility),
       window.captions.onNativeCameraHealth(setNativeCameraHealth),
+      window.captions.onLocalModelStatus(setLocalModels),
     ];
     void window.captions.getPreviewVisibility().then((result) => {
       if (result.ok) setPreviewVisibility(result.data);
@@ -357,9 +362,9 @@ export function ControlApp() {
       window.captions.getGlossaryConfigurations(),
       window.captions.getSessionStatus(),
       window.captions.listPendingMeetingRecords(),
-      window.captions.getLocalInferenceStatus?.() ?? Promise.resolve({ ok: false as const, error: { code: 'unavailable', message: 'Unavailable' } }),
+      window.captions.getLocalModelStatus(),
       enumerateAudioDevices().catch(() => ({ inputs: [], outputs: [] })),
-    ]).then(([settingsResult, glossaryResult, sessionResult, pendingResult, localInferenceResult, deviceResult]) => {
+    ]).then(([settingsResult, glossaryResult, sessionResult, pendingResult, localModelResult, deviceResult]) => {
       const loadedSettings = settingsResult.ok
         ? settingsResult.data as unknown as CaptionSettings
         : DEFAULT_SETTINGS;
@@ -393,7 +398,7 @@ export function ControlApp() {
           setReviewOrigin('recovered');
         }
       }
-      if (localInferenceResult.ok) setLocalInference(localInferenceResult.data);
+      if (localModelResult.ok) setLocalModels(localModelResult.data);
       setDevices(deviceResult);
       setMicrophoneId(deviceResult.inputs[0]?.deviceId || '');
     });
@@ -540,6 +545,56 @@ export function ControlApp() {
     }
     setNativeCameraHealth(result.data);
   };
+
+  const runLocalModelAction = async (action: LocalModelAction, modelId: LocalModelId) => {
+    setBusyModel(modelId);
+    setNotice('');
+    try {
+      if (action === 'remove') {
+        const result = await window.captions.removeLocalModel(modelId);
+        if (!result.ok) {
+          setNotice(result.error.message);
+          return;
+        }
+        setLocalModels(result.data.status);
+        return;
+      }
+
+      const operation = {
+        install: window.captions.installLocalModel,
+        verify: window.captions.verifyLocalModel,
+        repair: window.captions.repairLocalModel,
+      }[action];
+      const result = await operation(modelId);
+      if (!result.ok) {
+        setNotice(result.error.message);
+        return;
+      }
+      setLocalModels(result.data);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Local model action could not complete.');
+    } finally {
+      setBusyModel(null);
+    }
+  };
+
+  const focusLocalModel = (modelId: LocalModelId) => {
+    const row = modelId === 'whisper-small' ? whisperModelRow.current : translationModelRow.current;
+    if (!row) return;
+    const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    row.scrollIntoView({ behavior: reducedMotion ? 'auto' : 'smooth', block: 'center' });
+    row.focus({ preventScroll: true });
+  };
+
+  const whisperLocalReady = localModels?.models['whisper-small'].ready ?? false;
+  const translationLocalReady = localModels?.models['hy-mt2-1.8b'].ready ?? false;
+  const whisperMissing = settings.transcriptionModel === 'whisper-local'
+    && localModels !== null
+    && !whisperLocalReady;
+  const translationMissing = (settings.finalTranslationModel === 'hy-mt2-local'
+    || settings.localTranslationAcceleration)
+    && localModels !== null
+    && !translationLocalReady;
 
   // Render the camera card unless we positively KNOW the platform cannot host it.
   // Gating on `supported === true` hid every action whenever a health report was
@@ -1962,9 +2017,9 @@ export function ControlApp() {
               <div className="pipeline-choice__heading">
                 <strong>Transcription model</strong>
                 <span>{settings.transcriptionModel === 'whisper-local'
-                  ? localInference?.models['whisper-small'].ready
-                    ? `${localInference.models['whisper-small'].actualDevice || localInference.requestedDevice} ready`
-                    : 'Model not installed'
+                  ? whisperLocalReady
+                    ? `${localModels?.models['whisper-small'].actualDevice || localModels?.runtime.requestedDevice || 'CPU'} ready`
+                    : localModels ? 'Model not installed' : 'Checking local model'
                   : 'Cloud live transcription'}</span>
               </div>
               <div className="model-switch-row">
@@ -1989,9 +2044,9 @@ export function ControlApp() {
               <div className="pipeline-choice__heading">
                 <strong>Final translation model</strong>
                 <span>{settings.finalTranslationModel === 'hy-mt2-local'
-                  ? localInference?.models['hy-mt2-1.8b'].ready
-                    ? `${localInference.models['hy-mt2-1.8b'].actualDevice || 'CPU'} ready`
-                    : 'Model not installed'
+                  ? translationLocalReady
+                    ? `${localModels?.models['hy-mt2-1.8b'].actualDevice || 'CPU'} ready`
+                    : localModels ? 'Model not installed' : 'Checking local model'
                   : 'Luna is authoritative'}</span>
               </div>
               <div className="model-switch-row">
@@ -2030,23 +2085,30 @@ export function ControlApp() {
               settings.localTranslationAcceleration) && (
               <div className="local-model-readiness" aria-label="Local model readiness">
                 {settings.transcriptionModel === 'whisper-local' && (
-                  <span className={localInference?.models['whisper-small'].ready ? 'is-ready' : 'is-missing'}>
+                  <span className={whisperLocalReady ? 'is-ready' : 'is-missing'}>
                     <i aria-hidden="true" />
-                    Whisper {localInference ? (localInference.models['whisper-small'].ready ? 'ready' : 'not installed') : 'checking'}
+                    Whisper {localModels ? (whisperLocalReady ? 'ready' : 'not installed') : 'checking'}
                   </span>
                 )}
                 {(settings.finalTranslationModel === 'hy-mt2-local' || settings.localTranslationAcceleration) && (
-                  <span className={localInference?.models['hy-mt2-1.8b'].ready ? 'is-ready' : 'is-missing'}>
+                  <span className={translationLocalReady ? 'is-ready' : 'is-missing'}>
                     <i aria-hidden="true" />
-                    Hy-MT2 {localInference ? (localInference.models['hy-mt2-1.8b'].ready ? 'ready' : 'not installed') : 'checking'}
+                    Hy-MT2 {localModels ? (translationLocalReady ? 'ready' : 'not installed') : 'checking'}
                   </span>
+                )}
+                {whisperMissing && (
+                  <button className="button button--quiet" type="button" onClick={() => focusLocalModel('whisper-small')}>
+                    Manage Whisper
+                  </button>
+                )}
+                {translationMissing && (
+                  <button className="button button--quiet" type="button" onClick={() => focusLocalModel('hy-mt2-1.8b')}>
+                    Manage HY-MT2
+                  </button>
                 )}
               </div>
             )}
-            {localInference && (
-              (settings.transcriptionModel === 'whisper-local' && !localInference.models['whisper-small'].ready) ||
-              ((settings.finalTranslationModel === 'hy-mt2-local' || settings.localTranslationAcceleration) && !localInference.models['hy-mt2-1.8b'].ready)
-            ) && (
+            {(whisperMissing || translationMissing) && (
               <p className="field-note is-warning">A selected local model is unavailable. Twinscript will block meeting startup rather than switch to cloud.</p>
             )}
             <div className="pipeline-summary" aria-label="Selected meeting pipeline">
@@ -2058,6 +2120,16 @@ export function ControlApp() {
               )}
             </div>
           </article>
+
+          <LocalModelInstallCard
+            status={localModels}
+            busyModel={busyModel}
+            rowRefs={{
+              'whisper-small': whisperModelRow,
+              'hy-mt2-1.8b': translationModelRow,
+            }}
+            onAction={(action, modelId) => void runLocalModelAction(action, modelId)}
+          />
 
           <article className="card">
             <p className="eyebrow">{usesCloudModels ? 'OPENAI' : 'CLOUD OPTION'}</p><h2>Connection</h2>

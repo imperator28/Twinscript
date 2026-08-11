@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ControlApp } from './ControlApp';
+import type { LocalModelId, LocalModelPhase, LocalModelStatus } from './types';
 
 const audioMocks = vi.hoisted(() => ({
   start: vi.fn().mockResolvedValue({ microphone: true, system: true }),
@@ -55,6 +56,8 @@ let nativeCameraHealthListener:
       message?: string | null;
     }) => void)
   | undefined;
+let localModelStatusListener: ((status: LocalModelStatus) => void) | undefined;
+const localModelStatusUnsubscribe = vi.fn();
 
 const settings = {
   settingsVersion: 10,
@@ -99,6 +102,46 @@ const settings = {
   duplicateWindowMs: 1400,
 };
 
+const localModelStatus = (
+  id: LocalModelId,
+  phase: LocalModelPhase = 'not-installed',
+) => ({
+  id,
+  version: '1.0.0',
+  displayName: id === 'whisper-small' ? 'Whisper Small' : 'HY-MT2 1.8B',
+  purpose: id === 'whisper-small' ? 'Speech recognition' : 'English and Chinese translation',
+  expectedDevice: id === 'whisper-small' ? 'NPU' : 'GPU',
+  downloadBytes: 100_000_000,
+  downloadedBytes: phase === 'downloading' ? 25_000_000 : 0,
+  installedBytes: phase === 'ready' ? 100_000_000 : 0,
+  installed: phase === 'ready' || phase === 'repair-needed',
+  verified: phase === 'ready',
+  phase,
+  ready: phase === 'ready',
+  repairRecommended: phase === 'repair-needed',
+  error: phase === 'failed' ? { code: 'install-failed', message: 'Download failed' } : null,
+  actualDevice: phase === 'ready' ? (id === 'whisper-small' ? 'NPU' : 'CPU') : null,
+});
+
+const localModels = (
+  whisperPhase: LocalModelPhase = 'not-installed',
+  translationPhase: LocalModelPhase = 'not-installed',
+): LocalModelStatus => ({
+  catalog: { available: true, error: null },
+  runtime: { ready: false, requestedDevice: 'NPU' },
+  models: {
+    'whisper-small': localModelStatus('whisper-small', whisperPhase),
+    'hy-mt2-1.8b': localModelStatus('hy-mt2-1.8b', translationPhase),
+  },
+  actionLocks: {
+    meetingActive: false,
+    download: false,
+    verify: false,
+    repair: false,
+    remove: false,
+  },
+});
+
 /** The channel-health badge text for one capture row. */
 function channelBadge(rowLabel: string) {
   const row = screen.getByText(rowLabel).closest('.audio-row');
@@ -120,6 +163,8 @@ describe('meeting caption controls', () => {
     pendingRecordsListener = undefined;
     previewVisibilityListener = undefined;
     nativeCameraHealthListener = undefined;
+    localModelStatusListener = undefined;
+    localModelStatusUnsubscribe.mockReset();
     const ok = <T,>(data: T) => Promise.resolve({ ok: true as const, data });
     window.captions = {
       onStatus: (callback) => {
@@ -154,6 +199,10 @@ describe('meeting caption controls', () => {
         nativeCameraHealthListener = callback;
         return () => {};
       },
+      onLocalModelStatus: vi.fn((callback) => {
+        localModelStatusListener = callback;
+        return localModelStatusUnsubscribe;
+      }),
       getSettings: () => ok(settings),
       getGlossaryTerms: vi.fn(() =>
         ok({
@@ -207,6 +256,11 @@ describe('meeting caption controls', () => {
           encryptionAvailable: true,
         }),
       getSessionStatus: () => ok({ active: false }),
+      getLocalModelStatus: vi.fn(() => ok(localModels())),
+      installLocalModel: vi.fn(() => ok(localModels('ready'))),
+      verifyLocalModel: vi.fn(() => ok(localModels('ready'))),
+      repairLocalModel: vi.fn(() => ok(localModels('ready'))),
+      removeLocalModel: vi.fn(() => ok({ canceled: false, status: localModels() })),
       listRecordings: () => ok([]),
       listPendingMeetingRecords: () => ok([]),
       chooseMeetingRecordsDirectory: vi.fn(() =>
@@ -1985,5 +2039,104 @@ describe('meeting caption controls', () => {
     await waitFor(() =>
       expect(window.captions.repairCredential).toHaveBeenCalledOnce(),
     );
+  });
+
+  it('keeps Local AI Models directly below the meeting pipeline and follows live model status', async () => {
+    const { unmount } = render(<ControlApp />);
+    await screen.findByRole('button', { name: /Start session/i });
+    fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+
+    const pipeline = screen.getByRole('heading', { name: 'Meeting pipeline' }).closest('article');
+    const models = await screen.findByRole('heading', { name: 'Private, on-device processing' });
+    expect(pipeline?.nextElementSibling).toContainElement(models.closest('article'));
+    expect(window.captions.getLocalModelStatus).toHaveBeenCalledOnce();
+    expect(window.captions.onLocalModelStatus).toHaveBeenCalledOnce();
+    expect(screen.getByLabelText('0 of 2 models ready')).toBeVisible();
+
+    act(() => localModelStatusListener?.(localModels('ready', 'ready')));
+    expect(screen.getByLabelText('2 of 2 models ready')).toBeVisible();
+
+    unmount();
+    expect(localModelStatusUnsubscribe).toHaveBeenCalledOnce();
+  });
+
+  it('routes local model actions to their preload API and uses their returned snapshot', async () => {
+    render(<ControlApp />);
+    await screen.findByRole('button', { name: /Start session/i });
+    fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Install Whisper local transcription model' }));
+    await waitFor(() =>
+      expect(window.captions.installLocalModel).toHaveBeenCalledWith('whisper-small'),
+    );
+    expect(await screen.findByRole('button', { name: 'Verify Whisper local transcription model' })).toBeVisible();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Verify Whisper local transcription model' }));
+    await waitFor(() =>
+      expect(window.captions.verifyLocalModel).toHaveBeenCalledWith('whisper-small'),
+    );
+
+    act(() => localModelStatusListener?.(localModels('repair-needed')));
+    fireEvent.click(await screen.findByRole('button', { name: 'Repair Whisper local transcription model' }));
+    await waitFor(() =>
+      expect(window.captions.repairLocalModel).toHaveBeenCalledWith('whisper-small'),
+    );
+
+    act(() => localModelStatusListener?.(localModels('ready')));
+    fireEvent.click(await screen.findByRole('button', { name: 'Remove Whisper local transcription model' }));
+    await waitFor(() =>
+      expect(window.captions.removeLocalModel).toHaveBeenCalledWith('whisper-small'),
+    );
+    expect(await screen.findByRole('button', { name: 'Install Whisper local transcription model' })).toBeVisible();
+  });
+
+  it('keeps local model actions locked during a meeting and surfaces action failures', async () => {
+    const locked = localModels();
+    locked.actionLocks.meetingActive = true;
+    window.captions.getLocalModelStatus = vi.fn(() => Promise.resolve({ ok: true as const, data: locked }));
+    const { unmount } = render(<ControlApp />);
+    await screen.findByRole('button', { name: /Start session/i });
+    fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+
+    expect(await screen.findByText(/Model changes are locked while a meeting is active/i)).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Install Whisper local transcription model' })).toBeDisabled();
+
+    unmount();
+    window.captions.getLocalModelStatus = vi.fn(() => Promise.resolve({ ok: true as const, data: localModels() }));
+    window.captions.installLocalModel = vi.fn(() => Promise.resolve({
+      ok: false as const,
+      error: { code: 'download-failed', message: 'The local model download failed.' },
+    }));
+    render(<ControlApp />);
+    await screen.findByRole('button', { name: /Start session/i });
+    fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Install Whisper local transcription model' }));
+
+    expect(await screen.findByText('The local model download failed.')).toBeVisible();
+  });
+
+  it('focuses the missing model row with reduced-motion scrolling without changing pipeline selection', async () => {
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+      configurable: true,
+      value: scrollIntoView,
+    });
+    Object.defineProperty(window, 'matchMedia', {
+      configurable: true,
+      value: vi.fn(() => ({ matches: true })),
+    });
+    window.captions.getSettings = () => Promise.resolve({
+      ok: true as const,
+      data: { ...settings, transcriptionModel: 'whisper-local' as const },
+    });
+    render(<ControlApp />);
+    await screen.findByRole('button', { name: /Start session/i });
+    fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Manage Whisper' }));
+    const row = screen.getByRole('heading', { name: 'Whisper Small' }).closest('section');
+    expect(row).toHaveFocus();
+    expect(scrollIntoView).toHaveBeenCalledWith({ behavior: 'auto', block: 'center' });
+    expect(screen.getByRole('switch', { name: 'Use local Whisper transcription' })).toBeChecked();
   });
 });

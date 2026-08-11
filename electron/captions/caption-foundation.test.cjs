@@ -39,6 +39,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { EventEmitter } = require('node:events');
 const { LocalModelAdmissionGate } = require('./local-model-admission');
+const { LocalModelService } = require('./local-model-service');
 
 test('caption session activity remains locked while shutdown finalizes', () => {
   const manager = new CaptionSessionManager({ credentialStore: {}, settingsStore: {} });
@@ -95,15 +96,26 @@ test('a shutdown failure releases the local model admission lease before rethrow
   manager.sessionAdmissionRelease = await gate.acquireSession();
   manager.active = true;
   manager.mode = 'live';
+  let installedModel = null;
+  const service = new LocalModelService({
+    catalog: {
+      available: true,
+      manifest: { models: [{ id: 'whisper-small' }] },
+    },
+    manager: {
+      status: () => ({ models: { 'whisper-small': { ready: false } } }),
+      download: async (modelId) => { installedModel = modelId; },
+    },
+    admissionGate: gate,
+    isMeetingActive: () => manager.isActive(),
+  });
 
   await assert.rejects(manager.stop(), /records unavailable/);
   assert.equal(gate.isSessionActive(), false);
+  assert.equal(manager.isActive(), false);
 
-  const releaseNextSession = await gate.acquireSession();
-  releaseNextSession();
-  let mutated = false;
-  await gate.runMutation(async () => { mutated = true; });
-  assert.equal(mutated, true);
+  await service.install('whisper-small');
+  assert.equal(installedModel, 'whisper-small');
 });
 
 test('routes dominant English, Chinese, and mixed-script utterances', () => {

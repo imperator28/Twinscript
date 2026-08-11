@@ -1217,7 +1217,6 @@ class CaptionSessionManager {
           message: 'Translation did not finish before the bounded shutdown timeout',
         });
       }
-      this.finalizingStop = false;
       for (const controller of this.abortControllers.values()) controller.abort();
       for (const controller of this.shadowControllers) controller.abort();
       this.abortControllers.clear();
@@ -1238,6 +1237,7 @@ class CaptionSessionManager {
       });
       return this.snapshot();
     } finally {
+      this.finalizingStop = false;
       this.releaseSessionAdmission();
     }
   }

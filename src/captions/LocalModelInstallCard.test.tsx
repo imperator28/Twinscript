@@ -157,7 +157,7 @@ describe('LocalModelInstallCard', () => {
     );
 
     expect(screen.getByText('Model catalog is unavailable.')).toBeVisible();
-    expect(screen.queryByRole('button', { name: 'Install Whisper Small' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Install Whisper local transcription model' })).not.toBeInTheDocument();
 
     rerender(
       <LocalModelInstallCard

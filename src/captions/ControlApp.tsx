@@ -308,6 +308,9 @@ export function ControlApp() {
   };
 
   useEffect(() => {
+    let mounted = true;
+    let localModelStatusGeneration = 0;
+    const initialLocalModelStatusGeneration = localModelStatusGeneration;
     const handleStatus = (next: SessionStatus) => {
       setStatus(next);
       if (next.state === 'degraded' && next.message) {
@@ -323,6 +326,10 @@ export function ControlApp() {
         setMeetingReview(next.meetingRecord);
         setReviewOrigin('stopped');
       }
+    };
+    const handleLocalModelStatus = (next: LocalModelStatus) => {
+      localModelStatusGeneration += 1;
+      setLocalModels(next);
     };
     const cleanups = [
       window.captions.onStatus(handleStatus),
@@ -349,7 +356,7 @@ export function ControlApp() {
       }),
       window.captions.onPreviewVisibility(setPreviewVisibility),
       window.captions.onNativeCameraHealth(setNativeCameraHealth),
-      window.captions.onLocalModelStatus(setLocalModels),
+      window.captions.onLocalModelStatus(handleLocalModelStatus),
     ];
     void window.captions.getPreviewVisibility().then((result) => {
       if (result.ok) setPreviewVisibility(result.data);
@@ -357,14 +364,18 @@ export function ControlApp() {
     void window.captions.getNativeCameraHealth().then((result) => {
       if (result.ok) setNativeCameraHealth(result.data);
     });
+    void window.captions.getLocalModelStatus().then((result) => {
+      if (mounted && localModelStatusGeneration === initialLocalModelStatusGeneration && result.ok) {
+        setLocalModels(result.data);
+      }
+    });
     void Promise.all([
       window.captions.getSettings(),
       window.captions.getGlossaryConfigurations(),
       window.captions.getSessionStatus(),
       window.captions.listPendingMeetingRecords(),
-      window.captions.getLocalModelStatus(),
       enumerateAudioDevices().catch(() => ({ inputs: [], outputs: [] })),
-    ]).then(([settingsResult, glossaryResult, sessionResult, pendingResult, localModelResult, deviceResult]) => {
+    ]).then(([settingsResult, glossaryResult, sessionResult, pendingResult, deviceResult]) => {
       const loadedSettings = settingsResult.ok
         ? settingsResult.data as unknown as CaptionSettings
         : DEFAULT_SETTINGS;
@@ -398,11 +409,11 @@ export function ControlApp() {
           setReviewOrigin('recovered');
         }
       }
-      if (localModelResult.ok) setLocalModels(localModelResult.data);
       setDevices(deviceResult);
       setMicrophoneId(deviceResult.inputs[0]?.deviceId || '');
     });
     return () => {
+      mounted = false;
       cleanups.forEach((cleanup) => cleanup());
       void microphonePreview.current.stop();
       void audio.current.stop();

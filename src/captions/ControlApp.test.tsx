@@ -142,6 +142,14 @@ const localModels = (
   },
 });
 
+const deferred = <T,>() => {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((nextResolve) => {
+    resolve = nextResolve;
+  });
+  return { promise, resolve };
+};
+
 /** The channel-health badge text for one capture row. */
 function channelBadge(rowLabel: string) {
   const row = screen.getByText(rowLabel).closest('.audio-row');
@@ -2060,6 +2068,20 @@ describe('meeting caption controls', () => {
     expect(localModelStatusUnsubscribe).toHaveBeenCalledOnce();
   });
 
+  it('keeps a newer live local-model status when the initial request resolves late', async () => {
+    const initialStatus = deferred<{ ok: true; data: LocalModelStatus }>();
+    window.captions.getLocalModelStatus = vi.fn(() => initialStatus.promise);
+    render(<ControlApp />);
+    await screen.findByRole('button', { name: /Start session/i });
+    fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+
+    act(() => localModelStatusListener?.(localModels('ready', 'ready')));
+    expect(await screen.findByLabelText('2 of 2 models ready')).toBeVisible();
+
+    await act(async () => initialStatus.resolve({ ok: true, data: localModels() }));
+    expect(screen.getByLabelText('2 of 2 models ready')).toBeVisible();
+  });
+
   it('routes local model actions to their preload API and uses their returned snapshot', async () => {
     render(<ControlApp />);
     await screen.findByRole('button', { name: /Start session/i });
@@ -2088,6 +2110,21 @@ describe('meeting caption controls', () => {
       expect(window.captions.removeLocalModel).toHaveBeenCalledWith('whisper-small'),
     );
     expect(await screen.findByRole('button', { name: 'Install Whisper local transcription model' })).toBeVisible();
+  });
+
+  it('disables every local model action while an action is in flight', async () => {
+    const install = deferred<{ ok: true; data: LocalModelStatus }>();
+    window.captions.installLocalModel = vi.fn(() => install.promise);
+    render(<ControlApp />);
+    await screen.findByRole('button', { name: /Start session/i });
+    fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Install Whisper local transcription model' }));
+    expect(screen.getByRole('button', { name: 'Install Whisper local transcription model' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Install HY-MT2 local translation model' })).toBeDisabled();
+
+    act(() => install.resolve({ ok: true, data: localModels('ready') }));
+    expect(await screen.findByRole('button', { name: 'Verify Whisper local transcription model' })).toBeEnabled();
   });
 
   it('keeps local model actions locked during a meeting and surfaces action failures', async () => {

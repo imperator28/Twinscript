@@ -1,3 +1,13 @@
+import type { RefObject } from 'react';
+import {
+  CircleAlert,
+  CircleCheck,
+  CircleDashed,
+  CircleX,
+  CloudOff,
+  Download,
+  Wrench,
+} from 'lucide-react';
 import type { LocalModelId, LocalModelPhase, LocalModelState, LocalModelStatus } from './types';
 
 export type LocalModelAction = 'install' | 'verify' | 'repair' | 'remove';
@@ -7,7 +17,8 @@ export interface LocalModelInstallCardProps {
   status: LocalModelStatus | null;
   /** The model currently changing, if the owner has an action in flight. */
   busyModel?: LocalModelId | null;
-  onAction: (modelId: LocalModelId, action: LocalModelAction) => void;
+  rowRefs?: Partial<Record<LocalModelId, RefObject<HTMLElement | null>>>;
+  onAction: (action: LocalModelAction, modelId: LocalModelId) => void;
 }
 
 const modelCopy: Record<LocalModelId, Pick<LocalModelState, 'displayName' | 'purpose' | 'expectedDevice'>> = {
@@ -60,11 +71,26 @@ const unavailableModel = (id: LocalModelId): LocalModelState => ({
 const mutationIsLocked = (status: LocalModelStatus, action: LocalModelAction) =>
   status.actionLocks.meetingActive || status.actionLocks[action === 'install' ? 'download' : action];
 
-const deviceText = (model: LocalModelState) => {
-  if (model.actualDevice) return `Running on ${model.actualDevice}`;
-  if (model.expectedDevice) return `${model.expectedDevice} when available`;
-  return 'Device selected when the model starts';
+const deviceText = (id: LocalModelId, model: LocalModelState) => {
+  if (model.actualDevice) return `Last ran on ${model.actualDevice}`;
+  return id === 'whisper-small' ? 'Designed for Intel NPU' : 'Runs locally on CPU';
 };
+
+const stateIcon = (phase: LocalModelPhase) => {
+  const iconProps = { size: 14, strokeWidth: 2.4, 'aria-hidden': true as const };
+  switch (phase) {
+    case 'ready': return <CircleCheck {...iconProps} />;
+    case 'downloading': return <Download {...iconProps} />;
+    case 'verifying': return <CircleDashed {...iconProps} />;
+    case 'repair-needed': return <Wrench {...iconProps} />;
+    case 'failed': return <CircleX {...iconProps} />;
+    case 'unavailable': return <CloudOff {...iconProps} />;
+    default: return <CircleAlert {...iconProps} />;
+  }
+};
+
+const actionLabel = (action: LocalModelAction, id: LocalModelId) =>
+  `${action[0].toUpperCase() + action.slice(1)} ${id === 'whisper-small' ? 'Whisper local transcription model' : 'HY-MT2 local translation model'}`;
 
 const actionsFor = (model: LocalModelState, catalogAvailable: boolean): LocalModelAction[] => {
   switch (model.phase) {
@@ -81,7 +107,7 @@ const actionsFor = (model: LocalModelState, catalogAvailable: boolean): LocalMod
   }
 };
 
-export function LocalModelInstallCard({ status, busyModel = null, onAction }: LocalModelInstallCardProps) {
+export function LocalModelInstallCard({ status, busyModel = null, rowRefs, onAction }: LocalModelInstallCardProps) {
   const catalogAvailable = status?.catalog.available ?? false;
   const readyCount = modelIds.filter((id) => status?.models[id].ready).length;
   const meetingLocked = status?.actionLocks.meetingActive ?? false;
@@ -126,19 +152,28 @@ export function LocalModelInstallCard({ status, busyModel = null, onAction }: Lo
           const actions = actionsFor(model, catalogAvailable);
 
           return (
-            <section className={`local-model-row is-${model.phase}`} key={id} aria-labelledby={`${id}-heading`}>
+            <section
+              className={`local-model-row is-${model.phase}`}
+              key={id}
+              ref={rowRefs?.[id]}
+              tabIndex={-1}
+              aria-labelledby={`${id}-heading`}
+            >
               <div className="local-model-row__summary">
                 <div>
                   <h3 id={`${id}-heading`}>{displayName}</h3>
                   <p>{purpose}</p>
                 </div>
-                <span className="local-model-row__state">{phaseLabel[model.phase]}</span>
+                <span className="local-model-row__state">
+                  {stateIcon(model.phase)}
+                  <span>{phaseLabel[model.phase]}</span>
+                </span>
               </div>
 
               <p className="local-model-row__metadata">
                 <span>{model.version ? `Version ${model.version}` : 'Version not available'}</span>
                 {total && <><i aria-hidden="true">·</i><span>{total} download</span></>}
-                <i aria-hidden="true">·</i><span>{deviceText(model)}</span>
+                <i aria-hidden="true">·</i><span>{deviceText(id, model)}</span>
               </p>
 
               {model.phase === 'downloading' && progress !== null && (
@@ -157,9 +192,9 @@ export function LocalModelInstallCard({ status, busyModel = null, onAction }: Lo
                 </div>
               )}
 
-              {model.phase === 'failed' && (
+              {(model.phase === 'failed' || model.phase === 'repair-needed') && model.error && (
                 <p className="local-model-row__error" role="alert">
-                  {model.error?.message ?? 'The model could not be prepared. Repair the model to try again.'}
+                  {model.error.message}
                 </p>
               )}
 
@@ -174,8 +209,9 @@ export function LocalModelInstallCard({ status, busyModel = null, onAction }: Lo
                         key={action}
                         type="button"
                         disabled={disabled}
+                        aria-label={actionLabel(action, id)}
                         aria-describedby={meetingLocked ? 'local-models-meeting-lock' : undefined}
-                        onClick={() => onAction(id, action)}
+                        onClick={() => onAction(action, id)}
                       >
                         {action[0].toUpperCase() + action.slice(1)} {displayName}
                       </button>

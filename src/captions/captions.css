@@ -1320,6 +1320,7 @@ input[type="range"] { width: 100%; accent-color: var(--accent); }
   letter-spacing: .02em;
   white-space: nowrap;
 }
+.local-model-row__state svg { flex: 0 0 auto; }
 .local-model-card__aggregate { color: var(--text); }
 .local-model-card__catalog,
 .local-model-card__lock {
@@ -1375,6 +1376,17 @@ input[type="range"] { width: 100%; accent-color: var(--accent); }
   .local-model-card .section-heading { align-items: flex-start; flex-direction: column; }
   .local-model-row__summary { align-items: flex-start; flex-direction: column; gap: var(--space-2); }
   .local-model-row__progress-wrap { grid-template-columns: 1fr; gap: var(--space-2); }
+}
+
+@media (max-width: 640px) {
+  .local-model-row__summary {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: start;
+    min-height: 44px;
+  }
+  .local-model-row__actions { display: grid; grid-template-columns: 1fr; }
+  .local-model-row__actions .button { width: 100%; min-height: 44px; }
 }
 /* Links inherit the accent rather than the UA's default blue, which is off-palette in
    light mode and unreadably dark against the dark surface. */
@@ -1624,4 +1636,5 @@ a:hover { text-decoration-color: currentColor; }
   }
   .caption-line { transition: color 120ms linear, opacity 120ms linear; }
   .camera-stage__entry { transition: opacity 120ms linear; }
+  .local-model-row__progress::-webkit-progress-value { transition: none; }
 }

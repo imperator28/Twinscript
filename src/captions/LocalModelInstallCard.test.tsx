@@ -1,3 +1,4 @@
+import { createRef } from 'react';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { LocalModelInstallCard } from './LocalModelInstallCard';
@@ -39,7 +40,14 @@ const status = (overrides: Partial<LocalModelStatus> = {}): LocalModelStatus => 
 
 describe('LocalModelInstallCard', () => {
   it('renders the private local-model card with independent model detail rows', () => {
-    render(<LocalModelInstallCard status={status()} onAction={vi.fn()} />);
+    const whisperRef = createRef<HTMLElement>();
+    render(
+      <LocalModelInstallCard
+        status={status()}
+        rowRefs={{ 'whisper-small': whisperRef }}
+        onAction={vi.fn()}
+      />,
+    );
 
     expect(screen.getByText('LOCAL AI MODELS')).toBeVisible();
     expect(screen.getByRole('heading', { name: 'Private, on-device processing' })).toBeVisible();
@@ -51,7 +59,9 @@ describe('LocalModelInstallCard', () => {
     expect(screen.getByText('English and Chinese translation')).toBeVisible();
     expect(screen.getByText('Version v3.1')).toBeVisible();
     expect(screen.getByText(/512 MB download/i)).toBeVisible();
-    expect(screen.getByText(/NPU when available/i)).toBeVisible();
+    expect(screen.getByText('Designed for Intel NPU')).toBeVisible();
+    expect(screen.getByText('Runs locally on CPU')).toBeVisible();
+    expect(whisperRef.current).toHaveAttribute('tabindex', '-1');
   });
 
   it('uses context-specific install, verify, repair, and remove actions', () => {
@@ -64,13 +74,13 @@ describe('LocalModelInstallCard', () => {
     });
     render(<LocalModelInstallCard status={current} onAction={onAction} />);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Verify Whisper Small' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Remove Whisper Small' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Repair HY-MT2 1.8B' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Verify Whisper local transcription model' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Remove Whisper local transcription model' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Repair HY-MT2 local translation model' }));
 
-    expect(onAction).toHaveBeenNthCalledWith(1, 'whisper-small', 'verify');
-    expect(onAction).toHaveBeenNthCalledWith(2, 'whisper-small', 'remove');
-    expect(onAction).toHaveBeenNthCalledWith(3, 'hy-mt2-1.8b', 'repair');
+    expect(onAction).toHaveBeenNthCalledWith(1, 'verify', 'whisper-small');
+    expect(onAction).toHaveBeenNthCalledWith(2, 'remove', 'whisper-small');
+    expect(onAction).toHaveBeenNthCalledWith(3, 'repair', 'hy-mt2-1.8b');
   });
 
   it('announces downloading progress natively without treating it as an error', () => {
@@ -92,21 +102,25 @@ describe('LocalModelInstallCard', () => {
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
-  it('renders failure as an alert with an explicit recovery action', () => {
+  it('renders failed and repair-needed model errors as alerts with recovery actions', () => {
     render(
       <LocalModelInstallCard
         status={status({
           models: {
             'whisper-small': model('whisper-small', 'failed'),
-            'hy-mt2-1.8b': model('hy-mt2-1.8b', 'ready'),
+            'hy-mt2-1.8b': model('hy-mt2-1.8b', 'repair-needed', {
+              error: { code: 'STALE', message: 'The translation model needs repair.' },
+            }),
           },
         })}
         onAction={vi.fn()}
       />,
     );
 
-    expect(screen.getByRole('alert')).toHaveTextContent('The model files could not be verified.');
-    expect(screen.getByRole('button', { name: 'Repair Whisper Small' })).toBeEnabled();
+    expect(screen.getAllByRole('alert')).toHaveLength(2);
+    expect(screen.getAllByRole('alert')[0]).toHaveTextContent('The model files could not be verified.');
+    expect(screen.getByText('The translation model needs repair.')).toHaveAttribute('role', 'alert');
+    expect(screen.getByRole('button', { name: 'Repair Whisper local transcription model' })).toBeEnabled();
   });
 
   it.each<LocalModelPhase>(['unavailable', 'not-installed', 'downloading', 'verifying', 'ready', 'repair-needed', 'failed'])(
@@ -155,6 +169,6 @@ describe('LocalModelInstallCard', () => {
     );
 
     expect(screen.getByText(/Model changes are locked while a meeting is active/i)).toBeVisible();
-    expect(screen.getByRole('button', { name: 'Install Whisper Small' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Install Whisper local transcription model' })).toBeDisabled();
   });
 });

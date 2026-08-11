@@ -38,6 +38,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { EventEmitter } = require('node:events');
+const { LocalModelAdmissionGate } = require('./local-model-admission');
 
 test('caption session activity remains locked while shutdown finalizes', () => {
   const manager = new CaptionSessionManager({ credentialStore: {}, settingsStore: {} });
@@ -49,6 +50,34 @@ test('caption session activity remains locked while shutdown finalizes', () => {
   manager.active = false;
   manager.finalizingStop = true;
   assert.equal(manager.isActive(), true);
+});
+
+test('session start waits for an in-flight local model mutation before becoming active', async () => {
+  const gate = new LocalModelAdmissionGate();
+  let releaseMutation;
+  const mutating = gate.runMutation(() => new Promise((resolve) => {
+    releaseMutation = resolve;
+  }));
+  await Promise.resolve();
+  const manager = new CaptionSessionManager({
+    credentialStore: {},
+    settingsStore: {
+      get: () => ({ budgetUsd: 5, shadowEnabled: false, reorderWindowMs: 400, duplicateWindowMs: 1400 }),
+      set: () => {},
+    },
+    admissionGate: gate,
+  });
+  const starting = manager.start({ mode: 'mock' });
+
+  await Promise.resolve();
+  assert.equal(manager.active, false);
+  assert.equal(gate.isSessionActive(), false);
+
+  releaseMutation();
+  await mutating;
+  await starting;
+  assert.equal(manager.active, true);
+  await manager.stop();
 });
 
 test('routes dominant English, Chinese, and mixed-script utterances', () => {

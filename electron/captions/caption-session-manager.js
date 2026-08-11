@@ -82,6 +82,7 @@ class CaptionSessionManager {
     evaluationRecorder,
     meetingRecordController,
     localInferenceSupervisor,
+    admissionGate = null,
     appVersion,
     coordinatorFactory,
     schedulerFactory,
@@ -112,6 +113,7 @@ class CaptionSessionManager {
     this.evaluationRecorder = evaluationRecorder;
     this.meetingRecordController = meetingRecordController;
     this.localInferenceSupervisor = localInferenceSupervisor;
+    this.admissionGate = admissionGate;
     this.appVersion = appVersion;
     this.coordinatorFactory =
       coordinatorFactory || ((options) => new TranscriptCoordinator(options));
@@ -177,11 +179,22 @@ class CaptionSessionManager {
   }
 
   isActive() {
-    return this.active || this.finalizingStop;
+    return this.active || this.finalizingStop || Boolean(this.admissionGate?.isSessionActive?.());
   }
 
   async start(request = {}) {
-    if (this.active) await this.stop();
+    if (this.isActive()) await this.stop();
+    const releaseAdmission = await this.admissionGate?.acquireSession?.();
+    this.sessionAdmissionRelease = releaseAdmission || null;
+    try {
+      return await this._start(request);
+    } catch (error) {
+      this.releaseSessionAdmission();
+      throw error;
+    }
+  }
+
+  async _start(request = {}) {
     this.reset();
     this.sessionId = crypto.randomUUID();
     this.mode = request.mode || 'live';
@@ -1222,7 +1235,15 @@ class CaptionSessionManager {
       reason,
       meetingRecord: this.meetingRecord,
     });
-    return this.snapshot();
+    const snapshot = this.snapshot();
+    this.releaseSessionAdmission();
+    return snapshot;
+  }
+
+  releaseSessionAdmission() {
+    const release = this.sessionAdmissionRelease;
+    this.sessionAdmissionRelease = null;
+    release?.();
   }
 
   snapshot() {

@@ -63,6 +63,7 @@ function registerCaptionIpc({
   nativeCameraSupervisor = null,
   nativeCameraInstaller = null,
   localInferenceSupervisor = null,
+  localModelService = null,
 }) {
   const handle = (channel, action) => {
     ipcMain.handle(
@@ -109,7 +110,7 @@ function registerCaptionIpc({
   );
   handle('captions:microphone-request', () => requestMicrophoneAccess());
   handle('captions:local-inference-status', () =>
-    localInferenceSupervisor?.readiness?.() || ({
+    localModelService?.status?.() || localInferenceSupervisor?.readiness?.() || ({
       runtimeReady: false,
       requestedDevice: 'NPU',
       models: {

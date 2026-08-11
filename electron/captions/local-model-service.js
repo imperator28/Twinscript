@@ -52,7 +52,14 @@ function rendererModel(model, actualDevice) {
 }
 
 class LocalModelService extends EventEmitter {
-  constructor({ catalog, manager = null, sessionManager = null, supervisor = null } = {}) {
+  constructor({
+    catalog,
+    manager = null,
+    sessionManager = null,
+    supervisor = null,
+    admissionGate = null,
+    isMeetingActive = null,
+  } = {}) {
     super();
     this.catalog = catalog || {
       available: false,
@@ -63,6 +70,8 @@ class LocalModelService extends EventEmitter {
     this.manager = manager;
     this.sessionManager = sessionManager;
     this.supervisor = supervisor;
+    this.admissionGate = admissionGate;
+    this.isMeetingActive = isMeetingActive;
   }
 
   modelReady(modelId) {
@@ -80,18 +89,21 @@ class LocalModelService extends EventEmitter {
     if (!this.isKnownModel(modelId)) {
       throw serviceError('local_model_unknown', 'Unknown local model: ' + modelId);
     }
-    if (this.sessionManager?.isActive?.()) {
-      throw serviceError('meeting_active', 'Local models cannot change during a meeting');
-    }
-    try {
-      return await this.manager[operation](modelId);
-    } finally {
-      this.emit('status', this.status());
-    }
+    const execute = async () => {
+      if (this.isMeetingActive?.() || this.sessionManager?.isActive?.()) {
+        throw serviceError('meeting_active', 'Local models cannot change during a meeting');
+      }
+      try {
+        return await this.manager[operation](modelId);
+      } finally {
+        this.emit('status', this.status());
+      }
+    };
+    return this.admissionGate ? this.admissionGate.runMutation(execute) : execute();
   }
 
   status() {
-    const meetingActive = Boolean(this.sessionManager?.isActive?.());
+    const meetingActive = Boolean(this.isMeetingActive?.() || this.sessionManager?.isActive?.());
     const actionLocks = {
       meetingActive,
       download: meetingActive || !this.catalog.available,

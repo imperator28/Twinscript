@@ -21,12 +21,7 @@ const {
 } = require('./captions/camera-stage-frame-publisher');
 const { CredentialStore } = require('./captions/credential-store');
 const { EvaluationRecorder } = require('./captions/evaluation-recorder');
-const {
-  LocalInferenceSupervisor,
-} = require('./captions/local-inference-supervisor');
-const {
-  resolveLocalInferencePaths,
-} = require('./captions/local-inference-paths');
+const { createLocalInferenceRuntime } = require('./captions/local-inference-runtime');
 const {
   MeetingRecordController,
 } = require('./captions/meeting-record-controller');
@@ -79,6 +74,7 @@ let sessionManager = null;
 let meetingRecordController = null;
 let nativeCameraSupervisor = null;
 let localInferenceSupervisor = null;
+let localModelService = null;
 let shutdownPromise = null;
 let shutdownComplete = false;
 
@@ -403,19 +399,14 @@ app.whenReady().then(async () => {
 
   const credentialStore = new CredentialStore({ app, safeStorage });
   const evaluationRecorder = new EvaluationRecorder({ app, safeStorage });
-  const localInferencePaths = resolveLocalInferencePaths({
+  const localInferenceRuntime = createLocalInferenceRuntime({
     isPackaged: app.isPackaged,
     resourcesPath: process.resourcesPath,
     appPath: app.getAppPath(),
     userDataPath: app.getPath('userData'),
   });
-  localInferenceSupervisor = new LocalInferenceSupervisor({
-    isPackaged: app.isPackaged,
-    resourcesPath: process.resourcesPath,
-    appPath: app.getAppPath(),
-    ...localInferencePaths,
-    whisperDevice: 'NPU',
-  });
+  localInferenceSupervisor = localInferenceRuntime.supervisor;
+  localModelService = localInferenceRuntime.service;
   meetingRecordController = new MeetingRecordController({
     app,
     safeStorage,
@@ -439,8 +430,10 @@ app.whenReady().then(async () => {
     evaluationRecorder,
     meetingRecordController,
     localInferenceSupervisor,
+    admissionGate: localInferenceRuntime.admissionGate,
     appVersion: app.getVersion(),
   });
+  localInferenceRuntime.attachSessionManager(sessionManager);
   const requestMicrophoneAccess = async () => {
     if (process.platform !== 'darwin') {
       return { granted: true, status: 'granted' };
@@ -471,6 +464,7 @@ app.whenReady().then(async () => {
     nativeCameraSupervisor,
     nativeCameraInstaller,
     localInferenceSupervisor,
+    localModelService,
   });
   captionWindows.broadcastControl(
     'captions:pending-meeting-records',

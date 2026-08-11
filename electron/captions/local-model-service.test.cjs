@@ -3,6 +3,7 @@ const test = require('node:test');
 const { EventEmitter } = require('node:events');
 
 const { LocalModelService } = require('./local-model-service');
+const { LocalModelAdmissionGate } = require('./local-model-admission');
 
 function catalog() {
   return {
@@ -190,4 +191,22 @@ test('operations reject unavailable catalogs, active meetings, and unknown model
     manager: { download: async () => { throw new Error('unused'); } },
   });
   await assert.rejects(known.install('unknown'), { code: 'local_model_unknown' });
+});
+
+test('a queued session admission wins the mutation gate before a manager operation begins', async () => {
+  const gate = new LocalModelAdmissionGate();
+  const releaseSession = await gate.acquireSession();
+  let called = false;
+  const service = new LocalModelService({
+    catalog: catalog(),
+    admissionGate: gate,
+    manager: {
+      download: async () => { called = true; },
+      status: () => ({ models: {} }),
+    },
+  });
+
+  await assert.rejects(service.install('whisper-small'), { code: 'meeting_active' });
+  assert.equal(called, false);
+  releaseSession();
 });

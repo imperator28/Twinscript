@@ -1335,12 +1335,20 @@ input[type="range"] { width: 100%; accent-color: var(--accent); }
 }
 .local-model-card__lock { border-left: 3px solid var(--accent); }
 .local-model-card__models { margin-top: var(--space-4); border-top: 1px solid var(--border); }
-.local-model-row { padding: var(--space-4) 0; border-bottom: 1px solid var(--border-subtle); }
+.local-model-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-4);
+  min-height: 44px;
+  padding: var(--space-4) 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
 .local-model-row:last-child { padding-bottom: 0; border-bottom: 0; }
-.local-model-row__summary { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-4); }
+.local-model-row__summary { display: flex; grid-column: 1; align-items: flex-start; justify-content: space-between; gap: var(--space-4); }
 .local-model-row h3 { margin: 0; font-size: var(--size-body); line-height: var(--leading-tight); }
 .local-model-row__summary p { margin: 2px 0 0; color: var(--text-secondary); font-size: var(--size-sm); line-height: var(--leading-tight); }
 .local-model-row__metadata {
+  grid-column: 1 / -1;
   display: flex;
   flex-wrap: wrap;
   gap: 0 var(--space-2);
@@ -1351,7 +1359,7 @@ input[type="range"] { width: 100%; accent-color: var(--accent); }
   line-height: var(--leading-tight);
 }
 .local-model-row__metadata i { font-style: normal; }
-.local-model-row__progress-wrap { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: var(--space-3); margin-top: var(--space-3); }
+.local-model-row__progress-wrap { display: grid; grid-column: 1 / -1; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: var(--space-3); margin-top: var(--space-3); }
 .local-model-row__progress {
   width: 100%;
   height: 7px;
@@ -1366,8 +1374,8 @@ input[type="range"] { width: 100%; accent-color: var(--accent); }
 .local-model-row__progress::-moz-progress-bar { border-radius: var(--radius-pill); background: var(--accent); }
 .local-model-row__progress-wrap p,
 .local-model-row__error { margin: 0; color: var(--text-secondary); font-size: var(--size-xs); font-variant-numeric: tabular-nums; }
-.local-model-row__error { margin-top: var(--space-3); color: var(--danger-text); }
-.local-model-row__actions { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-top: var(--space-3); }
+.local-model-row__error { grid-column: 1 / -1; margin-top: var(--space-3); color: var(--danger-text); }
+.local-model-row__actions { display: flex; grid-column: 2; grid-row: 1; align-self: start; flex-wrap: wrap; justify-content: flex-end; gap: var(--space-2); }
 .local-model-row.is-ready .local-model-row__state { border-color: var(--success-border); background: var(--success-surface); color: var(--success-text); }
 .local-model-row.is-repair-needed .local-model-row__state,
 .local-model-row.is-failed .local-model-row__state { border-color: var(--danger-border); background: var(--danger-surface); color: var(--danger-text); }
@@ -1379,13 +1387,14 @@ input[type="range"] { width: 100%; accent-color: var(--accent); }
 }
 
 @media (max-width: 640px) {
+  .local-model-row { grid-template-columns: 1fr; }
   .local-model-row__summary {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
     align-items: start;
     min-height: 44px;
   }
-  .local-model-row__actions { display: grid; grid-template-columns: 1fr; }
+  .local-model-row__actions { display: grid; grid-column: 1; grid-row: auto; grid-template-columns: 1fr; margin-top: var(--space-3); }
   .local-model-row__actions .button { width: 100%; min-height: 44px; }
 }
 /* Links inherit the accent rather than the UA's default blue, which is off-palette in

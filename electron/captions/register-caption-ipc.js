@@ -110,6 +110,17 @@ function registerCaptionIpc({
       throw safeLocalModelError(error);
     }
   };
+  const localModelDefinition = (modelId) => {
+    const model = localModelService?.catalog?.manifest?.models?.find(
+      (candidate) => candidate.id === modelId,
+    );
+    if (!model || localModelService?.isKnownModel?.(modelId) !== true) {
+      const error = new Error('Unknown local model');
+      error.code = 'local_model_unknown';
+      throw error;
+    }
+    return model;
+  };
 
   // LocalModelService is the sole publisher of this snapshot. One listener keeps
   // every renderer synchronized without making action handlers double-publish.
@@ -167,11 +178,14 @@ function registerCaptionIpc({
   handle('captions:local-model-repair', localModelAction('repair'));
   handle('captions:local-model-remove', async ({ modelId } = {}) => {
     try {
+      const model = localModelDefinition(modelId);
       const confirmation = await dialog.showMessageBox(windows.controlWindow, {
         type: 'warning',
         title: 'Remove local model?',
-        message: 'Remove this local model from this device?',
-        detail: 'You can install it again later. Meeting records are not affected.',
+        message: `Remove ${model.displayName} from this device?`,
+        detail:
+          `${model.displayName} must be downloaded again before this local option can start a meeting. ` +
+          'Meeting records are not affected.',
         buttons: ['Cancel', 'Remove'],
         defaultId: 0,
         cancelId: 0,

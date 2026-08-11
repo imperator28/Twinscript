@@ -1300,6 +1300,82 @@ input[type="range"] { width: 100%; accent-color: var(--accent); }
 }
 
 .app-footer { margin-top: var(--space-6); padding-top: var(--space-4); border-top: 1px solid var(--border); color: var(--text-secondary); font-size: var(--size-xs); }
+
+/* Local models use the same calm, practical card grammar as the native camera:
+   state is readable as text first, while the small state marker makes scanning two
+   independent downloads fast without turning the settings page into a dashboard. */
+.local-model-card { overflow: hidden; }
+.local-model-card__aggregate,
+.local-model-row__state {
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  background: var(--surface-muted);
+  color: var(--text-secondary);
+  font-size: var(--size-xs);
+  font-weight: var(--weight-bold);
+  letter-spacing: .02em;
+  white-space: nowrap;
+}
+.local-model-card__aggregate { color: var(--text); }
+.local-model-card__catalog,
+.local-model-card__lock {
+  margin: var(--space-4) 0 0;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--surface-muted);
+  color: var(--text-secondary);
+  font-size: var(--size-sm);
+  line-height: var(--leading-tight);
+}
+.local-model-card__lock { border-left: 3px solid var(--accent); }
+.local-model-card__models { margin-top: var(--space-4); border-top: 1px solid var(--border); }
+.local-model-row { padding: var(--space-4) 0; border-bottom: 1px solid var(--border-subtle); }
+.local-model-row:last-child { padding-bottom: 0; border-bottom: 0; }
+.local-model-row__summary { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-4); }
+.local-model-row h3 { margin: 0; font-size: var(--size-body); line-height: var(--leading-tight); }
+.local-model-row__summary p { margin: 2px 0 0; color: var(--text-secondary); font-size: var(--size-sm); line-height: var(--leading-tight); }
+.local-model-row__metadata {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 var(--space-2);
+  margin: var(--space-3) 0 0;
+  color: var(--text-secondary);
+  font-size: var(--size-xs);
+  font-variant-numeric: tabular-nums;
+  line-height: var(--leading-tight);
+}
+.local-model-row__metadata i { font-style: normal; }
+.local-model-row__progress-wrap { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: var(--space-3); margin-top: var(--space-3); }
+.local-model-row__progress {
+  width: 100%;
+  height: 7px;
+  overflow: hidden;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: var(--surface-sunken);
+  accent-color: var(--accent);
+}
+.local-model-row__progress::-webkit-progress-bar { border-radius: var(--radius-pill); background: var(--surface-sunken); }
+.local-model-row__progress::-webkit-progress-value { border-radius: var(--radius-pill); background: var(--accent); transition: width var(--dur-fast) var(--ease-out); }
+.local-model-row__progress::-moz-progress-bar { border-radius: var(--radius-pill); background: var(--accent); }
+.local-model-row__progress-wrap p,
+.local-model-row__error { margin: 0; color: var(--text-secondary); font-size: var(--size-xs); font-variant-numeric: tabular-nums; }
+.local-model-row__error { margin-top: var(--space-3); color: var(--danger-text); }
+.local-model-row__actions { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-top: var(--space-3); }
+.local-model-row.is-ready .local-model-row__state { border-color: var(--success-border); background: var(--success-surface); color: var(--success-text); }
+.local-model-row.is-repair-needed .local-model-row__state,
+.local-model-row.is-failed .local-model-row__state { border-color: var(--danger-border); background: var(--danger-surface); color: var(--danger-text); }
+
+@media (max-width: 760px) {
+  .local-model-card .section-heading { align-items: flex-start; flex-direction: column; }
+  .local-model-row__summary { align-items: flex-start; flex-direction: column; gap: var(--space-2); }
+  .local-model-row__progress-wrap { grid-template-columns: 1fr; gap: var(--space-2); }
+}
 /* Links inherit the accent rather than the UA's default blue, which is off-palette in
    light mode and unreadably dark against the dark surface. */
 a { color: var(--accent); text-decoration-color: color-mix(in srgb, currentColor 40%, transparent); text-underline-offset: 2px; }

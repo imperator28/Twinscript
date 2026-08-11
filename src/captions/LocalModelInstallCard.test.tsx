@@ -1,0 +1,160 @@
+import { fireEvent, render, screen, within } from '@testing-library/react';
+import { describe, expect, it, vi } from 'vitest';
+import { LocalModelInstallCard } from './LocalModelInstallCard';
+import type { LocalModelId, LocalModelPhase, LocalModelStatus } from './types';
+
+const model = (
+  id: LocalModelId,
+  phase: LocalModelPhase,
+  overrides: Partial<LocalModelStatus['models'][LocalModelId]> = {},
+): LocalModelStatus['models'][LocalModelId] => ({
+  id,
+  version: id === 'whisper-small' ? 'v3.1' : 'v1.2',
+  displayName: id === 'whisper-small' ? 'Whisper Small' : 'HY-MT2 1.8B',
+  purpose: id === 'whisper-small' ? 'Speech recognition' : 'English and Chinese translation',
+  expectedDevice: id === 'whisper-small' ? 'NPU' : 'GPU',
+  downloadBytes: id === 'whisper-small' ? 512_000_000 : 1_800_000_000,
+  installedBytes: phase === 'ready' ? 512_000_000 : 0,
+  downloadedBytes: phase === 'downloading' ? 256_000_000 : 0,
+  installed: phase === 'ready',
+  verified: phase === 'ready',
+  phase,
+  ready: phase === 'ready',
+  repairRecommended: phase === 'repair-needed',
+  error: phase === 'failed' ? { code: 'CHECKSUM', message: 'The model files could not be verified.' } : null,
+  actualDevice: phase === 'ready' ? 'NPU' : null,
+  ...overrides,
+});
+
+const status = (overrides: Partial<LocalModelStatus> = {}): LocalModelStatus => ({
+  catalog: { available: true, error: null },
+  runtime: { ready: false, requestedDevice: 'NPU' },
+  models: {
+    'whisper-small': model('whisper-small', 'not-installed'),
+    'hy-mt2-1.8b': model('hy-mt2-1.8b', 'not-installed'),
+  },
+  actionLocks: { meetingActive: false, download: false, verify: false, repair: false, remove: false },
+  ...overrides,
+});
+
+describe('LocalModelInstallCard', () => {
+  it('renders the private local-model card with independent model detail rows', () => {
+    render(<LocalModelInstallCard status={status()} onAction={vi.fn()} />);
+
+    expect(screen.getByText('LOCAL AI MODELS')).toBeVisible();
+    expect(screen.getByRole('heading', { name: 'Private, on-device processing' })).toBeVisible();
+    expect(screen.getByText('0 of 2 ready')).toBeVisible();
+    expect(screen.getByText('Whisper Small')).toBeVisible();
+    expect(screen.getByText('HY-MT2 1.8B')).toBeVisible();
+    expect(screen.getAllByText('Not installed')).toHaveLength(2);
+    expect(screen.getByText('Speech recognition')).toBeVisible();
+    expect(screen.getByText('English and Chinese translation')).toBeVisible();
+    expect(screen.getByText('Version v3.1')).toBeVisible();
+    expect(screen.getByText(/512 MB download/i)).toBeVisible();
+    expect(screen.getByText(/NPU when available/i)).toBeVisible();
+  });
+
+  it('uses context-specific install, verify, repair, and remove actions', () => {
+    const onAction = vi.fn();
+    const current = status({
+      models: {
+        'whisper-small': model('whisper-small', 'ready'),
+        'hy-mt2-1.8b': model('hy-mt2-1.8b', 'repair-needed'),
+      },
+    });
+    render(<LocalModelInstallCard status={current} onAction={onAction} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Verify Whisper Small' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Remove Whisper Small' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Repair HY-MT2 1.8B' }));
+
+    expect(onAction).toHaveBeenNthCalledWith(1, 'whisper-small', 'verify');
+    expect(onAction).toHaveBeenNthCalledWith(2, 'whisper-small', 'remove');
+    expect(onAction).toHaveBeenNthCalledWith(3, 'hy-mt2-1.8b', 'repair');
+  });
+
+  it('announces downloading progress natively without treating it as an error', () => {
+    render(
+      <LocalModelInstallCard
+        status={status({
+          models: {
+            'whisper-small': model('whisper-small', 'downloading'),
+            'hy-mt2-1.8b': model('hy-mt2-1.8b', 'verifying'),
+          },
+        })}
+        onAction={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole('progressbar', { name: 'Downloading Whisper Small' })).toHaveAttribute('aria-valuenow', '50');
+    expect(screen.getByText(/256 MB of 512 MB downloaded/i)).toBeVisible();
+    expect(screen.getByText('Verifying files')).toBeVisible();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('renders failure as an alert with an explicit recovery action', () => {
+    render(
+      <LocalModelInstallCard
+        status={status({
+          models: {
+            'whisper-small': model('whisper-small', 'failed'),
+            'hy-mt2-1.8b': model('hy-mt2-1.8b', 'ready'),
+          },
+        })}
+        onAction={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole('alert')).toHaveTextContent('The model files could not be verified.');
+    expect(screen.getByRole('button', { name: 'Repair Whisper Small' })).toBeEnabled();
+  });
+
+  it.each<LocalModelPhase>(['unavailable', 'not-installed', 'downloading', 'verifying', 'ready', 'repair-needed', 'failed'])(
+    'gives the %s phase a visible text status',
+    (phase) => {
+      render(
+        <LocalModelInstallCard
+          status={status({
+            models: {
+              'whisper-small': model('whisper-small', phase),
+              'hy-mt2-1.8b': model('hy-mt2-1.8b', 'ready'),
+            },
+          })}
+          onAction={vi.fn()}
+        />,
+      );
+
+      expect(
+        within(screen.getByRole('region', { name: 'Whisper Small' })).getByText(
+          new RegExp(phase.replace('-', ' '), 'i'),
+        ),
+      ).toBeVisible();
+    },
+  );
+
+  it('handles an unavailable catalog and disables mutations while a meeting is active', () => {
+    const { rerender } = render(
+      <LocalModelInstallCard
+        status={status({
+          catalog: { available: false, error: { code: 'CATALOG_OFFLINE', message: 'Model catalog is unavailable.' } },
+        })}
+        onAction={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText('Model catalog is unavailable.')).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Install Whisper Small' })).not.toBeInTheDocument();
+
+    rerender(
+      <LocalModelInstallCard
+        status={status({
+          actionLocks: { meetingActive: true, download: false, verify: false, repair: false, remove: false },
+        })}
+        onAction={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText(/Model changes are locked while a meeting is active/i)).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Install Whisper Small' })).toBeDisabled();
+  });
+});

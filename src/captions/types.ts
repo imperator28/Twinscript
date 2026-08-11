@@ -313,12 +313,15 @@ export type LocalModelPhase =
 /** A renderer-safe local model row: no filesystem locations, URLs, or hashes. */
 export interface LocalModelState {
   id: LocalModelId;
+  version: string | null;
   displayName?: string;
   purpose?: string;
   expectedDevice: 'NPU' | 'GPU' | 'CPU' | null;
   downloadBytes?: number;
   installedBytes?: number;
   downloadedBytes?: number;
+  installed: boolean;
+  verified: boolean;
   phase: LocalModelPhase;
   ready: boolean;
   repairRecommended?: boolean;

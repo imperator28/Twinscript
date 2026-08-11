@@ -60,3 +60,62 @@ test('bootstrap derives paths and packaged readiness from the loaded catalog', (
   assert.equal(runtime.service.supervisor, runtime.supervisor);
   assert.equal(typeof runtime.attachSessionManager, 'function');
 });
+
+test('manager progress publishes ongoing service snapshots and one terminal ready snapshot', async () => {
+  const manifest = {
+    runtimeVersion: '2026.8.10',
+    models: [
+      { id: 'whisper-small', version: 'whisper-v2', displayName: 'Whisper Small', purpose: 'Speech recognition', expectedDevice: 'NPU', files: [] },
+      { id: 'hy-mt2-1.8b', version: 'hymt2-v2', displayName: 'HY-MT2 1.8B', purpose: 'Translation', expectedDevice: 'GPU', files: [] },
+    ],
+  };
+  class Manager {
+    constructor({ onProgress }) {
+      this.onProgress = onProgress;
+      this.phase = 'not-installed';
+    }
+
+    status() {
+      return {
+        models: {
+          'whisper-small': {
+            id: 'whisper-small', phase: this.phase, ready: this.phase === 'ready',
+            version: 'private-manager-version', installedBytes: 0, downloadedBytes: 0,
+          },
+          'hy-mt2-1.8b': { id: 'hy-mt2-1.8b', phase: 'not-installed', ready: false },
+        },
+      };
+    }
+
+    async download() {
+      for (const phase of ['downloading', 'verifying', 'ready']) {
+        this.phase = phase;
+        this.onProgress?.({ modelId: 'whisper-small', phase, downloadedBytes: 1, totalBytes: 1 });
+      }
+    }
+  }
+  class Supervisor {
+    constructor() {}
+  }
+  const runtime = createLocalInferenceRuntime({
+    isPackaged: true,
+    resourcesPath: 'C:\\resources',
+    appPath: 'C:\\app',
+    userDataPath: 'C:\\user',
+  }, {
+    loadCatalog: () => ({ available: true, manifest, error: null }),
+    resolvePaths: () => ({ modelRoot: 'C:\\user\\local-models' }),
+    LocalModelManager: Manager,
+    LocalInferenceSupervisor: Supervisor,
+  });
+  const phases = [];
+  runtime.service.on('status', (status) => phases.push(status.models['whisper-small'].phase));
+
+  await runtime.service.install('whisper-small');
+
+  assert.deepEqual(phases, ['downloading', 'verifying', 'ready']);
+  assert.equal(phases.filter((phase) => phase === 'ready').length, 1);
+  // A remounted renderer can fetch the latest public snapshot after missing updates.
+  assert.equal(runtime.service.status().models['whisper-small'].phase, 'ready');
+  assert.equal(runtime.service.status().models['whisper-small'].version, 'whisper-v2');
+});

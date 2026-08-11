@@ -106,6 +106,10 @@ class LocalModelManager {
       else if (this._hasArtifacts(model)) phase = 'repair-needed';
       else phase = 'not-installed';
       const counts = this._byteCounts(model);
+      const installed = model.files.every((file) => {
+        const stat = this._stat(this.filePath(model, file));
+        return stat?.isFile() && stat.size === file.size;
+      });
       models[model.id] = {
         id: model.id,
         displayName: model.displayName,
@@ -115,6 +119,8 @@ class LocalModelManager {
         downloadBytes,
         installedBytes: counts.installedBytes,
         downloadedBytes: operation?.downloadedBytes ?? counts.downloadedBytes,
+        installed,
+        verified: markerReady,
         phase,
         ready: phase === 'ready',
         repairRecommended: phase === 'repair-needed',

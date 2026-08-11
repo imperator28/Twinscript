@@ -16,14 +16,24 @@ function createLocalInferenceRuntime(options, dependencies = {}) {
   const paths = resolvePaths({ ...options, manifest: catalog.manifest });
   const admissionGate = new Gate();
   let sessionManager = null;
+  // The manager is constructed before its service, so progress closes over this
+  // binding and begins publishing only after the service exists.
+  let service = null;
   const manager = catalog.available
     ? new Manager({
         manifest: catalog.manifest,
         root: paths.modelRoot,
         sessionActive: () => Boolean(sessionManager?.isActive?.()),
+        onProgress: ({ phase }) => {
+          // The manager's ready event is terminal; run() publishes that final
+          // snapshot in its finally block. Forward only ongoing phases here.
+          if (phase === 'downloading' || phase === 'verifying') {
+            service?.publishStatus?.();
+          }
+        },
       })
     : null;
-  const service = new Service({
+  service = new Service({
     catalog,
     manager,
     admissionGate,

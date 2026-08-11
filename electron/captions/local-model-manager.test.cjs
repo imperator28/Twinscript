@@ -60,12 +60,12 @@ test('status exposes both approved models with lifecycle metadata while preservi
   assert.deepEqual(Object.keys(status.models), ['whisper-small', 'hy-mt2-1.8b']);
   assert.deepEqual(status.models['whisper-small'], {
     id: 'whisper-small', displayName: 'Whisper Small', purpose: 'Speech recognition', expectedDevice: 'NPU', version: 'whisper-v1',
-    downloadBytes: 5, installedBytes: 0, downloadedBytes: 0, phase: 'not-installed', ready: false,
+    downloadBytes: 5, installedBytes: 0, downloadedBytes: 0, installed: false, verified: false, phase: 'not-installed', ready: false,
     repairRecommended: false, error: null,
   });
   assert.deepEqual(status.models['hy-mt2-1.8b'], {
     id: 'hy-mt2-1.8b', displayName: 'HY-MT2 1.8B', purpose: 'Translation', expectedDevice: 'GPU', version: 'translator-v1',
-    downloadBytes: 5, installedBytes: 0, downloadedBytes: 0, phase: 'not-installed', ready: false,
+    downloadBytes: 5, installedBytes: 0, downloadedBytes: 0, installed: false, verified: false, phase: 'not-installed', ready: false,
     repairRecommended: false, error: null,
   });
   fs.rmSync(root, { recursive: true, force: true });

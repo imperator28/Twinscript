@@ -27,22 +27,28 @@ function safeDevice(device) {
 function unavailableModel(modelId, actualDevice = null) {
   return {
     id: modelId,
+    version: null,
     phase: 'unavailable',
     ready: false,
+    installed: false,
+    verified: false,
     actualDevice: safeDevice(actualDevice),
     error: CATALOG_UNAVAILABLE,
   };
 }
 
-function rendererModel(model, actualDevice) {
+function rendererModel(model = {}, actualDevice, catalogModel) {
   return {
-    id: model.id,
-    displayName: model.displayName,
-    purpose: model.purpose,
-    expectedDevice: safeDevice(model.expectedDevice),
+    id: catalogModel.id,
+    displayName: catalogModel.displayName,
+    purpose: catalogModel.purpose,
+    expectedDevice: safeDevice(catalogModel.expectedDevice),
+    version: catalogModel.version,
     downloadBytes: model.downloadBytes,
     installedBytes: model.installedBytes,
     downloadedBytes: model.downloadedBytes,
+    installed: model.installed === true,
+    verified: model.verified === true,
     phase: model.phase,
     ready: model.ready === true,
     repairRecommended: model.repairRecommended === true,
@@ -96,10 +102,16 @@ class LocalModelService extends EventEmitter {
       try {
         return await this.manager[operation](modelId);
       } finally {
-        this.emit('status', this.status());
+        this.publishStatus();
       }
     };
     return this.admissionGate ? this.admissionGate.runMutation(execute) : execute();
+  }
+
+  publishStatus() {
+    const status = this.status();
+    this.emit('status', status);
+    return status;
   }
 
   status() {
@@ -144,9 +156,13 @@ class LocalModelService extends EventEmitter {
         ready: Boolean(readiness.runtimeReady),
         requestedDevice: safeDevice(readiness.requestedDevice) || 'NPU',
       },
-      models: Object.fromEntries(Object.entries(lifecycle.models).map(([modelId, model]) => [
-        modelId,
-        rendererModel(model, readiness.models?.[modelId]?.actualDevice),
+      models: Object.fromEntries(this.catalog.manifest.models.map((model) => [
+        model.id,
+        rendererModel(
+          lifecycle.models?.[model.id],
+          readiness.models?.[model.id]?.actualDevice,
+          model,
+        ),
       ])),
       actionLocks,
     };

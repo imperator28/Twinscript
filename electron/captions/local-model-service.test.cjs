@@ -101,17 +101,25 @@ test('status projects only renderer-safe model and catalog fields', () => {
       status: () => ({
         models: {
           'whisper-small': {
-            id: 'whisper-small', phase: 'ready', ready: true,
+            id: 'whisper-small', phase: 'ready', ready: true, installed: true, verified: true,
             path: 'C:\\private\\model', url: 'https://private.invalid/model',
             sha256: 'a'.repeat(64), version: 'b'.repeat(64), signature: 'private-signature',
           },
-          'hy-mt2-1.8b': { id: 'hy-mt2-1.8b', phase: 'not-installed', ready: false },
+          'hy-mt2-1.8b': { id: 'hy-mt2-1.8b', phase: 'not-installed', ready: false, installed: false, verified: false },
         },
       }),
     },
   });
 
-  const serialized = JSON.stringify(service.status());
+  const status = service.status();
+  const serialized = JSON.stringify(status);
+
+  assert.equal(status.models['whisper-small'].version, 'whisper-v2');
+  assert.equal(status.models['whisper-small'].installed, true);
+  assert.equal(status.models['whisper-small'].verified, true);
+  assert.equal(status.models['hy-mt2-1.8b'].version, 'hymt2-v2');
+  assert.equal(status.models['hy-mt2-1.8b'].installed, false);
+  assert.equal(status.models['hy-mt2-1.8b'].verified, false);
 
   for (const secret of ['C:\\private\\model', 'https://private.invalid/model', 'private-signature', 'a'.repeat(64), 'b'.repeat(64)]) {
     assert.equal(serialized.includes(secret), false);

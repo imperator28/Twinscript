@@ -12,6 +12,7 @@ const EVENT_CHANNELS = new Set([
   'captions:pending-meeting-records',
   'captions:preview-visibility',
   'captions:native-camera-health',
+  'captions:local-model-status',
 ]);
 
 function invoke(channel, payload) {
@@ -43,6 +44,15 @@ contextBridge.exposeInMainWorld('captions', {
     invoke('captions:microphone-request'),
   getSettings: () => invoke('captions:settings-get'),
   getLocalInferenceStatus: () => invoke('captions:local-inference-status'),
+  getLocalModelStatus: () => invoke('captions:local-model-status'),
+  installLocalModel: (modelId) =>
+    invoke('captions:local-model-install', { modelId }),
+  verifyLocalModel: (modelId) =>
+    invoke('captions:local-model-verify', { modelId }),
+  repairLocalModel: (modelId) =>
+    invoke('captions:local-model-repair', { modelId }),
+  removeLocalModel: (modelId) =>
+    invoke('captions:local-model-remove', { modelId }),
   getGlossaryConfigurations: () =>
     invoke('captions:glossary-configurations'),
   getGlossaryTerms: () => invoke('captions:glossary-terms'),
@@ -124,6 +134,8 @@ contextBridge.exposeInMainWorld('captions', {
     subscribe('captions:preview-visibility', callback),
   onNativeCameraHealth: (callback) =>
     subscribe('captions:native-camera-health', callback),
+  onLocalModelStatus: (callback) =>
+    subscribe('captions:local-model-status', callback),
 });
 
 // Compatibility bridge for Sokuji's retained audio capture classes. It is

@@ -36,6 +36,25 @@ function safeResult(action) {
   };
 }
 
+const LOCAL_MODEL_ERROR_CODES = new Set([
+  'local_catalog_unavailable',
+  'local_model_unknown',
+  'local_model_mutation_active',
+  'local_model_download_failed',
+  'local_model_size_mismatch',
+  'local_model_hash_mismatch',
+  'meeting_active',
+]);
+
+function safeLocalModelError(error) {
+  const code = LOCAL_MODEL_ERROR_CODES.has(error?.code)
+    ? error.code
+    : 'local_model_operation_failed';
+  const safe = new Error('Local model operation could not be completed.');
+  safe.code = code;
+  return safe;
+}
+
 function assertMeetingSessionId(sessionId) {
   if (
     typeof sessionId !== 'string' ||
@@ -74,6 +93,29 @@ function registerCaptionIpc({
       }),
     );
   };
+
+  const localModelStatus = () => {
+    if (!localModelService?.status) {
+      const error = new Error('Local model controls are unavailable.');
+      error.code = 'local_catalog_unavailable';
+      throw error;
+    }
+    return localModelService.status();
+  };
+  const localModelAction = (operation) => async ({ modelId } = {}) => {
+    try {
+      await localModelService?.[operation]?.(modelId);
+      return localModelStatus();
+    } catch (error) {
+      throw safeLocalModelError(error);
+    }
+  };
+
+  // LocalModelService is the sole publisher of this snapshot. One listener keeps
+  // every renderer synchronized without making action handlers double-publish.
+  localModelService?.on?.('status', (status) => {
+    windows.broadcast('captions:local-model-status', status);
+  });
 
   handle('captions:credential-status', () => credentialStore.status());
   handle('captions:credential-set', ({ value }) => credentialStore.set(value));
@@ -119,6 +161,31 @@ function registerCaptionIpc({
       },
     }),
   );
+  handle('captions:local-model-status', localModelStatus);
+  handle('captions:local-model-install', localModelAction('install'));
+  handle('captions:local-model-verify', localModelAction('verify'));
+  handle('captions:local-model-repair', localModelAction('repair'));
+  handle('captions:local-model-remove', async ({ modelId } = {}) => {
+    try {
+      const confirmation = await dialog.showMessageBox(windows.controlWindow, {
+        type: 'warning',
+        title: 'Remove local model?',
+        message: 'Remove this local model from this device?',
+        detail: 'You can install it again later. Meeting records are not affected.',
+        buttons: ['Cancel', 'Remove'],
+        defaultId: 0,
+        cancelId: 0,
+        noLink: true,
+      });
+      if (confirmation.response !== 1) {
+        return { canceled: true, status: localModelStatus() };
+      }
+      await localModelService?.remove?.(modelId);
+      return { canceled: false, status: localModelStatus() };
+    } catch (error) {
+      throw safeLocalModelError(error);
+    }
+  });
   handle('captions:settings-get', () =>
     windows.settingsPayload
       ? windows.settingsPayload(settingsStore.get())

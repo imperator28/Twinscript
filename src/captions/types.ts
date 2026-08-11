@@ -299,6 +299,53 @@ export interface LocalInferenceStatus {
   };
 }
 
+export type LocalModelId = 'whisper-small' | 'hy-mt2-1.8b';
+
+export type LocalModelPhase =
+  | 'not-installed'
+  | 'downloading'
+  | 'verifying'
+  | 'ready'
+  | 'repair-needed'
+  | 'failed'
+  | 'unavailable';
+
+/** A renderer-safe local model row: no filesystem locations, URLs, or hashes. */
+export interface LocalModelState {
+  id: LocalModelId;
+  displayName?: string;
+  purpose?: string;
+  expectedDevice: 'NPU' | 'GPU' | 'CPU' | null;
+  downloadBytes?: number;
+  installedBytes?: number;
+  downloadedBytes?: number;
+  phase: LocalModelPhase;
+  ready: boolean;
+  repairRecommended?: boolean;
+  error: { code: string; message: string } | null;
+  actualDevice: 'NPU' | 'GPU' | 'CPU' | null;
+}
+
+/** Snapshot published by LocalModelService over the narrow renderer IPC bridge. */
+export interface LocalModelStatus {
+  catalog: {
+    available: boolean;
+    error: { code: string; message: string } | null;
+  };
+  runtime: {
+    ready: boolean;
+    requestedDevice: 'NPU' | 'GPU' | 'CPU';
+  };
+  models: Record<LocalModelId, LocalModelState>;
+  actionLocks: {
+    meetingActive: boolean;
+    download: boolean;
+    verify: boolean;
+    repair: boolean;
+    remove: boolean;
+  };
+}
+
 export interface NativeCameraHealth {
   state:
     | 'unsupported'

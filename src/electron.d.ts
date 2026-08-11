@@ -37,6 +37,22 @@ interface CaptionsAPI {
   requestMicrophoneAccess(): Promise<Result<{ granted: boolean; status: string }>>;
   getSettings(): Promise<Result<Record<string, unknown>>>;
   getLocalInferenceStatus(): Promise<Result<import('./captions/types').LocalInferenceStatus>>;
+  getLocalModelStatus(): Promise<Result<import('./captions/types').LocalModelStatus>>;
+  installLocalModel(
+    modelId: import('./captions/types').LocalModelId,
+  ): Promise<Result<import('./captions/types').LocalModelStatus>>;
+  verifyLocalModel(
+    modelId: import('./captions/types').LocalModelId,
+  ): Promise<Result<import('./captions/types').LocalModelStatus>>;
+  repairLocalModel(
+    modelId: import('./captions/types').LocalModelId,
+  ): Promise<Result<import('./captions/types').LocalModelStatus>>;
+  removeLocalModel(
+    modelId: import('./captions/types').LocalModelId,
+  ): Promise<Result<{
+    canceled: boolean;
+    status: import('./captions/types').LocalModelStatus;
+  }>>;
   getGlossaryConfigurations(): Promise<Result<
     import('./captions/types').GlossaryConfigurationSummary[]
   >>;
@@ -148,6 +164,9 @@ interface CaptionsAPI {
   ): () => void;
   onNativeCameraHealth(
     callback: (health: import('./captions/types').NativeCameraHealth) => void,
+  ): () => void;
+  onLocalModelStatus(
+    callback: (status: import('./captions/types').LocalModelStatus) => void,
   ): () => void;
   onPendingMeetingRecords(
     callback: (records: import('./captions/types').MeetingRecordReview[]) => void,

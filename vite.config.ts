@@ -115,6 +115,7 @@ export default defineConfig(({ command, mode }) => {
             'captions/caption-window-manager': 'electron/captions/caption-window-manager.js',
             'captions/cost-meter': 'electron/captions/cost-meter.js',
             'captions/credential-store': 'electron/captions/credential-store.js',
+            'captions/dev-renderer-load': 'electron/captions/dev-renderer-load.js',
             'captions/encrypted-audio-writer': 'electron/captions/encrypted-audio-writer.js',
             'captions/evaluation-recorder': 'electron/captions/evaluation-recorder.js',
             'captions/glossary-config': 'electron/captions/glossary-config.js',

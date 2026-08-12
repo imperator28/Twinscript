@@ -2,6 +2,7 @@ const path = require('path');
 const CAPTION_THEMES = require('../../shared/caption-themes.json');
 const { projectForAudience } = require('./caption-domain');
 const { computeOverlayBounds } = require('./overlay-layout');
+const { loadDevRendererUrl } = require('./dev-renderer-load');
 
 const AUDIENCES = ['en', 'zh'];
 const DEFAULT_THEME = CAPTION_THEMES.find((theme) => theme.id === 'blueprint');
@@ -424,7 +425,12 @@ class CaptionWindowManager {
     // the offscreen output must never load the chrome-bearing preview surface.
     (this.loadedSurfaces ||= []).push(query);
     if (this.isDev) {
-      void window.loadURL(`http://localhost:5173/?surface=${query}`);
+      // Same race as the control window: these lost it too, which is why an
+      // opened camera stage showed nothing but its background colour.
+      loadDevRendererUrl({
+        window,
+        url: `http://localhost:5173/?surface=${query}`,
+      });
     } else {
       void window.loadFile(path.join(this.app.getAppPath(), 'build/index.html'), {
         query: Object.fromEntries(new URLSearchParams(`surface=${query}`)),

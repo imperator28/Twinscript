@@ -560,15 +560,18 @@ describe('meeting caption controls', () => {
     expect(
       screen.getByRole('heading', { name: /one step left before captions can run/i }),
     ).toBeInTheDocument();
-    expect(screen.getByText('Add your OpenAI API key')).toBeInTheDocument();
+    expect(screen.getByText('Choose a caption route')).toBeInTheDocument();
+    expect(screen.getByText(/Whisper local and HY-MT2 local for a fully offline meeting/i)).toBeInTheDocument();
     expect(startAction).toBeDisabled();
 
-    // The row's own button takes the operator to the fix rather than making them
-    // discover which tab it lives on.
-    fireEvent.click(screen.getByRole('button', { name: 'Add key' }));
+    // The row's own button takes the operator to the route choices instead of
+    // assuming a cloud key is the only valid way to start a meeting.
+    fireEvent.click(screen.getByRole('button', { name: 'Choose route' }));
     expect(
       await screen.findByRole('heading', { name: 'Connection' }),
     ).toBeInTheDocument();
+    expect(screen.getAllByText('OpenAI live').some((element) => element.classList.contains('is-selected'))).toBe(true);
+    expect(screen.getAllByText('Whisper local').length).toBeGreaterThan(0);
   });
 
   it('does not request a cloud credential when both selected models are local', async () => {
@@ -591,7 +594,7 @@ describe('meeting caption controls', () => {
 
     expect(await screen.findByRole('button', { name: /Start session/i })).toBeEnabled();
     expect(window.captions.credentialStatus).not.toHaveBeenCalled();
-    expect(screen.queryByText('Add your OpenAI API key')).not.toBeInTheDocument();
+    expect(screen.queryByText('Choose a caption route')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
     expect(await screen.findByText(/No API key is read when a meeting starts/i)).toBeVisible();
   });

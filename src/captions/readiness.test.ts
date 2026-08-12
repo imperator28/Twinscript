@@ -25,6 +25,18 @@ describe('reviewReadiness', () => {
     expect(review.outstanding.map((step) => step.id)).toEqual(['credential']);
   });
 
+  it('explains the keyless fully local route when a selected cloud stage needs a key', () => {
+    const review = reviewReadiness({ ...ready, credentialAvailable: false });
+    const credential = review.steps.find((step) => step.id === 'credential');
+
+    expect(credential).toMatchObject({
+      title: 'Choose a caption route',
+      action: 'Choose route',
+    });
+    expect(credential?.detail).toMatch(/Whisper local.*HY-MT2 local/i);
+    expect(credential?.detail).toMatch(/OpenAI API key/i);
+  });
+
   it('does not request or require a cloud credential for a fully local pipeline', () => {
     const review = reviewReadiness({
       ...ready,

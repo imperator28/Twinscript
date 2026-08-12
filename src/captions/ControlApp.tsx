@@ -1205,7 +1205,6 @@ export function ControlApp() {
   const resolveReadiness = (id: ReadinessId) => {
     if (id === 'credential') {
       setTab('settings');
-      window.requestAnimationFrame(() => apiKeyInput.current?.focus());
       return;
     }
     if (id === 'microphone') {

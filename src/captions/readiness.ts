@@ -78,12 +78,12 @@ export function reviewReadiness(input: ReadinessInput): ReadinessReview {
   if (input.credentialRequired) {
     steps.push({
       id: 'credential',
-      title: 'Add your OpenAI API key',
+      title: 'Choose a caption route',
       detail:
-        'A selected transcription or translation stage uses OpenAI, so that route cannot run without a key.',
+        'This selection uses OpenAI. Add an OpenAI API key, or switch to Whisper local and HY-MT2 local for a fully offline meeting.',
       done: input.credentialAvailable,
       severity: 'blocking',
-      action: 'Add key',
+      action: 'Choose route',
     });
   }
 

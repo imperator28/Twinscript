@@ -544,6 +544,29 @@ describe('meeting caption controls', () => {
     expect(screen.getByRole('button', { name: 'Remove camera' })).toBeInTheDocument();
   });
 
+  it('retries virtual camera health when the first IPC request races app startup', async () => {
+    window.captions.getNativeCameraHealth = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('No handler registered'))
+      .mockResolvedValueOnce({
+        ok: true as const,
+        data: {
+          state: 'installed',
+          supported: true,
+          installed: true,
+          message: null,
+        },
+      });
+
+    render(<ControlApp />);
+    await screen.findByRole('button', { name: /Start session/i });
+    fireEvent.click(screen.getByRole('button', { name: 'Virtual camera' }));
+
+    await waitFor(() => expect(window.captions.getNativeCameraHealth).toHaveBeenCalledTimes(2));
+    expect(screen.queryByText('Checking the virtual camera…')).not.toBeInTheDocument();
+    expect(screen.getByText(/Twinscript is listed as a camera in your meeting app/i)).toBeVisible();
+  });
+
   it('explains what is missing on a fresh install instead of just failing', async () => {
     // The day-one defect: Start is the most prominent control on the window, and
     // pressing it without a key simply did nothing. The blocker was on another tab

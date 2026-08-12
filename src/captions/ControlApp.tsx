@@ -310,7 +310,23 @@ export function ControlApp() {
   useEffect(() => {
     let mounted = true;
     let localModelStatusGeneration = 0;
+    let cameraHealthRetryTimer: number | undefined;
     const initialLocalModelStatusGeneration = localModelStatusGeneration;
+    const refreshNativeCameraHealth = (attempt = 0) => {
+      void window.captions
+        .getNativeCameraHealth()
+        .then((result) => {
+          if (mounted && result.ok) setNativeCameraHealth(result.data);
+        })
+        .catch(() => {
+          if (mounted && attempt < 2) {
+            cameraHealthRetryTimer = window.setTimeout(
+              () => refreshNativeCameraHealth(attempt + 1),
+              150,
+            );
+          }
+        });
+    };
     const handleStatus = (next: SessionStatus) => {
       setStatus(next);
       if (next.state === 'degraded' && next.message) {
@@ -361,9 +377,7 @@ export function ControlApp() {
     void window.captions.getPreviewVisibility().then((result) => {
       if (result.ok) setPreviewVisibility(result.data);
     });
-    void window.captions.getNativeCameraHealth().then((result) => {
-      if (result.ok) setNativeCameraHealth(result.data);
-    });
+    refreshNativeCameraHealth();
     void window.captions.getLocalModelStatus().then((result) => {
       if (mounted && localModelStatusGeneration === initialLocalModelStatusGeneration && result.ok) {
         setLocalModels(result.data);
@@ -414,6 +428,7 @@ export function ControlApp() {
     });
     return () => {
       mounted = false;
+      if (cameraHealthRetryTimer !== undefined) window.clearTimeout(cameraHealthRetryTimer);
       cleanups.forEach((cleanup) => cleanup());
       void microphonePreview.current.stop();
       void audio.current.stop();

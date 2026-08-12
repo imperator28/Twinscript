@@ -1,10 +1,11 @@
 const fs = require('fs');
 const path = require('path');
 const { loadManifest } = require('./local-model-manifest');
+const { developmentLocalModelCatalog } = require('./local-model-development-catalog');
 
 const CATALOG_ERROR_MESSAGE = 'Local model downloads are unavailable in this build.';
 
-function loadLocalModelCatalog({ isPackaged, resourcesPath, appPath, fsImpl = fs }) {
+function loadLocalModelCatalog({ isPackaged, resourcesPath, appPath, fsImpl = fs, developmentCatalog = null }) {
   const basePath = isPackaged ? resourcesPath : appPath;
   const root = path.join(basePath, 'resources', 'local-models');
   try {
@@ -18,6 +19,10 @@ function loadLocalModelCatalog({ isPackaged, resourcesPath, appPath, fsImpl = fs
     const manifest = loadManifest({ json, signature, publicKey, packaged: Boolean(isPackaged) });
     return { available: true, root, manifest, error: null };
   } catch {
+    if (!isPackaged) {
+      const createDevelopmentCatalog = developmentCatalog || developmentLocalModelCatalog;
+      if (typeof createDevelopmentCatalog === 'function') return createDevelopmentCatalog({ appPath });
+    }
     return {
       available: false,
       root,

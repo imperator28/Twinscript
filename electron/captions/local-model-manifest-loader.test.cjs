@@ -97,3 +97,38 @@ test('loads an unsigned development fixture from the application path', () => {
 
   assert.deepEqual(result, { available: true, root, manifest, error: null });
 });
+
+test('uses a local-only development catalog when no release catalog is present', () => {
+  const appPath = temporaryDirectory();
+  const manifest = validManifest();
+  const root = path.join(appPath, 'native', 'local-inference-host', 'models');
+  const developmentCatalog = () => ({
+    available: true,
+    localAdoptionAvailable: true,
+    root,
+    manifest,
+    error: null,
+  });
+
+  const result = loadLocalModelCatalog({
+    isPackaged: false,
+    resourcesPath: 'ignored',
+    appPath,
+    developmentCatalog,
+  });
+
+  assert.deepEqual(result, {
+    available: true,
+    localAdoptionAvailable: true,
+    root,
+    manifest,
+    error: null,
+  });
+});
+
+test('ships the development catalog module as an Electron main-process entry', () => {
+  const root = path.resolve(__dirname, '..', '..');
+  const viteConfig = fs.readFileSync(path.join(root, 'vite.config.ts'), 'utf8');
+
+  assert.match(viteConfig, /'captions\/local-model-development-catalog':\s*'electron\/captions\/local-model-development-catalog\.js'/);
+});

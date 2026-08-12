@@ -180,7 +180,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "test": "vitest",
-    "test:captions": "node --test electron/captions/*.test.cjs native/local-inference-host/tests/*.test.cjs scripts/release/*.test.cjs",
+    "test:captions": "node --test electron/captions/*.test.cjs native/local-inference-host/tests/*.test.cjs scripts/*.test.cjs scripts/release/*.test.cjs",
     "test:ui": "vitest --ui",
     "smoke:packaged": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/smoke-packaged-app.ps1",
     "verify:signatures": "node scripts/verify-windows-signatures.mjs",

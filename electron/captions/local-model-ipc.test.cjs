@@ -125,7 +125,7 @@ function createStubService({ available, meetingActive, calls, status }) {
   service.catalog = { manifest: { models: Object.values(status.models) } };
   service.isKnownModel = (modelId) =>
     service.catalog.manifest.models.some((model) => model.id === modelId);
-  for (const operation of ['install', 'verify', 'repair', 'remove']) {
+  for (const operation of ['install', 'verify', 'repair', 'remove', 'adopt']) {
     service[operation] = async (modelId) => {
       calls.push([operation, modelId]);
       if (modelId === 'unknown') {
@@ -237,6 +237,15 @@ test('local-model IPC invokes lifecycle actions and broadcasts each service stat
   assert.deepEqual(harness.broadcasts, [['captions:local-model-status', nextStatus]]);
 });
 
+test('local-model IPC exposes development-only local file adoption', async () => {
+  const harness = createHarness();
+
+  const result = await harness.invoke('captions:local-model-adopt', { modelId: 'whisper-small' });
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(harness.calls.at(-1), ['adopt', 'whisper-small']);
+});
+
 test('actual successful local-model service operations each broadcast status exactly once', async () => {
   const harness = createHarness({ realService: true });
 
@@ -324,6 +333,7 @@ test('the preload and renderer declarations expose only the local-model API', ()
     assert.match(text, /verifyLocalModel/);
     assert.match(text, /repairLocalModel/);
     assert.match(text, /removeLocalModel/);
+    assert.match(text, /adoptLocalModel/);
     assert.match(text, /onLocalModelStatus/);
   }
   assert.match(preload, /captions:local-model-status/);

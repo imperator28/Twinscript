@@ -10,7 +10,7 @@ import {
 } from 'lucide-react';
 import type { LocalModelId, LocalModelPhase, LocalModelState, LocalModelStatus } from './types';
 
-export type LocalModelAction = 'install' | 'verify' | 'repair' | 'remove';
+export type LocalModelAction = 'install' | 'verify' | 'repair' | 'remove' | 'adopt';
 
 export interface LocalModelInstallCardProps {
   /** The narrow renderer snapshot. A missing snapshot is safely presented as unavailable. */
@@ -90,16 +90,18 @@ const stateIcon = (phase: LocalModelPhase) => {
 };
 
 const actionLabel = (action: LocalModelAction, id: LocalModelId) =>
-  `${action[0].toUpperCase() + action.slice(1)} ${id === 'whisper-small' ? 'Whisper local transcription model' : 'HY-MT2 local translation model'}`;
+  action === 'adopt'
+    ? `Use local ${id === 'whisper-small' ? 'Whisper local transcription model' : 'HY-MT2 local translation model'} files`
+    : `${action[0].toUpperCase() + action.slice(1)} ${id === 'whisper-small' ? 'Whisper local transcription model' : 'HY-MT2 local translation model'}`;
 
-const actionsFor = (model: LocalModelState, catalogAvailable: boolean): LocalModelAction[] => {
+const actionsFor = (model: LocalModelState, catalogAvailable: boolean, localAdoptionAvailable: boolean): LocalModelAction[] => {
   switch (model.phase) {
     case 'not-installed':
-      return catalogAvailable ? ['install'] : [];
+      return catalogAvailable ? [localAdoptionAvailable ? 'adopt' : 'install'] : [];
     case 'ready':
       return ['verify', 'remove'];
     case 'repair-needed':
-      return ['repair', 'remove'];
+      return [localAdoptionAvailable ? 'adopt' : 'repair', 'remove'];
     case 'failed':
       return ['repair'];
     default:
@@ -109,6 +111,7 @@ const actionsFor = (model: LocalModelState, catalogAvailable: boolean): LocalMod
 
 export function LocalModelInstallCard({ status, busyModel = null, rowRefs, onAction }: LocalModelInstallCardProps) {
   const catalogAvailable = status?.catalog.available ?? false;
+  const localAdoptionAvailable = status?.catalog.localAdoptionAvailable === true;
   const readyCount = modelIds.filter((id) => status?.models[id].ready).length;
   const meetingLocked = status?.actionLocks.meetingActive ?? false;
   const catalogMessage = status?.catalog.error?.message ?? (status ? null : 'Checking whether local models are available.');
@@ -149,7 +152,7 @@ export function LocalModelInstallCard({ status, busyModel = null, rowRefs, onAct
           const progress = model.downloadBytes && model.downloadedBytes !== undefined
             ? Math.min(100, Math.round((model.downloadedBytes / model.downloadBytes) * 100))
             : null;
-          const actions = actionsFor(model, catalogAvailable);
+          const actions = actionsFor(model, catalogAvailable, localAdoptionAvailable);
 
           return (
             <section
@@ -213,7 +216,7 @@ export function LocalModelInstallCard({ status, busyModel = null, rowRefs, onAct
                         aria-describedby={meetingLocked ? 'local-models-meeting-lock' : undefined}
                         onClick={() => onAction(action, id)}
                       >
-                        {action[0].toUpperCase() + action.slice(1)} {displayName}
+                        {action === 'adopt' ? 'Use local files' : `${action[0].toUpperCase() + action.slice(1)} ${displayName}`}
                       </button>
                     );
                   })}

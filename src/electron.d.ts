@@ -47,6 +47,9 @@ interface CaptionsAPI {
   repairLocalModel(
     modelId: import('./captions/types').LocalModelId,
   ): Promise<Result<import('./captions/types').LocalModelStatus>>;
+  adoptLocalModel(
+    modelId: import('./captions/types').LocalModelId,
+  ): Promise<Result<import('./captions/types').LocalModelStatus>>;
   removeLocalModel(
     modelId: import('./captions/types').LocalModelId,
   ): Promise<Result<{

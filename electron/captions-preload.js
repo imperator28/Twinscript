@@ -51,6 +51,10 @@ contextBridge.exposeInMainWorld('captions', {
     invoke('captions:local-model-verify', { modelId }),
   repairLocalModel: (modelId) =>
     invoke('captions:local-model-repair', { modelId }),
+  adoptLocalModel: (modelId) =>
+    invoke('captions:local-model-adopt', { modelId }),
+  adoptLocalModel: (modelId) =>
+    invoke('captions:local-model-adopt', { modelId }),
   removeLocalModel: (modelId) =>
     invoke('captions:local-model-remove', { modelId }),
   getGlossaryConfigurations: () =>

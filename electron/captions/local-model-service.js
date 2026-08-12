@@ -95,6 +95,13 @@ class LocalModelService extends EventEmitter {
     if (!this.isKnownModel(modelId)) {
       throw serviceError('local_model_unknown', 'Unknown local model: ' + modelId);
     }
+    const model = this.catalog.manifest.models.find((candidate) => candidate.id === modelId);
+    if (operation === 'download' && model?.localOnly === true) {
+      throw serviceError('local_model_local_files_only', 'This development model must be added from local files.');
+    }
+    if (operation === 'adopt' && this.catalog.localAdoptionAvailable !== true) {
+      throw serviceError('local_model_adoption_unavailable', 'Local file adoption is unavailable in this build.');
+    }
     const execute = async () => {
       if (this.isMeetingActive?.() || this.sessionManager?.isActive?.()) {
         throw serviceError('meeting_active', 'Local models cannot change during a meeting');
@@ -118,10 +125,11 @@ class LocalModelService extends EventEmitter {
     const meetingActive = Boolean(this.isMeetingActive?.() || this.sessionManager?.isActive?.());
     const actionLocks = {
       meetingActive,
-      download: meetingActive || !this.catalog.available,
+      download: meetingActive || !this.catalog.available || this.catalog.manifest?.models?.every((model) => model.localOnly === true),
       verify: meetingActive || !this.catalog.available,
       repair: meetingActive || !this.catalog.available,
       remove: meetingActive || !this.catalog.available,
+      adopt: meetingActive || !this.catalog.available || this.catalog.localAdoptionAvailable !== true,
     };
     const readiness = this.supervisor?.readiness?.() || {
       runtimeReady: false,
@@ -132,6 +140,7 @@ class LocalModelService extends EventEmitter {
       return {
         catalog: {
           available: false,
+          localAdoptionAvailable: false,
           error: CATALOG_UNAVAILABLE,
         },
         runtime: {
@@ -150,6 +159,7 @@ class LocalModelService extends EventEmitter {
     return {
       catalog: {
         available: true,
+        localAdoptionAvailable: this.catalog.localAdoptionAvailable === true,
         error: null,
       },
       runtime: {
@@ -170,6 +180,10 @@ class LocalModelService extends EventEmitter {
 
   install(modelId) {
     return this.run('download', modelId);
+  }
+
+  adopt(modelId) {
+    return this.run('adopt', modelId);
   }
 
   verify(modelId) {

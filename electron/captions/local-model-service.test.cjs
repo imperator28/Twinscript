@@ -62,6 +62,7 @@ test('status merges model lifecycle, runtime device truth, and meeting action lo
     verify: true,
     repair: true,
     remove: true,
+    adopt: true,
   });
 });
 
@@ -199,6 +200,32 @@ test('operations reject unavailable catalogs, active meetings, and unknown model
     manager: { download: async () => { throw new Error('unused'); } },
   });
   await assert.rejects(known.install('unknown'), { code: 'local_model_unknown' });
+});
+
+test('a local-only development catalog permits adoption but never enables download', async () => {
+  let adopted = false;
+  const localCatalog = { ...catalog(), localAdoptionAvailable: true };
+  for (const model of localCatalog.manifest.models) model.localOnly = true;
+  const service = new LocalModelService({
+    catalog: localCatalog,
+    manager: {
+      status: () => ({ models: {
+        'whisper-small': { id: 'whisper-small', phase: adopted ? 'ready' : 'not-installed', ready: adopted },
+        'hy-mt2-1.8b': { id: 'hy-mt2-1.8b', phase: 'not-installed', ready: false },
+      } }),
+      adopt: async () => { adopted = true; },
+      download: async () => { throw new Error('must not download'); },
+    },
+  });
+
+  await assert.rejects(service.install('whisper-small'), { code: 'local_model_local_files_only' });
+  await service.adopt('whisper-small');
+
+  const status = service.status();
+  assert.equal(status.catalog.localAdoptionAvailable, true);
+  assert.equal(status.actionLocks.download, true);
+  assert.equal(status.actionLocks.adopt, false);
+  assert.equal(status.models['whisper-small'].ready, true);
 });
 
 test('a queued session admission wins the mutation gate before a manager operation begins', async () => {

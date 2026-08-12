@@ -575,6 +575,7 @@ export function ControlApp() {
         install: window.captions.installLocalModel,
         verify: window.captions.verifyLocalModel,
         repair: window.captions.repairLocalModel,
+        adopt: window.captions.adoptLocalModel,
       }[action];
       const result = await operation(modelId);
       if (!result.ok) {

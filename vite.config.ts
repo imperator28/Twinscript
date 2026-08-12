@@ -129,6 +129,7 @@ export default defineConfig(({ command, mode }) => {
             'captions/local-model-admission': 'electron/captions/local-model-admission.js',
             'captions/local-model-manager': 'electron/captions/local-model-manager.js',
             'captions/local-model-manifest': 'electron/captions/local-model-manifest.js',
+            'captions/local-model-development-catalog': 'electron/captions/local-model-development-catalog.js',
             'captions/local-model-manifest-loader': 'electron/captions/local-model-manifest-loader.js',
             'captions/local-model-service': 'electron/captions/local-model-service.js',
             'captions/meeting-record-controller': 'electron/captions/meeting-record-controller.js',

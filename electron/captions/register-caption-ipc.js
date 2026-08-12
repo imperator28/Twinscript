@@ -43,6 +43,10 @@ const LOCAL_MODEL_ERROR_CODES = new Set([
   'local_model_download_failed',
   'local_model_size_mismatch',
   'local_model_hash_mismatch',
+  'local_model_local_files_only',
+  'local_model_adoption_unavailable',
+  'local_model_local_files_only',
+  'local_model_adoption_unavailable',
   'meeting_active',
 ]);
 
@@ -176,6 +180,8 @@ function registerCaptionIpc({
   handle('captions:local-model-install', localModelAction('install'));
   handle('captions:local-model-verify', localModelAction('verify'));
   handle('captions:local-model-repair', localModelAction('repair'));
+  handle('captions:local-model-adopt', localModelAction('adopt'));
+  handle('captions:local-model-adopt', localModelAction('adopt'));
   handle('captions:local-model-remove', async ({ modelId } = {}) => {
     try {
       const model = localModelDefinition(modelId);

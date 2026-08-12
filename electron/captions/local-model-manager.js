@@ -311,6 +311,21 @@ class LocalModelManager {
     });
   }
 
+  async adopt(modelId) {
+    return this._withMutation(modelId, 'verifying', async (model) => {
+      try {
+        await this._verifyFiles(model);
+        this.failures.delete(model.id);
+        const totalBytes = model.files.reduce((sum, file) => sum + file.size, 0);
+        this._emit(model.id, 'ready', totalBytes, totalBytes);
+        return this.status().models[model.id];
+      } catch (error) {
+        this._recordFailure(model.id, error, 'repair-needed');
+        throw error;
+      }
+    });
+  }
+
   async repair(modelId) {
     return this._withMutation(modelId, 'verifying', async (model) => {
       try {

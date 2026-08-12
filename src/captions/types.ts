@@ -333,6 +333,7 @@ export interface LocalModelState {
 export interface LocalModelStatus {
   catalog: {
     available: boolean;
+    localAdoptionAvailable?: boolean;
     error: { code: string; message: string } | null;
   };
   runtime: {
@@ -346,6 +347,7 @@ export interface LocalModelStatus {
     verify: boolean;
     repair: boolean;
     remove: boolean;
+    adopt?: boolean;
   };
 }
 

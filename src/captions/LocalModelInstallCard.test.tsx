@@ -83,6 +83,23 @@ describe('LocalModelInstallCard', () => {
     expect(onAction).toHaveBeenNthCalledWith(3, 'repair', 'hy-mt2-1.8b');
   });
 
+  it('offers Use local files instead of download for a local-only development catalog', () => {
+    const onAction = vi.fn();
+    render(
+      <LocalModelInstallCard
+        status={status({
+          catalog: { available: true, localAdoptionAvailable: true, error: null },
+          actionLocks: { meetingActive: false, download: true, verify: false, repair: false, remove: false, adopt: false },
+        })}
+        onAction={onAction}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Use local Whisper local transcription model files' }));
+    expect(onAction).toHaveBeenCalledWith('adopt', 'whisper-small');
+    expect(screen.queryByRole('button', { name: 'Install Whisper local transcription model' })).not.toBeInTheDocument();
+  });
+
   it('announces downloading progress natively without treating it as an error', () => {
     render(
       <LocalModelInstallCard

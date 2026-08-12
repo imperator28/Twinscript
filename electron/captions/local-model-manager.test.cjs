@@ -206,6 +206,43 @@ test('explicit verify hashes an unmarked complete model and writes a ready marke
   fs.rmSync(root, { recursive: true, force: true });
 });
 
+test('adopt verifies user-placed files without fetching and writes a ready marker', async () => {
+  const bytes = Buffer.from('verified-model');
+  let fetchCalls = 0;
+  const { root, manager } = managerFor({
+    bytes,
+    fetchImpl: async () => {
+      fetchCalls += 1;
+      return streamResponse(bytes);
+    },
+  });
+  const directory = path.join(root, 'whisper-small', 'whisper-v1');
+  fs.mkdirSync(directory, { recursive: true });
+  fs.writeFileSync(path.join(directory, 'model.bin'), bytes);
+
+  const row = await manager.adopt('whisper-small');
+
+  assert.equal(row.ready, true);
+  assert.equal(fetchCalls, 0);
+  assert.equal(fs.existsSync(path.join(directory, '.verified.json')), true);
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
+test('adopt rejects corrupt user-placed files and recommends repair', async () => {
+  const bytes = Buffer.from('verified-model');
+  const { root, manager } = managerFor({ bytes });
+  const directory = path.join(root, 'hy-mt2-1.8b', 'translator-v1', 'runtime');
+  fs.mkdirSync(directory, { recursive: true });
+  fs.writeFileSync(path.join(directory, 'model.bin'), Buffer.from('corrupt-model'));
+
+  await assert.rejects(manager.adopt('hy-mt2-1.8b'), { code: 'local_model_size_mismatch' });
+
+  const row = manager.status().models['hy-mt2-1.8b'];
+  assert.equal(row.ready, false);
+  assert.equal(row.phase, 'repair-needed');
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
 test('a write failure preserves an existing verified model and marker', async () => {
   const bytes = Buffer.from('verified-model');
   const { root, manager } = managerFor({ bytes, fetchImpl: async () => streamResponse(bytes) });

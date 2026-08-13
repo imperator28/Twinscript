@@ -34,8 +34,21 @@ class LocalWhisperBackend {
     this.audioDrainPromise = null;
     this.currentAudioController = null;
     this.acceptingAudio = true;
+    this.sentAudioMs = 0;
+    this.droppedAudioMs = 0;
     this.onClientEvent = (message) => this.accept(message);
     client.on?.('event', this.onClientEvent);
+  }
+
+  emitTransportMetric() {
+    this.onEvent({
+      type: 'transport-metric',
+      channel: this.channel,
+      sentAudioMs: this.sentAudioMs,
+      droppedAudioMs: this.droppedAudioMs,
+      pendingChunks: this.audioQueue.length,
+      bufferedBytes: this.queuedSamples * Int16Array.BYTES_PER_ELEMENT,
+    });
   }
 
   async connect() {
@@ -63,7 +76,10 @@ class LocalWhisperBackend {
         droppedSamples += dropped.sampleCount;
       }
       if (droppedSamples > 0) {
-        this.onUsage({ droppedAudioMs: (droppedSamples / 24000) * 1000 });
+        const droppedAudioMs = (droppedSamples / 24000) * 1000;
+        this.droppedAudioMs += droppedAudioMs;
+        this.onUsage({ droppedAudioMs });
+        this.emitTransportMetric();
         this.onEvent({
           type: 'error',
           channel: this.channel,
@@ -85,7 +101,7 @@ class LocalWhisperBackend {
         const requestController = new AbortController();
         this.currentAudioController = requestController;
         try {
-          const message = await this.client.request('asr.audio', {
+          const request = this.client.request('asr.audio', {
             sessionId: this.sessionId,
             channel: this.channel,
             encoding: 'pcm_s16le',
@@ -93,6 +109,9 @@ class LocalWhisperBackend {
             capturedAt: chunk.capturedAt,
             audio: chunk.samples.toString('base64'),
           }, { signal: requestController.signal });
+          this.sentAudioMs += (chunk.sampleCount / 24000) * 1000;
+          this.emitTransportMetric();
+          const message = await request;
           this.accept(message);
         } catch (error) {
           this.onEvent({

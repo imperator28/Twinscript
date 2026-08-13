@@ -181,7 +181,6 @@ function registerCaptionIpc({
   handle('captions:local-model-verify', localModelAction('verify'));
   handle('captions:local-model-repair', localModelAction('repair'));
   handle('captions:local-model-adopt', localModelAction('adopt'));
-  handle('captions:local-model-adopt', localModelAction('adopt'));
   handle('captions:local-model-remove', async ({ modelId } = {}) => {
     try {
       const model = localModelDefinition(modelId);

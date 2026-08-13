@@ -80,6 +80,37 @@ test('local Whisper forwards the existing 24 kHz PCM audio contract', async () =
   assert.equal(Buffer.from(calls[0][1].audio, 'base64').length, 6);
 });
 
+test('local Whisper reports audio handed to the inference worker', async () => {
+  const events = [];
+  let resolveAudio;
+  const backend = new LocalWhisperBackend({
+    client: {
+      request: () => new Promise((resolve) => { resolveAudio = resolve; }),
+    },
+    channel: 'microphone',
+    sessionId: 's1',
+    onEvent: (event) => events.push(event),
+  });
+
+  backend.appendAudio(new Int16Array(2400).fill(1));
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.deepEqual(
+    events.find((event) => event.type === 'transport-metric'),
+    {
+      type: 'transport-metric',
+      channel: 'microphone',
+      sentAudioMs: 100,
+      droppedAudioMs: 0,
+      pendingChunks: 0,
+      bufferedBytes: 0,
+    },
+  );
+
+  resolveAudio({});
+  await backend.drain();
+});
+
 test('local Whisper serializes audio requests and keeps backlog bounded', async () => {
   let releaseFirst;
   let calls = 0;

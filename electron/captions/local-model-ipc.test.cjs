@@ -63,7 +63,12 @@ function safeStatus({ available = true, meetingActive = false } = {}) {
   };
 }
 
-function createHarness({ available = true, meetingActive = false, realService = false } = {}) {
+function createHarness({
+  available = true,
+  meetingActive = false,
+  realService = false,
+  rejectDuplicateChannels = false,
+} = {}) {
   const handlers = new Map();
   const broadcasts = [];
   const calls = [];
@@ -85,7 +90,12 @@ function createHarness({ available = true, meetingActive = false, realService = 
   };
   registerCaptionIpc({
     ipcMain: {
-      handle: (channel, handler) => handlers.set(channel, handler),
+      handle: (channel, handler) => {
+        if (rejectDuplicateChannels && handlers.has(channel)) {
+          throw new Error(`Attempted to register a second handler for '${channel}'`);
+        }
+        handlers.set(channel, handler);
+      },
       on() {},
     },
     app: { getPath: () => 'C:\\Documents', getVersion: () => 'test' },
@@ -178,6 +188,10 @@ function createRealService({ calls, status }) {
     manager,
   });
 }
+
+test('registers every caption IPC channel exactly once', () => {
+  assert.doesNotThrow(() => createHarness({ rejectDuplicateChannels: true }));
+});
 
 test('local-model IPC returns the renderer-safe status to trusted senders only', async () => {
   const harness = createHarness();

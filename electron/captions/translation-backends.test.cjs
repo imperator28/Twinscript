@@ -75,7 +75,7 @@ test('Hy-MT2 automatically protects engineering literals and forwards glossary c
   });
 
   await backend.normalize({
-    sourceText: 'Priya confirmed DVT uses 24 VDC at ±0.2 mm.',
+    sourceText: 'Priya confirmed the sensor for DVT uses 24 VDC at ±0.2 mm.',
     target: 'zh',
     final: true,
     protectedTokens: ['Priya'],
@@ -84,4 +84,29 @@ test('Hy-MT2 automatically protects engineering literals and forwards glossary c
 
   assert.deepEqual(sent.protectedTokens, ['Priya', 'DVT', '24 VDC', '±0.2 mm']);
   assert.deepEqual(sent.glossary, [{ en: 'sensor', zh: '传感器' }]);
+});
+
+test('Hy-MT2 excludes glossary rows unrelated to the current utterance', async () => {
+  let sent;
+  const backend = new LocalHyMt2Backend({
+    client: {
+      request: async (_type, payload) => {
+        sent = payload;
+        return { text: 'the' };
+      },
+    },
+    sessionId: 's1',
+  });
+
+  await backend.normalize({
+    sourceText: 'the',
+    target: 'en',
+    final: true,
+    glossary: [
+      { en: 'boss', zh: '凸台' },
+      { en: 'draft angle', zh: '拔模斜度' },
+    ],
+  });
+
+  assert.deepEqual(sent.glossary, []);
 });

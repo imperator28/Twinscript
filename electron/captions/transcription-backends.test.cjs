@@ -40,6 +40,25 @@ test('local Whisper maps protocol output to the existing transcript event', () =
   });
 });
 
+test('local Whisper drops punctuation-only decoder hallucinations', () => {
+  const events = [];
+  const backend = new LocalWhisperBackend({
+    client: { request: async () => ({}) },
+    channel: 'microphone',
+    sessionId: 's1',
+    onEvent: (event) => events.push(event),
+  });
+
+  assert.equal(backend.accept({
+    type: 'asr.result',
+    channel: 'microphone',
+    utteranceId: 'u-noise',
+    text: ' , … ',
+    final: true,
+  }), false);
+  assert.deepEqual(events, []);
+});
+
 test('local Whisper namespaces utterance IDs by native host generation', () => {
   const events = [];
   const backend = new LocalWhisperBackend({
@@ -69,7 +88,7 @@ test('local Whisper forwards the existing 24 kHz PCM audio contract', async () =
     sessionId: 's1',
   });
 
-  backend.appendAudio(new Int16Array([1, -2, 3]), 1234);
+  backend.appendAudio(new Int16Array([1000, -2000, 3000]), 1234);
   await backend.drain();
 
   assert.equal(calls[0][0], 'asr.audio');
@@ -78,6 +97,37 @@ test('local Whisper forwards the existing 24 kHz PCM audio contract', async () =
   assert.equal(calls[0][1].channel, 'system');
   assert.equal(calls[0][1].capturedAt, 1234);
   assert.equal(Buffer.from(calls[0][1].audio, 'base64').length, 6);
+});
+
+test('local Whisper keeps sub-floor background noise out of the inference worker', async () => {
+  const calls = [];
+  const events = [];
+  const backend = new LocalWhisperBackend({
+    client: {
+      request: async (type) => {
+        calls.push(type);
+        return {};
+      },
+    },
+    channel: 'microphone',
+    sessionId: 's1',
+    settings: { vadEnabled: false, vadThreshold: 0.012 },
+    onEvent: (event) => events.push(event),
+  });
+
+  backend.appendAudio(new Int16Array(2400).fill(100));
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.deepEqual(calls, []);
+  assert.deepEqual(
+    events.find((event) => event.type === 'level'),
+    {
+      type: 'level',
+      channel: 'microphone',
+      rms: 100 / 32768,
+      speaking: false,
+    },
+  );
 });
 
 test('local Whisper reports audio handed to the inference worker', async () => {
@@ -92,7 +142,7 @@ test('local Whisper reports audio handed to the inference worker', async () => {
     onEvent: (event) => events.push(event),
   });
 
-  backend.appendAudio(new Int16Array(2400).fill(1));
+  backend.appendAudio(new Int16Array(2400).fill(1000));
   await new Promise((resolve) => setImmediate(resolve));
 
   assert.deepEqual(
@@ -130,7 +180,7 @@ test('local Whisper serializes audio requests and keeps backlog bounded', async 
   });
 
   for (let index = 0; index < 20; ++index) {
-    backend.appendAudio(new Int16Array(24000).fill(index + 1), index);
+    backend.appendAudio(new Int16Array(24000).fill((index + 1) * 1000), index);
   }
   await new Promise((resolve) => setImmediate(resolve));
 
@@ -191,7 +241,7 @@ test('local Whisper finish aborts a hung audio request and drops queued chunks',
     onEvent: (event) => events.push(event),
   });
   for (let index = 0; index < 10; ++index) {
-    backend.appendAudio(new Int16Array(2400).fill(index + 1));
+    backend.appendAudio(new Int16Array(2400).fill((index + 1) * 1000));
   }
 
   await backend.finish();

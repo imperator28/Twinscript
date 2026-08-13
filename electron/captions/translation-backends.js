@@ -1,5 +1,6 @@
 const crypto = require('crypto');
 const { OpenAINormalizer } = require('./openai-normalizer');
+const { termMatches } = require('./glossary-request-context');
 
 const LANGUAGE_NAMES = {
   en: 'English',
@@ -42,6 +43,9 @@ class LocalHyMt2Backend {
     utteranceId = crypto.randomUUID(),
     sourceRevision = 0,
   }) {
+    const relevantGlossary = Array.isArray(glossary)
+      ? glossary.filter((entry) => termMatches(sourceText, entry))
+      : [];
     const message = await this.client.request(
       final ? 'translate.final' : 'translate.preview',
       {
@@ -51,7 +55,7 @@ class LocalHyMt2Backend {
         sourceLanguage: LANGUAGE_NAMES[sourceLanguage] || sourceLanguage || 'Auto',
         targetLanguage: LANGUAGE_NAMES[target] || target,
         text: sourceText,
-        glossary,
+        glossary: relevantGlossary,
         protectedTokens: localProtectedTokens(sourceText, protectedTokens),
       },
       { signal },

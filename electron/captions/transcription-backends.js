@@ -1,4 +1,5 @@
 const { LiveTranscriptionSession } = require('./live-transcription-session');
+const { VadGate } = require('./vad-gate');
 
 const MAX_AUDIO_SAMPLES = 240000;
 const MAX_QUEUED_AUDIO_SAMPLES = 240000;
@@ -19,6 +20,7 @@ class LocalWhisperBackend {
     client,
     channel,
     sessionId,
+    settings = {},
     onEvent = () => {},
     onUsage = () => {},
     finishTimeoutMs = 5_000,
@@ -36,6 +38,14 @@ class LocalWhisperBackend {
     this.acceptingAudio = true;
     this.sentAudioMs = 0;
     this.droppedAudioMs = 0;
+    this.vad = new VadGate({
+      enabled: true,
+      threshold: settings.vadEnabled
+        ? settings.vadThreshold
+        : Math.min(settings.vadThreshold || 0.006, 0.006),
+      preRollMs: 300,
+      postRollMs: 650,
+    });
     this.onClientEvent = (message) => this.accept(message);
     client.on?.('event', this.onClientEvent);
   }
@@ -64,30 +74,54 @@ class LocalWhisperBackend {
     const pcm = samples instanceof Int16Array
       ? samples
       : new Int16Array(samples.buffer, samples.byteOffset, samples.byteLength / 2);
-    for (let offset = 0; offset < pcm.length; offset += MAX_AUDIO_SAMPLES) {
-      const chunk = pcm.subarray(offset, Math.min(pcm.length, offset + MAX_AUDIO_SAMPLES));
-      const samplesCopy = Buffer.from(chunk.buffer, chunk.byteOffset, chunk.byteLength);
-      this.audioQueue.push({ samples: samplesCopy, sampleCount: chunk.length, capturedAt });
-      this.queuedSamples += chunk.length;
-      let droppedSamples = 0;
-      while (this.queuedSamples > MAX_QUEUED_AUDIO_SAMPLES && this.audioQueue.length > 1) {
-        const dropped = this.audioQueue.shift();
-        this.queuedSamples -= dropped.sampleCount;
-        droppedSamples += dropped.sampleCount;
-      }
-      if (droppedSamples > 0) {
-        const droppedAudioMs = (droppedSamples / 24000) * 1000;
-        this.droppedAudioMs += droppedAudioMs;
-        this.onUsage({ droppedAudioMs });
-        this.emitTransportMetric();
-        this.onEvent({
-          type: 'error',
-          channel: this.channel,
-          code: 'local_asr_backpressure_dropped',
-          message: 'Local transcription fell behind and dropped the oldest queued audio',
+    const durationMs = (pcm.length / 24000) * 1000;
+    const gated = this.vad.push(pcm, durationMs);
+    this.onEvent({
+      type: 'level',
+      channel: this.channel,
+      rms: gated.rms,
+      speaking: gated.speaking,
+    });
+    for (const accepted of gated.chunks) {
+      for (let offset = 0; offset < accepted.length; offset += MAX_AUDIO_SAMPLES) {
+        const chunk = accepted.subarray(
+          offset,
+          Math.min(accepted.length, offset + MAX_AUDIO_SAMPLES),
+        );
+        const samplesCopy = Buffer.from(
+          chunk.buffer,
+          chunk.byteOffset,
+          chunk.byteLength,
+        );
+        this.audioQueue.push({
+          samples: samplesCopy,
+          sampleCount: chunk.length,
+          capturedAt,
         });
+        this.queuedSamples += chunk.length;
+        let droppedSamples = 0;
+        while (
+          this.queuedSamples > MAX_QUEUED_AUDIO_SAMPLES &&
+          this.audioQueue.length > 1
+        ) {
+          const dropped = this.audioQueue.shift();
+          this.queuedSamples -= dropped.sampleCount;
+          droppedSamples += dropped.sampleCount;
+        }
+        if (droppedSamples > 0) {
+          const droppedAudioMs = (droppedSamples / 24000) * 1000;
+          this.droppedAudioMs += droppedAudioMs;
+          this.onUsage({ droppedAudioMs });
+          this.emitTransportMetric();
+          this.onEvent({
+            type: 'error',
+            channel: this.channel,
+            code: 'local_asr_backpressure_dropped',
+            message: 'Local transcription fell behind and dropped the oldest queued audio',
+          });
+        }
+        this.onUsage({ audioMs: (chunk.length / 24000) * 1000 });
       }
-      this.onUsage({ audioMs: (chunk.length / 24000) * 1000 });
     }
     this.pumpAudio();
   }
@@ -135,13 +169,15 @@ class LocalWhisperBackend {
 
   accept(message) {
     if (message?.type !== 'asr.result' || message.channel !== this.channel) return false;
+    const transcript = String(message.text || '').trim();
+    if (!/[\p{L}\p{N}]/u.test(transcript)) return false;
     this.onEvent({
       type: 'transcript',
       channel: this.channel,
       itemId: Number.isSafeInteger(message.generation)
         ? `${message.utteranceId}:host-${message.generation}`
         : message.utteranceId,
-      transcript: message.text,
+      transcript,
       final: message.final === true,
       startedAt: message.startedAt,
       at: message.capturedAt,
@@ -161,6 +197,7 @@ class LocalWhisperBackend {
     this.acceptingAudio = false;
     this.audioQueue = [];
     this.queuedSamples = 0;
+    this.vad.reset();
     this.currentAudioController?.abort();
   }
 

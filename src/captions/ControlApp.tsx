@@ -103,6 +103,30 @@ type CredentialState = {
   repairRecommended?: boolean;
 };
 
+const MAIN_SESSION_STOP_TIMEOUT_MS = 8_000;
+
+type MainSessionStopOutcome =
+  | { kind: 'result'; result: Awaited<ReturnType<CaptionsAPI['stopSession']>> }
+  | { kind: 'error'; error: unknown }
+  | { kind: 'timeout' };
+
+async function stopMainSessionWithTimeout(): Promise<MainSessionStopOutcome> {
+  let timer: number | undefined;
+  const completion = window.captions.stopSession().then(
+    (result) => ({ kind: 'result' as const, result }),
+    (error) => ({ kind: 'error' as const, error }),
+  );
+  const timeout = new Promise<MainSessionStopOutcome>((resolve) => {
+    timer = window.setTimeout(
+      () => resolve({ kind: 'timeout' }),
+      MAIN_SESSION_STOP_TIMEOUT_MS,
+    );
+  });
+  const outcome = await Promise.race([completion, timeout]);
+  if (timer !== undefined) window.clearTimeout(timer);
+  return outcome;
+}
+
 const DEFAULT_SETTINGS: CaptionSettings = {
   settingsVersion: 14,
   layout: 'stacked',
@@ -696,9 +720,14 @@ export function ControlApp() {
       setNow(Date.now());
       setCaptureWarning(started.warning || '');
     } catch (error) {
-      await window.captions.stopSession();
+      const mainStop = await stopMainSessionWithTimeout();
       if (id !== operationId.current) return;
-      setNotice(error instanceof Error ? error.message : 'Audio capture could not start');
+      const message = error instanceof Error ? error.message : 'Audio capture could not start';
+      setNotice(
+        mainStop.kind === 'timeout'
+          ? `${message} Twinscript is still finishing the interrupted session in the background.`
+          : message,
+      );
       setStatus({ state: 'ready' });
       setCapture({ microphone: false, system: false });
       setSessionActive(false);
@@ -721,11 +750,15 @@ export function ControlApp() {
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'Audio capture could not stop cleanly');
     }
-    const result = await window.captions.stopSession();
-    if (!result.ok) {
-      setNotice(result.error.message);
+    const mainStop = await stopMainSessionWithTimeout();
+    if (mainStop.kind === 'timeout') {
+      setNotice('Twinscript is still finishing the session in the background. You can close this window if you need to leave now.');
+    } else if (mainStop.kind === 'error') {
+      setNotice(mainStop.error instanceof Error ? mainStop.error.message : 'The session could not stop cleanly');
+    } else if (!mainStop.result.ok) {
+      setNotice(mainStop.result.error.message);
     } else {
-      const next = result.data.meetingRecord as MeetingRecordReview | undefined;
+      const next = mainStop.result.data.meetingRecord as MeetingRecordReview | undefined;
       if (next?.recording) {
         setMeetingReview(next);
         setReviewOrigin('stopped');
@@ -1718,25 +1751,30 @@ export function ControlApp() {
                 </button>
               </div>
               {settings.outputMode === 'virtual-camera' && (
-                <div
-                  className={`output-mode__note native-camera-note is-${nativeCameraHealth?.state || 'checking'}`}
-                  role={nativeCameraHealth?.state === 'failed' ? 'alert' : 'status'}
-                >
-                  {/* Status only, no button. The camera used to be installable from
-                      here AND from Settings, with different labels and different
-                      copy in each — two answers to the same question. There are now
-                      exactly two places to act, each with a distinct job: the
-                      readiness checklist above (fix it before starting) and the
-                      Settings card (manage it). Both say "Install camera". */}
-                  <span>
-                    {nativeCameraMessage}
-                    {nativeCameraHealth?.installed === false && (
-                      <small>
-                        Or capture the Twinscript Camera Stage window in OBS, then start OBS Virtual Camera.
-                      </small>
-                    )}
-                  </span>
-                </div>
+                <>
+                  <div
+                    className={`output-mode__note native-camera-note is-${nativeCameraHealth?.state || 'checking'}`}
+                    role={nativeCameraHealth?.state === 'failed' ? 'alert' : 'status'}
+                  >
+                    {/* Status only, no button. The camera used to be installable from
+                        here AND from Settings, with different labels and different
+                        copy in each — two answers to the same question. There are now
+                        exactly two places to act, each with a distinct job: the
+                        readiness checklist above (fix it before starting) and the
+                        Settings card (manage it). Both say "Install camera". */}
+                    <span>
+                      {nativeCameraMessage}
+                      {nativeCameraHealth?.installed === false && (
+                        <small>
+                          Or capture the Twinscript Camera Stage window in OBS, then start OBS Virtual Camera.
+                        </small>
+                      )}
+                    </span>
+                  </div>
+                  <p className="field-note">
+                    Virtual camera sends captions to your meeting app. It does not capture meeting audio; choose a microphone and system-audio source above.
+                  </p>
+                </>
               )}
               <fieldset className="theme-picker">
                 <legend>Caption theme</legend>

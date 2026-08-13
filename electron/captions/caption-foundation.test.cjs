@@ -1433,6 +1433,49 @@ test('stop cancels and proceeds when transcription finish never settles', async 
   assert.equal(manager.active, false);
 });
 
+test('stop proceeds when evaluation recording never settles', async () => {
+  const statuses = [];
+  const manager = new CaptionSessionManager({
+    credentialStore: {},
+    settingsStore: {},
+    auxiliaryStopTimeoutMs: 10,
+    onStatus: (status) => statuses.push(status),
+    evaluationRecorder: { stop: () => new Promise(() => {}) },
+  });
+  manager.active = true;
+
+  const completed = await Promise.race([
+    manager.stop().then(() => true),
+    new Promise((resolve) => setTimeout(() => resolve(false), 250)),
+  ]);
+
+  assert.equal(completed, true);
+  assert.ok(statuses.some((status) => status.code === 'evaluation_shutdown_timeout'));
+  assert.equal(manager.active, false);
+});
+
+test('stop proceeds when meeting-record finalization never settles', async () => {
+  const statuses = [];
+  const manager = new CaptionSessionManager({
+    credentialStore: {},
+    settingsStore: {},
+    auxiliaryStopTimeoutMs: 10,
+    onStatus: (status) => statuses.push(status),
+    meetingRecordController: { stopSession: () => new Promise(() => {}) },
+  });
+  manager.active = true;
+  manager.mode = 'live';
+
+  const completed = await Promise.race([
+    manager.stop().then(() => true),
+    new Promise((resolve) => setTimeout(() => resolve(false), 250)),
+  ]);
+
+  assert.equal(completed, true);
+  assert.ok(statuses.some((status) => status.code === 'meeting_record_shutdown_timeout'));
+  assert.equal(manager.active, false);
+});
+
 test('stop accepts a final transcript emitted while transports drain', async () => {
   const recorded = [];
   const manager = new CaptionSessionManager({

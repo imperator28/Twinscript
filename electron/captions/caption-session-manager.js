@@ -23,6 +23,22 @@ const PROVISIONAL_INITIAL_DELAY_MS = 650;
 const PROVISIONAL_CADENCE_MS = 1800;
 const MAX_PROVISIONAL_CALLS_PER_ITEM = 8;
 
+async function settleWithin(promise, timeoutMs) {
+  let timer;
+  const outcome = await Promise.race([
+    Promise.resolve(promise).then(
+      (value) => ({ kind: 'fulfilled', value }),
+      (error) => ({ kind: 'rejected', error }),
+    ),
+    new Promise((resolve) => {
+      timer = setTimeout(() => resolve({ kind: 'timeout' }), timeoutMs);
+      timer.unref?.();
+    }),
+  ]);
+  clearTimeout(timer);
+  return outcome;
+}
+
 function errorTarget(error) {
   return {
     text: '',
@@ -88,6 +104,7 @@ class CaptionSessionManager {
     schedulerFactory,
     transcriptionDrainTimeoutMs = 12_000,
     finalizationDrainTimeoutMs = 30_000,
+    auxiliaryStopTimeoutMs = 5_000,
   }) {
     this.credentialStore = credentialStore;
     this.settingsStore = settingsStore;
@@ -121,6 +138,7 @@ class CaptionSessionManager {
       schedulerFactory || ((options) => new PriorityTaskQueue(options));
     this.transcriptionDrainTimeoutMs = transcriptionDrainTimeoutMs;
     this.finalizationDrainTimeoutMs = finalizationDrainTimeoutMs;
+    this.auxiliaryStopTimeoutMs = auxiliaryStopTimeoutMs;
     this.reset();
   }
 
@@ -1221,12 +1239,40 @@ class CaptionSessionManager {
       for (const controller of this.shadowControllers) controller.abort();
       this.abortControllers.clear();
       this.shadowControllers.clear();
-      await this.evaluationRecorder?.stop();
-      if (this.mode === 'live' && this.meetingRecordController) {
-        this.meetingRecord = await this.meetingRecordController.stopSession({
-          appVersion: this.appVersion,
-          estimatedCostUsd: this.cost?.snapshot().totalUsd,
+      const evaluationStop = await settleWithin(
+        this.evaluationRecorder?.stop(),
+        this.auxiliaryStopTimeoutMs,
+      );
+      if (evaluationStop.kind === 'timeout') {
+        this.onStatus({
+          state: 'degraded',
+          sessionId: this.sessionId,
+          code: 'evaluation_shutdown_timeout',
+          message: 'Evaluation recording did not finish before the bounded shutdown timeout',
         });
+      } else if (evaluationStop.kind === 'rejected') {
+        throw evaluationStop.error;
+      }
+      if (this.mode === 'live' && this.meetingRecordController) {
+        const meetingRecordStop = await settleWithin(
+          this.meetingRecordController.stopSession({
+            appVersion: this.appVersion,
+            estimatedCostUsd: this.cost?.snapshot().totalUsd,
+          }),
+          this.auxiliaryStopTimeoutMs,
+        );
+        if (meetingRecordStop.kind === 'timeout') {
+          this.onStatus({
+            state: 'degraded',
+            sessionId: this.sessionId,
+            code: 'meeting_record_shutdown_timeout',
+            message: 'Meeting record finalization did not finish before the bounded shutdown timeout',
+          });
+        } else if (meetingRecordStop.kind === 'rejected') {
+          throw meetingRecordStop.error;
+        } else {
+          this.meetingRecord = meetingRecordStop.value;
+        }
       }
       this.onStatus({
         state: 'stopped',

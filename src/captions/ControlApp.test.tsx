@@ -567,6 +567,16 @@ describe('meeting caption controls', () => {
     expect(screen.getByText(/Twinscript is listed as a camera in your meeting app/i)).toBeVisible();
   });
 
+  it('explains that virtual camera is a caption output, not an audio source', async () => {
+    render(<ControlApp />);
+    await screen.findByRole('button', { name: /Start session/i });
+    fireEvent.click(screen.getByRole('button', { name: 'Virtual camera' }));
+
+    expect(
+      screen.getByText(/Virtual camera sends captions to your meeting app\. It does not capture meeting audio/i),
+    ).toBeVisible();
+  });
+
   it('explains what is missing on a fresh install instead of just failing', async () => {
     // The day-one defect: Start is the most prominent control on the window, and
     // pressing it without a key simply did nothing. The blocker was on another tab
@@ -612,12 +622,27 @@ describe('meeting caption controls', () => {
         ok: true as const,
         data: { available: false, source: 'missing', encryptionAvailable: true },
       }));
+    window.captions.getLocalModelStatus = () =>
+      Promise.resolve({ ok: true as const, data: localModels('ready', 'ready') });
 
     render(<ControlApp />);
 
-    expect(await screen.findByRole('button', { name: /Start session/i })).toBeEnabled();
+    const start = await screen.findByRole('button', { name: /Start session/i });
+    expect(start).toBeEnabled();
     expect(window.captions.credentialStatus).not.toHaveBeenCalled();
     expect(screen.queryByText('Choose a caption route')).not.toBeInTheDocument();
+    fireEvent.click(start);
+    await waitFor(() =>
+      expect(window.captions.startSession).toHaveBeenCalledWith(
+        expect.objectContaining({
+          mode: 'live',
+          settings: expect.objectContaining({
+            transcriptionModel: 'whisper-local',
+            finalTranslationModel: 'hy-mt2-local',
+          }),
+        }),
+      ),
+    );
     fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
     expect(await screen.findByText(/No API key is read when a meeting starts/i)).toBeVisible();
   });
@@ -1558,6 +1583,36 @@ describe('meeting caption controls', () => {
     for (const state of ['degraded', 'reconnecting', 'budget-warning', 'running']) {
       act(() => statusListener?.({ state, message: `${state} on system` }));
       expect(screen.getByRole('button', { name: /Stop session/i })).toBeEnabled();
+    }
+  });
+
+  it('returns to idle when microphone capture fails and main-process cleanup stalls', async () => {
+    vi.useFakeTimers();
+    audioMocks.start.mockRejectedValueOnce(new Error('Could not start the selected microphone'));
+    window.captions.stopSession = vi.fn(() => new Promise(() => {}));
+
+    try {
+      render(<ControlApp />);
+      await act(async () => {
+        await Promise.resolve();
+      });
+      fireEvent.click(screen.getByRole('button', { name: /Start session/i }));
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      expect(window.captions.stopSession).toHaveBeenCalledOnce();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(8_000);
+      });
+      expect(screen.getByRole('button', { name: 'Start session' })).toBeEnabled();
+      expect(screen.getByText(/Could not start the selected microphone/)).toBeVisible();
+      expect(channelBadge('You / microphone')).toBeNull();
+      expect(channelBadge('Meeting / system')).toBeNull();
+    } finally {
+      vi.useRealTimers();
     }
   });
 

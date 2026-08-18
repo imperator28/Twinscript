@@ -69,9 +69,22 @@ export async function enumerateAudioDevices(requestPermission = false): Promise<
       .filter((device) => device.kind === kind)
       .filter((device) => !['default', 'communications'].includes(device.deviceId))
       .filter((device) => {
-        const key = device.groupId || device.deviceId;
-        if (seen.has(key)) return false;
-        seen.add(key);
+        // Keyed on deviceId, which is the only per-endpoint identifier.
+        //
+        // This used to prefer `groupId`, and that silently hid microphones. Per
+        // spec a groupId identifies the physical DEVICE - it exists so an input
+        // and an output belonging to the same headset or monitor can be
+        // correlated - and Windows regularly reports one groupId across several
+        // capture endpoints of the same adapter. Deduping by it inside a single
+        // kind therefore collapses genuinely different microphones down to
+        // whichever enumerated first, which is normally the system default.
+        //
+        // Observed: a machine with an active "Microphone Array (Intel Smart
+        // Sound)" and an active "CABLE Output (VB-Audio Virtual Cable)" offered
+        // only the cable, so the operator could not select their own microphone
+        // at all.
+        if (seen.has(device.deviceId)) return false;
+        seen.add(device.deviceId);
         return true;
       })
       .map((device, index) => ({

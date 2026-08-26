@@ -52,17 +52,29 @@ test('runtime descriptors and their launch arguments are immutable', () => {
   });
 });
 
-test('runtime descriptors reject a requested device inconsistent with their family', () => {
-  assert.throws(() => new LlamaTranslationServer({
-    binaryPath: 'llama-server.exe',
-    modelPath: 'hy-mt2.gguf',
-    runtimeDescriptor: {
-      family: 'cuda',
-      runtime: 'llama.cpp-custom-cuda',
-      requestedDevice: 'CPU',
-      launchArgs: ['--device', 'CUDA2', '--gpu-layers', 'auto', '--fit', 'on'],
-    },
-  }), /requestedDevice/);
+test('runtime descriptors reject noncanonical fields and conflicting launch arguments', () => {
+  const invalidDescriptors = [
+    ['CPU extra host', { ...CPU_RUNTIME, launchArgs: [...CPU_RUNTIME.launchArgs, '--host', '0.0.0.0'] }],
+    ['CPU duplicate GPU flag', { ...CPU_RUNTIME, launchArgs: [...CPU_RUNTIME.launchArgs, '--gpu-layers', '1'] }],
+    ['CPU wrong runtime', { ...CPU_RUNTIME, runtime: 'llama.cpp-b9940' }],
+    ['CPU wrong requested device', { ...CPU_RUNTIME, requestedDevice: 'CUDA_AUTO' }],
+    ['CPU wrong family', { ...CPU_RUNTIME, family: 'cuda' }],
+    ['CUDA extra host', { ...CUDA_RUNTIME, launchArgs: [...CUDA_RUNTIME.launchArgs, '--host', '0.0.0.0'] }],
+    ['CUDA duplicate device', { ...CUDA_RUNTIME, launchArgs: [...CUDA_RUNTIME.launchArgs, '--device', 'CUDA9'] }],
+    ['CUDA duplicate GPU flag', { ...CUDA_RUNTIME, launchArgs: [...CUDA_RUNTIME.launchArgs, '--gpu-layers', '0'] }],
+    ['CUDA wrong runtime', { ...CUDA_RUNTIME, runtime: 'llama.cpp-b9940-cpu' }],
+    ['CUDA wrong requested device', { ...CUDA_RUNTIME, requestedDevice: 'CUDA2' }],
+    ['CUDA wrong family', { ...CUDA_RUNTIME, family: 'cpu' }],
+    ['CUDA malformed selected id', { ...CUDA_RUNTIME, launchArgs: ['--device', 'CUDA-2', '--gpu-layers', 'auto', '--fit', 'on'] }],
+  ];
+
+  for (const [label, runtimeDescriptor] of invalidDescriptors) {
+    assert.throws(() => new LlamaTranslationServer({
+      binaryPath: 'llama-server.exe',
+      modelPath: 'hy-mt2.gguf',
+      runtimeDescriptor,
+    }), { code: 'local_translation_runtime_invalid' }, label);
+  }
 });
 
 test('persistent llama.cpp server starts on loopback with explicit CPU runtime', async () => {
@@ -275,6 +287,7 @@ for (const [label, log, expected] of [
 for (const [label, log] of [
   ['missing', 'load_tensors: offloaded 29/29 layers to GPU\n'],
   ['non-NVIDIA', 'CUDA0: AMD Radeon 780M\nload_tensors: offloaded 29/29 layers to GPU\n'],
+  ['NVIDIA substring', 'CUDA0: NVIDIAX Pretender GPU\nload_tensors: offloaded 29/29 layers to GPU\n'],
   ['mismatched', 'CUDA1: NVIDIA RTX 4090\nload_tensors: offloaded 29/29 layers to GPU\n'],
 ]) {
   test(`CUDA startup rejects ${label} selected-device evidence`, async () => {
@@ -331,9 +344,9 @@ test('CUDA evidence survives split chunks and stderr rolling-buffer eviction', a
 test('caller descriptor and returned provenance mutations cannot alter server state', async () => {
   const descriptor = {
     family: 'cuda',
-    runtime: 'llama.cpp-custom-cuda',
+    runtime: 'llama.cpp-b9940-cuda12.4',
     requestedDevice: 'CUDA_AUTO',
-    launchArgs: ['--device', 'CUDA2', '--gpu-layers', 'auto', '--fit', 'on'],
+    launchArgs: ['--device', 'cuda2', '--gpu-layers', 'auto', '--fit', 'on'],
   };
   let launchArgs;
   let spawnedChild;
@@ -360,17 +373,19 @@ test('caller descriptor and returned provenance mutations cannot alter server st
 
   const health = await server.start();
   assert.equal(launchArgs.includes('CUDA2'), true);
-  assert.equal(health.runtime, 'llama.cpp-custom-cuda');
+  assert.equal(launchArgs.includes('cuda2'), false);
+  assert.equal(health.runtime, 'llama.cpp-b9940-cuda12.4');
+  assert.equal(health.actualDevice, 'CUDA2');
   health.runtime = 'mutated health';
   health.deviceName = 'mutated name';
-  assert.equal(server.health().runtime, 'llama.cpp-custom-cuda');
+  assert.equal(server.health().runtime, 'llama.cpp-b9940-cuda12.4');
   assert.equal(server.health().deviceName, 'NVIDIA RTX 6000 Ada');
 
   const first = await server.translate('translate.final', { targetLanguage: 'Chinese', text: 'first' });
   first.runtime = 'mutated result';
   first.deviceName = 'mutated result name';
   const second = await server.translate('translate.final', { targetLanguage: 'Chinese', text: 'second' });
-  assert.equal(second.runtime, 'llama.cpp-custom-cuda');
+  assert.equal(second.runtime, 'llama.cpp-b9940-cuda12.4');
   assert.equal(second.deviceName, 'NVIDIA RTX 6000 Ada');
 });
 

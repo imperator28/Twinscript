@@ -26,47 +26,56 @@ const CUDA_RUNTIME = freezeRuntimeDescriptor({
   launchArgs: ['--device', 'CUDA0', '--gpu-layers', 'auto', '--fit', 'on'],
 });
 
+const NVIDIA_DEVICE_PATTERN = /\bNVIDIA\b/i;
+
 function runtimeArgumentValue(launchArgs, flag) {
   const index = launchArgs.indexOf(flag);
   return index >= 0 ? launchArgs[index + 1] : undefined;
 }
 
+function runtimeDescriptorError(message) {
+  const error = new TypeError(message);
+  error.code = 'local_translation_runtime_invalid';
+  return error;
+}
+
 function validateRuntimeDescriptor(descriptor) {
   if (!descriptor || typeof descriptor !== 'object') {
-    throw new TypeError('runtimeDescriptor must be an object');
+    throw runtimeDescriptorError('runtimeDescriptor must be an object');
   }
   const { family, runtime, requestedDevice, launchArgs } = descriptor;
-  if (!['cpu', 'cuda'].includes(family)) {
-    throw new TypeError('runtimeDescriptor.family must be cpu or cuda');
-  }
-  if (typeof runtime !== 'string' || !runtime.trim()) {
-    throw new TypeError('runtimeDescriptor.runtime must be a non-empty string');
-  }
-  if (typeof requestedDevice !== 'string' || !requestedDevice.trim()) {
-    throw new TypeError('runtimeDescriptor.requestedDevice must be a non-empty string');
-  }
-  if (!Array.isArray(launchArgs) || launchArgs.some((arg) => typeof arg !== 'string')) {
-    throw new TypeError('runtimeDescriptor.launchArgs must be an array of strings');
-  }
   if (family === 'cpu') {
-    if (requestedDevice !== 'CPU') {
-      throw new TypeError('CPU runtimeDescriptor.requestedDevice must be CPU');
+    if (runtime !== CPU_RUNTIME.runtime ||
+        requestedDevice !== CPU_RUNTIME.requestedDevice ||
+        !Array.isArray(launchArgs) ||
+        launchArgs.length !== CPU_RUNTIME.launchArgs.length ||
+        launchArgs.some((arg, index) => arg !== CPU_RUNTIME.launchArgs[index])) {
+      throw runtimeDescriptorError('CPU runtimeDescriptor must match the pinned CPU runtime');
     }
-    if (runtimeArgumentValue(launchArgs, '--gpu-layers') !== '0' || launchArgs.includes('--device')) {
-      throw new TypeError('CPU runtimeDescriptor must disable GPU layers');
-    }
-  } else {
-    const selectedDevice = runtimeArgumentValue(launchArgs, '--device');
-    if (!/^CUDA(?:_AUTO|\d+)$/.test(requestedDevice)) {
-      throw new TypeError('CUDA runtimeDescriptor.requestedDevice must request CUDA');
-    }
-    if (!/^CUDA\d+$/.test(selectedDevice || '') ||
-        runtimeArgumentValue(launchArgs, '--gpu-layers') !== 'auto' ||
-        runtimeArgumentValue(launchArgs, '--fit') !== 'on') {
-      throw new TypeError('CUDA runtimeDescriptor must select a CUDA device with automatic fitted offload');
-    }
+    return freezeRuntimeDescriptor(CPU_RUNTIME);
   }
-  return freezeRuntimeDescriptor({ family, runtime, requestedDevice, launchArgs });
+  if (family === 'cuda') {
+    const selectedDevice = Array.isArray(launchArgs) ? launchArgs[1] : null;
+    if (runtime !== CUDA_RUNTIME.runtime ||
+        requestedDevice !== CUDA_RUNTIME.requestedDevice ||
+        !Array.isArray(launchArgs) ||
+        launchArgs.length !== CUDA_RUNTIME.launchArgs.length ||
+        launchArgs[0] !== '--device' ||
+        !/^CUDA\d+$/i.test(selectedDevice || '') ||
+        launchArgs[2] !== '--gpu-layers' ||
+        launchArgs[3] !== 'auto' ||
+        launchArgs[4] !== '--fit' ||
+        launchArgs[5] !== 'on') {
+      throw runtimeDescriptorError('CUDA runtimeDescriptor must match the pinned CUDA runtime');
+    }
+    return freezeRuntimeDescriptor({
+      family,
+      runtime,
+      requestedDevice,
+      launchArgs: ['--device', selectedDevice.toUpperCase(), '--gpu-layers', 'auto', '--fit', 'on'],
+    });
+  }
+  throw runtimeDescriptorError('runtimeDescriptor.family must be cpu or cuda');
 }
 
 
@@ -149,7 +158,7 @@ class LlamaTranslationServer {
       const deviceId = `CUDA${Number(deviceMatch[1])}`;
       const deviceName = deviceMatch[2].trim().slice(0, 160);
       const previous = this.runtimeEvidence.devices.get(deviceId);
-      if (!previous || (!/NVIDIA/i.test(previous) && /NVIDIA/i.test(deviceName))) {
+      if (!previous || (!NVIDIA_DEVICE_PATTERN.test(previous) && NVIDIA_DEVICE_PATTERN.test(deviceName))) {
         this.runtimeEvidence.devices.set(deviceId, deviceName);
       }
     }
@@ -184,7 +193,7 @@ class LlamaTranslationServer {
     return {
       runtime: this.runtimeDescriptor.runtime,
       requestedDevice: this.runtimeDescriptor.requestedDevice,
-      actualDevice: deviceName && /NVIDIA/i.test(deviceName) ? this.selectedCudaDevice : null,
+      actualDevice: deviceName && NVIDIA_DEVICE_PATTERN.test(deviceName) ? this.selectedCudaDevice : null,
       deviceName,
       offload: this.runtimeEvidence.offload,
       fallbackReason: null,
@@ -291,7 +300,7 @@ class LlamaTranslationServer {
           const provenance = this.runtimeProvenance();
           if (this.runtimeDescriptor.family === 'cuda' &&
               (provenance.actualDevice !== this.selectedCudaDevice ||
-               !/NVIDIA/i.test(provenance.deviceName || ''))) {
+               !NVIDIA_DEVICE_PATTERN.test(provenance.deviceName || ''))) {
             await this.stop();
             throw llamaError(
               'local_translation_device_unverified',

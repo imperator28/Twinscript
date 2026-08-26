@@ -39,9 +39,9 @@ class LlamaCudaProbe {
     let child = null;
     let timer = null;
     let settled = false;
+    let terminating = false;
     let outputBytes = 0;
     const outputParts = [];
-    const lateErrorListener = () => {};
 
     const cleanup = () => {
       if (timer) {
@@ -80,6 +80,7 @@ class LlamaCudaProbe {
     };
 
     const terminateAndFinish = fallbackReason => {
+      terminating = true;
       try {
         child?.kill();
       } catch {
@@ -98,8 +99,11 @@ class LlamaCudaProbe {
       }
       outputParts.push(text);
     };
-    const onError = () => finish('cuda_probe_spawn_failed');
+    const onError = () => {
+      if (!terminating) finish('cuda_probe_spawn_failed');
+    };
     const onClose = (code, signal) => {
+      if (terminating) return;
       if (code !== 0 || signal) {
         finish('cuda_probe_exit_failed');
         return;
@@ -117,12 +121,11 @@ class LlamaCudaProbe {
         finish('cuda_probe_spawn_failed');
         return promise;
       }
-      child.on('error', lateErrorListener);
       child.once('error', onError);
       child.once('close', onClose);
       child.stdout?.on('data', onOutput);
       child.stderr?.on('data', onOutput);
-      this.activeProbe = { generation, child, finish };
+      this.activeProbe = { generation, terminateAndFinish };
       timer = setTimeout(() => terminateAndFinish('cuda_probe_timeout'), this.timeoutMs);
     } catch {
       finish('cuda_probe_spawn_failed');
@@ -137,12 +140,7 @@ class LlamaCudaProbe {
     this.inFlight = null;
     const activeProbe = this.activeProbe;
     if (activeProbe) {
-      try {
-        activeProbe.child.kill();
-      } catch {
-        // Invalidation still settles the old generation if termination throws.
-      }
-      activeProbe.finish('cuda_probe_invalidated');
+      activeProbe.terminateAndFinish('cuda_probe_invalidated');
     }
   }
 }

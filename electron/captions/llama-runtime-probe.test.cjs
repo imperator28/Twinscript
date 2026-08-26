@@ -75,6 +75,7 @@ test('probe invokes packaged CUDA binary and resolves its NVIDIA device', async 
       stdio: ['ignore', 'pipe', 'pipe'],
     },
   }]);
+  assertNoProbeListeners(child);
 });
 
 test('probe returns cuda_device_unavailable for CPU-only or empty device lists', async () => {
@@ -131,11 +132,17 @@ test('probe kills and rejects oversized combined output even with a valid prefix
 
 test('probe kills before resolving cuda_probe_timeout', async () => {
   const child = createChild();
+  child.kill = () => {
+    child.killed = true;
+    child.emit('error', new Error('kill raced with process error'));
+    return true;
+  };
   const fake = createSpawn(child);
   const probe = new LlamaCudaProbe({ binaryPath: 'C:\\runtime\\cuda\\llama-server.exe', spawn: fake.spawn, timeoutMs: 5 });
   const result = await probe.probe();
   assert.equal(child.killed, true);
   assert.deepEqual(result, unavailable('cuda_probe_timeout'));
+  assertNoProbeListeners(child);
 });
 
 test('probe shares the in-flight request and caches its completed result', async () => {
@@ -207,4 +214,11 @@ function unavailable(fallbackReason) {
     deviceName: null,
     fallbackReason,
   };
+}
+
+function assertNoProbeListeners(child) {
+  assert.equal(child.listenerCount('error'), 0);
+  assert.equal(child.listenerCount('close'), 0);
+  assert.equal(child.stdout.listenerCount('data'), 0);
+  assert.equal(child.stderr.listenerCount('data'), 0);
 }

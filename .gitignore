@@ -138,3 +138,4 @@ native/local-inference-host/build/
 native/local-inference-host/build-*/
 /artifacts/local-inference/
 /artifacts/local-inference-host/
+/artifacts/llama-runtime-cache/

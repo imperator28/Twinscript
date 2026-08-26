@@ -297,16 +297,7 @@ if (@($lock.cpu.archives).Count -ne 1 -or @($lock.cuda.archives).Count -ne 2) {
 }
 
 $outputRoot = Get-FullPath $OutputDirectory
-if (-not (Test-Path -LiteralPath $outputRoot)) {
-  New-Item -ItemType Directory -Path $outputRoot -Force | Out-Null
-}
-Assert-OrdinaryDirectory -Path $outputRoot -Label 'Output directory'
 $cacheRoot = Get-FullPath $CacheDirectory
-if (-not (Test-Path -LiteralPath $cacheRoot)) {
-  New-Item -ItemType Directory -Path $cacheRoot -Force | Out-Null
-}
-Assert-OrdinaryDirectory -Path $cacheRoot -Label 'Cache directory'
-
 $cpuDestination = Resolve-FamilyDestination -OutputRoot $outputRoot -DirectoryName $lock.cpu.directory -Family 'cpu'
 $cudaDestination = Resolve-FamilyDestination -OutputRoot $outputRoot -DirectoryName $lock.cuda.directory -Family 'cuda'
 if ($cpuDestination -eq $cudaDestination) {
@@ -314,6 +305,15 @@ if ($cpuDestination -eq $cudaDestination) {
 }
 Assert-CacheDoesNotOverlapDestination -CacheRoot $cacheRoot -Destination $cpuDestination -Family 'cpu'
 Assert-CacheDoesNotOverlapDestination -CacheRoot $cacheRoot -Destination $cudaDestination -Family 'cuda'
+
+if (-not (Test-Path -LiteralPath $outputRoot)) {
+  New-Item -ItemType Directory -Path $outputRoot -Force | Out-Null
+}
+Assert-OrdinaryDirectory -Path $outputRoot -Label 'Output directory'
+if (-not (Test-Path -LiteralPath $cacheRoot)) {
+  New-Item -ItemType Directory -Path $cacheRoot -Force | Out-Null
+}
+Assert-OrdinaryDirectory -Path $cacheRoot -Label 'Cache directory'
 
 $archivePaths = @{}
 foreach ($familyName in @('cpu', 'cuda')) {

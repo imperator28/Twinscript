@@ -328,7 +328,23 @@ for (const overlap of [
   });
 }
 
-test('restores existing CPU and CUDA runtimes after a deterministic installation failure', { skip: !powershellAvailable }, () => {
+test('rejects a nonexistent cache path inside CPU without creating output or cache roots', { skip: !powershellAvailable }, () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'llama-runtime-cache-overlap-new-'));
+  try {
+    const fixture = createRuntimeFixture(root);
+    const cacheDirectory = path.join(fixture.outputDirectory, 'cpu', 'cache');
+
+    const result = stageFixture(fixture.outputDirectory, cacheDirectory, fixture.lockPath);
+
+    assertFailure(result, /Cache directory overlaps managed runtime destination/i);
+    assert.equal(fs.existsSync(fixture.outputDirectory), false);
+    assert.equal(fs.existsSync(cacheDirectory), false);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('restores existing CPU and CUDA runtimes after CPU swaps and CUDA installation fails', { skip: !powershellAvailable }, () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'llama-runtime-install-failure-'));
   try {
     const fixture = createRuntimeFixture(root);
@@ -336,12 +352,12 @@ test('restores existing CPU and CUDA runtimes after a deterministic installation
 
     const result = stageFixture(fixture.outputDirectory, fixture.cacheDirectory, fixture.lockPath, {
       LLAMA_RUNTIME_STAGE_TEST_MODE: 'llama-runtime-fixture-test-only',
-      LLAMA_RUNTIME_STAGE_TEST_FAIL_FAMILY: 'cpu',
+      LLAMA_RUNTIME_STAGE_TEST_FAIL_FAMILY: 'cuda',
     });
 
     assertFailure(result, /simulated installation failure/i);
     assertExistingFamilies(fixture.outputDirectory);
-    assert.deepEqual(fs.readdirSync(fixture.outputDirectory).filter((name) => name.startsWith('.llama-')), []);
+    assert.deepEqual(fs.readdirSync(fixture.outputDirectory).filter((name) => /^\.llama-(?:cpu|cuda)-(?:stage|backup)-/i.test(name)), []);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

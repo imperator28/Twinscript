@@ -3,6 +3,73 @@ const net = require('net');
 const path = require('path');
 
 
+function freezeRuntimeDescriptor(descriptor) {
+  return Object.freeze({
+    family: descriptor.family,
+    runtime: descriptor.runtime,
+    requestedDevice: descriptor.requestedDevice,
+    launchArgs: Object.freeze([...descriptor.launchArgs]),
+  });
+}
+
+const CPU_RUNTIME = freezeRuntimeDescriptor({
+  family: 'cpu',
+  runtime: 'llama.cpp-b9940-cpu',
+  requestedDevice: 'CPU',
+  launchArgs: ['--gpu-layers', '0'],
+});
+
+const CUDA_RUNTIME = freezeRuntimeDescriptor({
+  family: 'cuda',
+  runtime: 'llama.cpp-b9940-cuda12.4',
+  requestedDevice: 'CUDA_AUTO',
+  launchArgs: ['--device', 'CUDA0', '--gpu-layers', 'auto', '--fit', 'on'],
+});
+
+function runtimeArgumentValue(launchArgs, flag) {
+  const index = launchArgs.indexOf(flag);
+  return index >= 0 ? launchArgs[index + 1] : undefined;
+}
+
+function validateRuntimeDescriptor(descriptor) {
+  if (!descriptor || typeof descriptor !== 'object') {
+    throw new TypeError('runtimeDescriptor must be an object');
+  }
+  const { family, runtime, requestedDevice, launchArgs } = descriptor;
+  if (!['cpu', 'cuda'].includes(family)) {
+    throw new TypeError('runtimeDescriptor.family must be cpu or cuda');
+  }
+  if (typeof runtime !== 'string' || !runtime.trim()) {
+    throw new TypeError('runtimeDescriptor.runtime must be a non-empty string');
+  }
+  if (typeof requestedDevice !== 'string' || !requestedDevice.trim()) {
+    throw new TypeError('runtimeDescriptor.requestedDevice must be a non-empty string');
+  }
+  if (!Array.isArray(launchArgs) || launchArgs.some((arg) => typeof arg !== 'string')) {
+    throw new TypeError('runtimeDescriptor.launchArgs must be an array of strings');
+  }
+  if (family === 'cpu') {
+    if (requestedDevice !== 'CPU') {
+      throw new TypeError('CPU runtimeDescriptor.requestedDevice must be CPU');
+    }
+    if (runtimeArgumentValue(launchArgs, '--gpu-layers') !== '0' || launchArgs.includes('--device')) {
+      throw new TypeError('CPU runtimeDescriptor must disable GPU layers');
+    }
+  } else {
+    const selectedDevice = runtimeArgumentValue(launchArgs, '--device');
+    if (!/^CUDA(?:_AUTO|\d+)$/.test(requestedDevice)) {
+      throw new TypeError('CUDA runtimeDescriptor.requestedDevice must request CUDA');
+    }
+    if (!/^CUDA\d+$/.test(selectedDevice || '') ||
+        runtimeArgumentValue(launchArgs, '--gpu-layers') !== 'auto' ||
+        runtimeArgumentValue(launchArgs, '--fit') !== 'on') {
+      throw new TypeError('CUDA runtimeDescriptor must select a CUDA device with automatic fitted offload');
+    }
+  }
+  return freezeRuntimeDescriptor({ family, runtime, requestedDevice, launchArgs });
+}
+
+
 function llamaError(code, message) {
   const error = new Error(message);
   error.code = code;
@@ -32,6 +99,8 @@ class LlamaTranslationServer {
     startupTimeoutMs = 120_000,
     requestTimeoutMs = 30_000,
     maxRestarts = 1,
+    shutdownTimeoutMs = 2_000,
+    runtimeDescriptor = CPU_RUNTIME,
   }) {
     this.binaryPath = binaryPath;
     this.modelPath = modelPath;
@@ -41,6 +110,11 @@ class LlamaTranslationServer {
     this.startupTimeoutMs = startupTimeoutMs;
     this.requestTimeoutMs = requestTimeoutMs;
     this.maxRestarts = maxRestarts;
+    this.shutdownTimeoutMs = shutdownTimeoutMs;
+    this.runtimeDescriptor = validateRuntimeDescriptor(runtimeDescriptor);
+    this.selectedCudaDevice = this.runtimeDescriptor.family === 'cuda'
+      ? runtimeArgumentValue(this.runtimeDescriptor.launchArgs, '--device')
+      : null;
     this.restartCount = 0;
     this.child = null;
     this.port = 0;
@@ -48,6 +122,82 @@ class LlamaTranslationServer {
     this.startPromise = null;
     this.stderr = '';
     this.loadMs = 0;
+    this.processListeners = null;
+    this.resetEvidence();
+  }
+
+  resetEvidence() {
+    this.stderr = '';
+    this.stderrRemainder = '';
+    this.runtimeEvidence = {
+      devices: new Map(),
+      offload: this.runtimeDescriptor.family === 'cpu' ? 'none' : 'unknown',
+    };
+  }
+
+  recordStderr(chunk) {
+    const text = chunk.toString('utf8');
+    this.stderr = `${this.stderr}${text}`.slice(-8_000);
+    const lines = `${this.stderrRemainder}${text}`.split(/\r?\n/);
+    this.stderrRemainder = lines.pop().slice(-512);
+    for (const line of lines) this.recordEvidenceLine(line);
+  }
+
+  recordEvidenceLine(line) {
+    const deviceMatch = line.match(/(?:\bDevice\s+|\bCUDA)(\d+)\s*:\s*(.+?)\s*$/i);
+    if (deviceMatch) {
+      const deviceId = `CUDA${Number(deviceMatch[1])}`;
+      const deviceName = deviceMatch[2].trim().slice(0, 160);
+      const previous = this.runtimeEvidence.devices.get(deviceId);
+      if (!previous || (!/NVIDIA/i.test(previous) && /NVIDIA/i.test(deviceName))) {
+        this.runtimeEvidence.devices.set(deviceId, deviceName);
+      }
+    }
+    const offloadMatch = line.match(/offloaded\s+(\d+)\s*\/\s*(\d+)\s+layers\s+to\s+GPU/i);
+    if (!offloadMatch) return;
+    const offloaded = Number(offloadMatch[1]);
+    const total = Number(offloadMatch[2]);
+    let observed = 'unknown';
+    if (Number.isFinite(offloaded) && Number.isFinite(total) && total > 0) {
+      if (offloaded === total) observed = 'full';
+      else if (offloaded > 0 && offloaded < total) observed = 'partial';
+      else if (offloaded === 0) observed = 'none';
+    }
+    const strength = { unknown: 0, none: 1, partial: 2, full: 3 };
+    if (strength[observed] > strength[this.runtimeEvidence.offload]) {
+      this.runtimeEvidence.offload = observed;
+    }
+  }
+
+  runtimeProvenance() {
+    if (this.runtimeDescriptor.family === 'cpu') {
+      return {
+        runtime: this.runtimeDescriptor.runtime,
+        requestedDevice: this.runtimeDescriptor.requestedDevice,
+        actualDevice: 'CPU',
+        deviceName: null,
+        offload: 'none',
+        fallbackReason: null,
+      };
+    }
+    const deviceName = this.runtimeEvidence.devices.get(this.selectedCudaDevice) || null;
+    return {
+      runtime: this.runtimeDescriptor.runtime,
+      requestedDevice: this.runtimeDescriptor.requestedDevice,
+      actualDevice: deviceName && /NVIDIA/i.test(deviceName) ? this.selectedCudaDevice : null,
+      deviceName,
+      offload: this.runtimeEvidence.offload,
+      fallbackReason: null,
+    };
+  }
+
+  detachProcessListeners(child) {
+    const listeners = this.processListeners;
+    if (!listeners || listeners.child !== child) return;
+    child.removeListener?.('error', listeners.onError);
+    child.removeListener?.('close', listeners.onClose);
+    child.stderr?.removeListener?.('data', listeners.onStderr);
+    this.processListeners = null;
   }
 
   async start() {
@@ -69,6 +219,7 @@ class LlamaTranslationServer {
 
   async startProcess() {
     const startedAt = performance.now();
+    this.resetEvidence();
     this.port = await this.allocatePort();
     const args = [
       '-m', this.modelPath,
@@ -76,29 +227,43 @@ class LlamaTranslationServer {
       '--port', String(this.port),
       '--no-webui', '-c', '2048',
       '--log-colors', 'off',
-      '--gpu-layers', '0',
+      ...this.runtimeDescriptor.launchArgs,
     ];
-    const child = this.spawnImpl(this.binaryPath, args, {
-      cwd: path.dirname(this.binaryPath),
-      windowsHide: true,
-      stdio: ['ignore', 'ignore', 'pipe'],
-    });
+    let child;
+    try {
+      child = this.spawnImpl(this.binaryPath, args, {
+        cwd: path.dirname(this.binaryPath),
+        windowsHide: true,
+        stdio: ['ignore', 'ignore', 'pipe'],
+      });
+    } catch (error) {
+      this.port = 0;
+      throw llamaError('local_translation_spawn_failed', error.message);
+    }
     this.child = child;
     let spawnError = null;
-    child.once?.('error', (error) => { spawnError = error; });
-    child.once?.('close', () => {
+    const onError = (error) => { spawnError = error; };
+    const onClose = () => {
       if (this.child !== child) return;
+      const wasStarted = this.started;
       this.child = null;
-      if (this.started) this.restartCount += 1;
+      if (wasStarted) this.restartCount += 1;
       this.started = false;
-    });
-    child.stderr?.on('data', (chunk) => {
-      this.stderr = `${this.stderr}${chunk.toString('utf8')}`.slice(-8_000);
-    });
+      this.port = 0;
+      this.detachProcessListeners(child);
+      this.resetEvidence();
+    };
+    const onStderr = (chunk) => this.recordStderr(chunk);
+    this.processListeners = { child, onError, onClose, onStderr };
+    child.once?.('error', onError);
+    child.once?.('close', onClose);
+    child.stderr?.on('data', onStderr);
     const deadline = Date.now() + this.startupTimeoutMs;
     while (Date.now() < deadline) {
       if (spawnError) {
-        throw llamaError('local_translation_spawn_failed', spawnError.message);
+        const message = spawnError.message;
+        await this.stop();
+        throw llamaError('local_translation_spawn_failed', message);
       }
       if (child.exitCode != null) {
         throw llamaError(
@@ -111,11 +276,26 @@ class LlamaTranslationServer {
           `http://127.0.0.1:${this.port}/health`,
           { signal: AbortSignal.timeout(2_000) },
         );
+        if (spawnError) {
+          const message = spawnError.message;
+          await this.stop();
+          throw llamaError('local_translation_spawn_failed', message);
+        }
         if (response.ok) {
           if (child.exitCode != null || this.child !== child) {
             throw llamaError(
               'local_translation_host_closed',
               'llama.cpp exited while reporting startup health',
+            );
+          }
+          const provenance = this.runtimeProvenance();
+          if (this.runtimeDescriptor.family === 'cuda' &&
+              (provenance.actualDevice !== this.selectedCudaDevice ||
+               !/NVIDIA/i.test(provenance.deviceName || ''))) {
+            await this.stop();
+            throw llamaError(
+              'local_translation_device_unverified',
+              `llama.cpp did not prove NVIDIA execution on ${this.selectedCudaDevice}`,
             );
           }
           this.started = true;
@@ -126,23 +306,25 @@ class LlamaTranslationServer {
           throw llamaError('local_translation_health_failed', `llama.cpp health returned ${response.status}`);
         }
       } catch (error) {
-        if (error.code === 'local_translation_health_failed') throw error;
+        if (error.code === 'local_translation_spawn_failed' ||
+            error.code === 'local_translation_health_failed' ||
+            error.code === 'local_translation_device_unverified' ||
+            error.code === 'local_translation_host_closed') throw error;
       }
       await new Promise((resolve) => setTimeout(resolve, 200));
     }
+    const stderr = this.stderr;
     await this.stop();
     throw llamaError(
       'local_translation_start_timeout',
-      `llama.cpp did not become ready: ${this.stderr.slice(-2_000)}`,
+      `llama.cpp did not become ready: ${stderr.slice(-2_000)}`,
     );
   }
 
   health() {
     return {
       id: 'hy-mt2-1.8b',
-      runtime: 'llama.cpp-b9940',
-      requestedDevice: 'CPU',
-      actualDevice: 'CPU',
+      ...this.runtimeProvenance(),
       ready: this.started,
       loadMs: this.loadMs,
     };
@@ -228,9 +410,7 @@ class LlamaTranslationServer {
       text: translatedText,
       authoritative: type === 'translate.final',
       model: 'hy-mt2-1.8b-q4-k-m',
-      runtime: 'llama.cpp-b9940',
-      requestedDevice: 'CPU',
-      actualDevice: 'CPU',
+      ...this.runtimeProvenance(),
       inferenceMs: performance.now() - startedAt,
       inputTokens: Number(body.usage?.prompt_tokens || 0),
       completionTokens: Number(body.usage?.completion_tokens || 0),
@@ -241,8 +421,50 @@ class LlamaTranslationServer {
     const child = this.child;
     this.child = null;
     this.started = false;
-    if (child?.exitCode == null) child.kill();
+    this.port = 0;
+    this.loadMs = 0;
+    this.detachProcessListeners(child);
+    this.resetEvidence();
+    if (!child || child.exitCode != null) return;
+
+    let closed = false;
+    let resolveClosed;
+    const closedPromise = new Promise((resolve) => { resolveClosed = resolve; });
+    const onClose = () => {
+      closed = true;
+      resolveClosed();
+    };
+    child.once?.('close', onClose);
+    try {
+      child.kill();
+    } catch {
+      // A failed normal kill still gets one bounded force attempt below.
+    }
+    if (!closed && child.exitCode == null) {
+      let timer;
+      await Promise.race([
+        closedPromise,
+        new Promise((resolve) => {
+          timer = setTimeout(resolve, this.shutdownTimeoutMs);
+          timer.unref?.();
+        }),
+      ]);
+      if (timer) clearTimeout(timer);
+    }
+    if (!closed && child.exitCode == null) {
+      try {
+        child.kill('SIGKILL');
+      } catch {
+        // State and listeners are already cleared; stop remains bounded.
+      }
+    }
+    child.removeListener?.('close', onClose);
   }
 }
 
-module.exports = { LlamaTranslationServer, allocateLoopbackPort };
+module.exports = {
+  CPU_RUNTIME,
+  CUDA_RUNTIME,
+  LlamaTranslationServer,
+  allocateLoopbackPort,
+};

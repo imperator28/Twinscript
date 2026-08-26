@@ -6,6 +6,16 @@ const {
   LocalInferenceSupervisor,
 } = require('../electron/captions/local-inference-supervisor');
 
+function supervisorOptionsFromEnvironment(env, pathImpl = path) {
+  return {
+    executablePath: pathImpl.resolve(env.TWINSCRIPT_LOCAL_HOST),
+    whisperModelPath: pathImpl.resolve(env.TWINSCRIPT_WHISPER_MODEL),
+    whisperDevice: 'NPU',
+    cachePath: pathImpl.resolve(env.TWINSCRIPT_LOCAL_CACHE || '.local-inference-cache'),
+    llamaCpuBinaryPath: pathImpl.resolve(env.TWINSCRIPT_LLAMA_SERVER),
+    hyMt2ModelPath: pathImpl.resolve(env.TWINSCRIPT_HYMT2_MODEL),
+  };
+}
 
 async function main() {
   const required = [
@@ -20,14 +30,7 @@ async function main() {
     console.log(`SKIP: missing ${missing.join(', ')}`);
     return;
   }
-  const supervisor = new LocalInferenceSupervisor({
-    executablePath: path.resolve(process.env.TWINSCRIPT_LOCAL_HOST),
-    whisperModelPath: path.resolve(process.env.TWINSCRIPT_WHISPER_MODEL),
-    whisperDevice: 'NPU',
-    cachePath: path.resolve(process.env.TWINSCRIPT_LOCAL_CACHE || '.local-inference-cache'),
-    llamaBinaryPath: path.resolve(process.env.TWINSCRIPT_LLAMA_SERVER),
-    hyMt2ModelPath: path.resolve(process.env.TWINSCRIPT_HYMT2_MODEL),
-  });
+  const supervisor = new LocalInferenceSupervisor(supervisorOptionsFromEnvironment(process.env));
   supervisor.on('diagnostic', (event) => console.error(JSON.stringify(event)));
   try {
     const ready = await supervisor.prepare(
@@ -112,7 +115,11 @@ async function main() {
   }
 }
 
-main().catch((error) => {
-  console.error(error);
-  process.exitCode = 1;
-});
+if (require.main === module) {
+  main().catch((error) => {
+    console.error(error);
+    process.exitCode = 1;
+  });
+}
+
+module.exports = { main, supervisorOptionsFromEnvironment };

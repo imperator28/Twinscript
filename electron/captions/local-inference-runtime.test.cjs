@@ -43,7 +43,12 @@ test('bootstrap derives paths and packaged readiness from the loaded catalog', (
     },
     resolvePaths: (options) => {
       calls.paths = options;
-      return { modelRoot: 'C:\\user\\local-models', whisperModelPath: 'whisper-path' };
+      return {
+        modelRoot: 'C:\\user\\local-models',
+        whisperModelPath: 'whisper-path',
+        llamaCpuBinaryPath: 'llama-cpu-path',
+        llamaCudaBinaryPath: 'llama-cuda-path',
+      };
     },
     LocalModelManager: Manager,
     LocalModelService: Service,
@@ -54,6 +59,8 @@ test('bootstrap derives paths and packaged readiness from the loaded catalog', (
   assert.equal(calls.manager.manifest, manifest);
   assert.equal(calls.manager.root, 'C:\\user\\local-models');
   assert.equal(calls.supervisor.whisperModelPath, 'whisper-path');
+  assert.equal(calls.supervisor.llamaCpuBinaryPath, 'llama-cpu-path');
+  assert.equal(calls.supervisor.llamaCudaBinaryPath, 'llama-cuda-path');
   assert.equal(calls.supervisor.modelReady('whisper-small'), true);
   assert.equal(calls.supervisor.modelReady('hy-mt2-1.8b'), false);
   assert.equal(runtime.supervisor instanceof Supervisor, true);

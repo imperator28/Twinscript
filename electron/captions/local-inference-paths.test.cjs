@@ -23,6 +23,10 @@ test('development paths use staged runtime and validated local model artifacts',
   });
   assert.equal(paths.executablePath,
     'C:\\repo\\artifacts\\local-inference-host\\twinscript-local-inference.exe');
+  assert.equal(paths.llamaCpuBinaryPath,
+    'C:\\repo\\artifacts\\local-inference-host\\llama\\cpu\\llama-server.exe');
+  assert.equal(paths.llamaCudaBinaryPath,
+    'C:\\repo\\artifacts\\local-inference-host\\llama\\cuda\\llama-server.exe');
   assert.equal(paths.whisperModelPath,
     'C:\\repo\\native\\local-inference-host\\models\\whisper-small\\whisper-v2');
   assert.equal(paths.hyMt2ModelPath,
@@ -38,7 +42,8 @@ test('packaged paths keep runtime in resources and downloaded weights in user da
     manifest: catalog(),
   });
   assert.match(paths.executablePath, /resources\\local-inference-host\\twinscript-local-inference\.exe$/);
-  assert.match(paths.llamaBinaryPath, /resources\\local-inference-host\\llama\\llama-server\.exe$/);
+  assert.match(paths.llamaCpuBinaryPath, /resources\\local-inference-host\\llama\\cpu\\llama-server\.exe$/);
+  assert.match(paths.llamaCudaBinaryPath, /resources\\local-inference-host\\llama\\cuda\\llama-server\.exe$/);
   assert.match(paths.whisperModelPath, /local-models\\whisper-small\\whisper-v2$/);
   assert.match(paths.hyMt2ModelPath, /local-models\\hy-mt2-1\.8b\\hymt2-v2\\weights\\model\.gguf$/);
 });
@@ -53,7 +58,8 @@ test('runtime paths remain defined while catalog-dependent model paths fail clos
   });
 
   assert.match(paths.executablePath, /local-inference-host\\twinscript-local-inference\.exe$/);
-  assert.match(paths.llamaBinaryPath, /local-inference-host\\llama\\llama-server\.exe$/);
+  assert.match(paths.llamaCpuBinaryPath, /local-inference-host\\llama\\cpu\\llama-server\.exe$/);
+  assert.match(paths.llamaCudaBinaryPath, /local-inference-host\\llama\\cuda\\llama-server\.exe$/);
   assert.equal(paths.whisperModelPath, null);
   assert.equal(paths.hyMt2ModelPath, null);
 });

@@ -90,7 +90,7 @@ test('an unexpected active-host close triggers the one supervised restart', asyn
 
 test('prepare starts Hy-MT2 only when selected and exposes the hybrid client', async () => {
   const calls = [];
-  const translationServer = {
+  const translationRuntime = {
     start: async () => calls.push('translation:start'),
     translate: async () => ({ text: 'local' }),
     health: () => ({ id: 'hy-mt2-1.8b', actualDevice: 'CPU' }),
@@ -98,7 +98,7 @@ test('prepare starts Hy-MT2 only when selected and exposes the hybrid client', a
   };
   const supervisor = new LocalInferenceSupervisor({
     spawn: () => { throw new Error('unused'); },
-    translationServer,
+    translationRuntime,
   });
   supervisor.baseClient = {
     request: async (type, payload) => {
@@ -119,19 +119,31 @@ test('prepare starts Hy-MT2 only when selected and exposes the hybrid client', a
   ]);
 });
 
-test('readiness reports runtime and each local model independently', () => {
-  const present = new Set(['host.exe', 'whisper', 'llama.exe']);
+test('supervisor creates the default translation runtime from the CPU binary path', () => {
+  const supervisor = new LocalInferenceSupervisor({
+    llamaCpuBinaryPath: 'llama-cpu.exe',
+    llamaCudaBinaryPath: 'llama-cuda.exe',
+    hyMt2ModelPath: 'hy.gguf',
+  });
+
+  assert.equal(supervisor.translationRuntime.binaryPath, 'llama-cpu.exe');
+  assert.equal(supervisor.translationRuntime.modelPath, 'hy.gguf');
+});
+
+test('development Hy-MT2 readiness requires the CPU runtime but not CUDA', () => {
+  const present = new Set(['host.exe', 'whisper', 'llama-cpu.exe', 'hy.gguf']);
   const supervisor = new LocalInferenceSupervisor({
     executablePath: 'host.exe',
     whisperModelPath: 'whisper',
-    llamaBinaryPath: 'llama.exe',
+    llamaCpuBinaryPath: 'llama-cpu.exe',
+    llamaCudaBinaryPath: 'llama-cuda.exe',
     hyMt2ModelPath: 'hy.gguf',
     exists: (candidate) => present.has(candidate),
     artifactReady: (kind, candidate) => kind === 'runtime'
       ? present.has(candidate)
       : kind === 'whisper-small'
         ? present.has(candidate)
-        : present.has('llama.exe') && present.has(candidate),
+        : present.has(candidate),
   });
 
   assert.deepEqual(supervisor.readiness(), {
@@ -139,30 +151,92 @@ test('readiness reports runtime and each local model independently', () => {
     requestedDevice: 'NPU',
     models: {
       'whisper-small': { ready: true, actualDevice: null },
-      'hy-mt2-1.8b': { ready: false, actualDevice: null },
+      'hy-mt2-1.8b': { ready: true, actualDevice: null },
     },
   });
 });
 
+test('installed Hy-MT2 has no CUDA device assignment before runtime health evidence', () => {
+  const present = new Set(['host.exe', 'llama-cpu.exe', 'llama-cuda.exe', 'hy.gguf']);
+  const supervisor = new LocalInferenceSupervisor({
+    executablePath: 'host.exe',
+    llamaCpuBinaryPath: 'llama-cpu.exe',
+    llamaCudaBinaryPath: 'llama-cuda.exe',
+    hyMt2ModelPath: 'hy.gguf',
+    exists: (candidate) => present.has(candidate),
+    artifactReady: (kind, candidate) => kind === 'runtime' || kind === 'hy-mt2-1.8b'
+      ? present.has(candidate)
+      : false,
+  });
+
+  const readiness = supervisor.readiness();
+
+  assert.equal(readiness.models['hy-mt2-1.8b'].ready, true);
+  assert.equal(readiness.models['hy-mt2-1.8b'].actualDevice, null);
+});
+
+test('development Hy-MT2 readiness fails when only CUDA is installed', () => {
+  const present = new Set(['host.exe', 'llama-cuda.exe', 'hy.gguf']);
+  const supervisor = new LocalInferenceSupervisor({
+    executablePath: 'host.exe',
+    llamaCpuBinaryPath: 'llama-cpu.exe',
+    llamaCudaBinaryPath: 'llama-cuda.exe',
+    hyMt2ModelPath: 'hy.gguf',
+    exists: (candidate) => present.has(candidate),
+    artifactReady: (kind, candidate) => kind === 'runtime' || kind === 'hy-mt2-1.8b'
+      ? present.has(candidate)
+      : false,
+  });
+
+  const readiness = supervisor.readiness();
+
+  assert.equal(readiness.models['hy-mt2-1.8b'].ready, false);
+  assert.equal(readiness.models['hy-mt2-1.8b'].actualDevice, null);
+});
+
 test('packaged model readiness delegates to the lifecycle service', () => {
   const calls = [];
+  const present = new Set(['host.exe', 'llama-cpu.exe']);
   const supervisor = new LocalInferenceSupervisor({
     isPackaged: true,
     executablePath: 'host.exe',
     whisperModelPath: 'whisper',
+    llamaCpuBinaryPath: 'llama-cpu.exe',
+    llamaCudaBinaryPath: 'llama-cuda.exe',
     hyMt2ModelPath: 'hy.gguf',
     modelReady: (modelId) => {
       calls.push(modelId);
       return modelId === 'whisper-small';
     },
-    artifactReady: () => true,
+    exists: (candidate) => present.has(candidate),
+    artifactReady: (kind, candidate) => kind === 'runtime' && present.has(candidate),
   });
 
   const readiness = supervisor.readiness();
 
   assert.equal(readiness.models['whisper-small'].ready, true);
   assert.equal(readiness.models['hy-mt2-1.8b'].ready, false);
+  assert.equal(readiness.models['hy-mt2-1.8b'].actualDevice, null);
   assert.deepEqual(calls, ['whisper-small', 'hy-mt2-1.8b']);
+});
+
+test('packaged Hy-MT2 readiness requires the CPU runtime after lifecycle verification', () => {
+  const present = new Set(['host.exe', 'llama-cuda.exe']);
+  const supervisor = new LocalInferenceSupervisor({
+    isPackaged: true,
+    executablePath: 'host.exe',
+    llamaCpuBinaryPath: 'llama-cpu.exe',
+    llamaCudaBinaryPath: 'llama-cuda.exe',
+    hyMt2ModelPath: 'hy.gguf',
+    exists: (candidate) => present.has(candidate),
+    artifactReady: (kind, candidate) => kind === 'runtime' && present.has(candidate),
+    modelReady: (modelId) => modelId === 'hy-mt2-1.8b',
+  });
+
+  const readiness = supervisor.readiness();
+
+  assert.equal(readiness.models['hy-mt2-1.8b'].ready, false);
+  assert.equal(readiness.models['hy-mt2-1.8b'].actualDevice, null);
 });
 
 test('packaged model readiness fails closed when the lifecycle service is unavailable', () => {

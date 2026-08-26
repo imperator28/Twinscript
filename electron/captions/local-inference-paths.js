@@ -24,7 +24,8 @@ function resolveLocalInferencePaths({
   return {
     runtimeRoot,
     executablePath: path.win32.join(runtimeRoot, 'twinscript-local-inference.exe'),
-    llamaBinaryPath: path.win32.join(runtimeRoot, 'llama', 'llama-server.exe'),
+    llamaCpuBinaryPath: path.win32.join(runtimeRoot, 'llama', 'cpu', 'llama-server.exe'),
+    llamaCudaBinaryPath: path.win32.join(runtimeRoot, 'llama', 'cuda', 'llama-server.exe'),
     whisperModelPath: modelLaunchPath(modelRoot, manifest, 'whisper-small'),
     hyMt2ModelPath: modelLaunchPath(modelRoot, manifest, 'hy-mt2-1.8b'),
     cachePath: path.win32.join(userDataPath, 'local-inference-cache'),

@@ -95,9 +95,10 @@ class LocalInferenceSupervisor extends EventEmitter {
     whisperModelPath = null,
     whisperDevice = 'NPU',
     cachePath = null,
-    llamaBinaryPath = null,
+    llamaCpuBinaryPath = null,
+    llamaCudaBinaryPath = null,
     hyMt2ModelPath = null,
-    translationServer = null,
+    translationRuntime = null,
     exists = fs.existsSync,
     artifactReady = null,
     modelReady = null,
@@ -115,17 +116,18 @@ class LocalInferenceSupervisor extends EventEmitter {
     this.whisperModelPath = whisperModelPath;
     this.whisperDevice = whisperDevice;
     this.cachePath = cachePath;
-    this.llamaBinaryPath = llamaBinaryPath;
+    this.llamaCpuBinaryPath = llamaCpuBinaryPath;
+    this.llamaCudaBinaryPath = llamaCudaBinaryPath;
     this.hyMt2ModelPath = hyMt2ModelPath;
     this.exists = exists;
     this.artifactReady = artifactReady;
     this.modelReady = modelReady;
     this.runtimeIntegrity = null;
     this.lastModels = new Map();
-    this.translationServer = translationServer || (
-      llamaBinaryPath && hyMt2ModelPath
+    this.translationRuntime = translationRuntime || (
+      llamaCpuBinaryPath && hyMt2ModelPath
         ? new LlamaTranslationServer({
-            binaryPath: llamaBinaryPath,
+            binaryPath: llamaCpuBinaryPath,
             modelPath: hyMt2ModelPath,
           })
         : null
@@ -235,18 +237,15 @@ class LocalInferenceSupervisor extends EventEmitter {
             : hasDevelopmentModel(this.whisperModelPath, REQUIRED_WHISPER_FILES)
         ));
     const hyMt2File = this.hyMt2ModelPath ? path.basename(this.hyMt2ModelPath) : '';
-    const hyMt2Ready = this.isPackaged
-      ? Boolean(this.modelReady?.('hy-mt2-1.8b'))
-      : this.artifactReady
-      ? this.artifactReady('hy-mt2-1.8b', this.hyMt2ModelPath)
-      : Boolean(
-          this.llamaBinaryPath && this.exists(this.llamaBinaryPath) &&
-          this.hyMt2ModelPath && (
-            this.isPackaged
-              ? hasVerifiedMarker(this.hyMt2ModelPath, [hyMt2File])
-              : hasDevelopmentModel(this.hyMt2ModelPath, [hyMt2File])
-          )
-        );
+    const hyMt2Ready = Boolean(
+      this.llamaCpuBinaryPath && this.exists(this.llamaCpuBinaryPath) &&
+      (this.isPackaged
+        ? this.modelReady?.('hy-mt2-1.8b')
+        : this.artifactReady
+          ? this.artifactReady('hy-mt2-1.8b', this.hyMt2ModelPath)
+          : this.hyMt2ModelPath && hasDevelopmentModel(this.hyMt2ModelPath, [hyMt2File])
+      ),
+    );
     return {
       runtimeReady: Boolean(this.runtimeIntegrity),
       requestedDevice: this.whisperDevice,
@@ -267,7 +266,7 @@ class LocalInferenceSupervisor extends EventEmitter {
     if (!this.baseClient) return null;
     return new HybridLocalInferenceClient({
       base: this.baseClient,
-      translation: this.translationServer,
+      translation: this.translationRuntime,
     });
   }
 
@@ -321,7 +320,7 @@ class LocalInferenceSupervisor extends EventEmitter {
     }
     if (
       models.includes('hy-mt2-1.8b') &&
-      (this.llamaBinaryPath || this.hyMt2ModelPath) &&
+      (this.llamaCpuBinaryPath || this.hyMt2ModelPath) &&
       !readiness.models['hy-mt2-1.8b'].ready
     ) {
       throw supervisorError('local_model_missing', 'The verified Hy-MT2 model is not installed');
@@ -329,13 +328,13 @@ class LocalInferenceSupervisor extends EventEmitter {
     await this.start(models);
     const wantsTranslation = models.includes('hy-mt2-1.8b');
     if (wantsTranslation) {
-      if (!this.translationServer) {
+      if (!this.translationRuntime) {
         throw supervisorError(
           'local_model_missing',
           'Local Hy-MT2 is selected but its verified runtime is unavailable',
         );
       }
-      await this.translationServer.start();
+      await this.translationRuntime.start();
     }
     const nativeModels = models.filter((model) => model === 'whisper-small');
     const response = await this.baseClient.request(
@@ -346,7 +345,7 @@ class LocalInferenceSupervisor extends EventEmitter {
     if (wantsTranslation) {
       response.models = [
         ...(Array.isArray(response.models) ? response.models : []),
-        this.translationServer.health(),
+        this.translationRuntime.health(),
       ];
     }
     for (const model of response.models || []) {
@@ -402,7 +401,7 @@ class LocalInferenceSupervisor extends EventEmitter {
       if (child.exitCode == null) child.kill();
     }
     if (!preserveClient) activeClient?.dispose({ disposeBase: false });
-    if (stopTranslation) await this.translationServer?.stop();
+    if (stopTranslation) await this.translationRuntime?.stop();
   }
 
   async dispose() {

@@ -1,4 +1,5 @@
 const path = require('node:path');
+const childProcess = require('node:child_process');
 
 const DEFAULT_TIMEOUT_MS = 5_000;
 const MAX_OUTPUT_BYTES = 16 * 1024;
@@ -11,7 +12,7 @@ function parseCudaDevices(output) {
 }
 
 class LlamaCudaProbe {
-  constructor({ binaryPath, spawn, timeoutMs = DEFAULT_TIMEOUT_MS }) {
+  constructor({ binaryPath, spawn = childProcess.spawn, timeoutMs = DEFAULT_TIMEOUT_MS }) {
     this.binaryPath = binaryPath;
     this.spawn = spawn;
     this.timeoutMs = timeoutMs;
@@ -68,7 +69,7 @@ class LlamaCudaProbe {
       if (!fallbackReason) {
         const device = selectLowestCudaDevice(parseCudaDevices(outputParts.join('')));
         result = device
-          ? { usable: true, requestedDevice: 'CUDA_AUTO', actualDevice: device.actualDevice, deviceName: device.deviceName, fallbackReason: null }
+          ? usable(device)
           : unavailable('cuda_device_unavailable');
       }
 
@@ -153,13 +154,23 @@ function selectLowestCudaDevice(devices) {
 }
 
 function unavailable(fallbackReason) {
-  return {
+  return Object.freeze({
     usable: false,
     requestedDevice: 'CUDA_AUTO',
     actualDevice: null,
     deviceName: null,
     fallbackReason,
-  };
+  });
+}
+
+function usable(device) {
+  return Object.freeze({
+    usable: true,
+    requestedDevice: 'CUDA_AUTO',
+    actualDevice: device.actualDevice,
+    deviceName: device.deviceName,
+    fallbackReason: null,
+  });
 }
 
 module.exports = { LlamaCudaProbe, parseCudaDevices };

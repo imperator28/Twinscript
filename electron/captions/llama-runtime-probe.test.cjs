@@ -78,6 +78,27 @@ test('probe invokes packaged CUDA binary and resolves its NVIDIA device', async 
   assertNoProbeListeners(child);
 });
 
+test('probe uses the Node child-process spawn default when none is injected', async () => {
+  const probe = new LlamaCudaProbe({ binaryPath: process.execPath, timeoutMs: 1_000 });
+  assert.deepEqual(await probe.probe(), unavailable('cuda_probe_exit_failed'));
+});
+
+test('probe freezes successful cached evidence against later mutation', async () => {
+  const child = createChild();
+  const fake = createSpawn(child);
+  const probe = new LlamaCudaProbe({ binaryPath: 'C:\\runtime\\cuda\\llama-server.exe', spawn: fake.spawn });
+  const firstPromise = probe.probe();
+  closeSuccess(child, 'CUDA0: NVIDIA Immutable');
+  const first = await firstPromise;
+  assert.equal(Object.isFrozen(first), true);
+  first.deviceName = 'mutated';
+
+  const later = await probe.probe();
+  assert.equal(later.deviceName, 'NVIDIA Immutable');
+  assert.equal(Object.isFrozen(later), true);
+  assert.equal(fake.calls.length, 1);
+});
+
 test('probe returns cuda_device_unavailable for CPU-only or empty device lists', async () => {
   for (const output of ['CPU: Intel Core', '']) {
     const child = createChild();
@@ -104,7 +125,9 @@ test('probe returns cuda_probe_spawn_failed after a spawn error', async () => {
   const probe = new LlamaCudaProbe({ binaryPath: 'C:\\runtime\\cuda\\llama-server.exe', spawn: fake.spawn });
   const resultPromise = probe.probe();
   child.emit('error', new Error('ENOENT'));
-  assert.deepEqual(await resultPromise, unavailable('cuda_probe_spawn_failed'));
+  const result = await resultPromise;
+  assert.deepEqual(result, unavailable('cuda_probe_spawn_failed'));
+  assert.equal(Object.isFrozen(result), true);
 });
 
 test('probe returns cuda_probe_exit_failed on nonzero or signaled exit', async () => {
@@ -118,7 +141,7 @@ test('probe returns cuda_probe_exit_failed on nonzero or signaled exit', async (
   }
 });
 
-test('probe kills and rejects oversized combined output even with a valid prefix', async () => {
+test('probe kills and returns an oversized-output failure even with a valid prefix', async () => {
   const child = createChild();
   const fake = createSpawn(child);
   const probe = new LlamaCudaProbe({ binaryPath: 'C:\\runtime\\cuda\\llama-server.exe', spawn: fake.spawn });

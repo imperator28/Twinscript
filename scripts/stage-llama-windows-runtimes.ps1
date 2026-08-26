@@ -65,6 +65,38 @@ function Resolve-FamilyDestination {
   return $candidate
 }
 
+function Test-PathContains {
+  param(
+    [Parameter(Mandatory = $true)][string]$ParentPath,
+    [Parameter(Mandatory = $true)][string]$ChildPath
+  )
+
+  $parent = Get-FullPath $ParentPath
+  $child = Get-FullPath $ChildPath
+  if ($parent -eq $child) {
+    return $true
+  }
+  $separator = [System.IO.Path]::DirectorySeparatorChar
+  $prefix = if ($parent.EndsWith($separator.ToString()) -or $parent.EndsWith([System.IO.Path]::AltDirectorySeparatorChar.ToString())) {
+    $parent
+  } else {
+    $parent + $separator
+  }
+  return $child.StartsWith($prefix, [System.StringComparison]::OrdinalIgnoreCase)
+}
+
+function Assert-CacheDoesNotOverlapDestination {
+  param(
+    [Parameter(Mandatory = $true)][string]$CacheRoot,
+    [Parameter(Mandatory = $true)][string]$Destination,
+    [Parameter(Mandatory = $true)][string]$Family
+  )
+
+  if ((Test-PathContains -ParentPath $CacheRoot -ChildPath $Destination) -or (Test-PathContains -ParentPath $Destination -ChildPath $CacheRoot)) {
+    throw "Cache directory overlaps managed runtime destination for ${Family}: $CacheRoot <-> $Destination"
+  }
+}
+
 function Get-ArchiveFileName {
   param([Parameter(Mandatory = $true)][string]$Url)
 
@@ -89,15 +121,7 @@ function Assert-ArchiveHash {
     [Parameter(Mandatory = $true)][string]$ExpectedHash
   )
 
-  $algorithm = [System.Security.Cryptography.SHA256]::Create()
-  $stream = [System.IO.File]::OpenRead($Path)
-  try {
-    $bytes = $algorithm.ComputeHash($stream)
-    $actual = -join ($bytes | ForEach-Object { $_.ToString('x2') })
-  } finally {
-    $stream.Dispose()
-    $algorithm.Dispose()
-  }
+  $actual = Get-Sha256 -Path $Path
   if ($actual -ne $ExpectedHash.ToLowerInvariant()) {
     throw "SHA-256 mismatch for archive: $Path"
   }
@@ -283,13 +307,13 @@ if (-not (Test-Path -LiteralPath $cacheRoot)) {
 }
 Assert-OrdinaryDirectory -Path $cacheRoot -Label 'Cache directory'
 
-$cpuDestination = Join-Path $outputRoot $lock.cpu.directory
-$cudaDestination = Join-Path $outputRoot $lock.cuda.directory
 $cpuDestination = Resolve-FamilyDestination -OutputRoot $outputRoot -DirectoryName $lock.cpu.directory -Family 'cpu'
 $cudaDestination = Resolve-FamilyDestination -OutputRoot $outputRoot -DirectoryName $lock.cuda.directory -Family 'cuda'
 if ($cpuDestination -eq $cudaDestination) {
   throw 'CPU and CUDA runtime destinations must be distinct'
 }
+Assert-CacheDoesNotOverlapDestination -CacheRoot $cacheRoot -Destination $cpuDestination -Family 'cpu'
+Assert-CacheDoesNotOverlapDestination -CacheRoot $cacheRoot -Destination $cudaDestination -Family 'cuda'
 
 $archivePaths = @{}
 foreach ($familyName in @('cpu', 'cuda')) {
@@ -336,6 +360,12 @@ try {
     $installed += [pscustomobject]@{
       destination = $runtime.destination
       backup = $backup
+    }
+    # This test-only process boundary permits deterministic rollback coverage.
+    # It requires both values, so ordinary production environments cannot
+    # activate it by setting a family name alone.
+    if ($env:LLAMA_RUNTIME_STAGE_TEST_MODE -eq 'llama-runtime-fixture-test-only' -and $env:LLAMA_RUNTIME_STAGE_TEST_FAIL_FAMILY -eq $runtime.family) {
+      throw "Simulated installation failure for $($runtime.family)"
     }
   }
 } catch {

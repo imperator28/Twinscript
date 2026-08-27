@@ -247,6 +247,33 @@ test('late CUDA response is rejected after another request retires its generatio
   assert.equal(cpu.calls.translate.length, 1);
 });
 
+test('an old-session CUDA rejection cannot retire or retry on a healthy new session', async () => {
+  const oldRequest = deferred();
+  const cudaProbe = probe(usable, usable);
+  const cuda = server('cuda', {
+    translate: async (_type, _payload, _options, call) => {
+      if (call === 1) return oldRequest.promise;
+      return { text: 'new session', authoritative: true, ...cuda.health() };
+    },
+  });
+  const cpu = server('cpu');
+  const controller = await startedController({ probeImpl: cudaProbe, cudaServer: cuda, cpuServer: cpu });
+  const staleTranslation = controller.translate('translate.final', {
+    utteranceId: 'old-session', sourceRevision: 1,
+  });
+
+  await controller.beginSession('session-2');
+  await controller.start();
+  oldRequest.reject(runtimeError('local_translation_host_closed'));
+
+  await assert.rejects(staleTranslation, { name: 'AbortError', code: 'ABORT_ERR' });
+  assert.equal(controller.health().actualDevice, 'CUDA0');
+  assert.equal(controller.health().fallbackReason, null);
+  assert.equal(cudaProbe.calls.invalidate, 0);
+  assert.equal(cpu.calls.start, 0);
+  assert.equal(cpu.calls.translate.length, 0);
+});
+
 test('concurrent failed finals share one fallback and each retry once', async () => {
   const bothFailed = deferred();
   const cuda = server('cuda', {
@@ -269,6 +296,84 @@ test('concurrent failed finals share one fallback and each retry once', async ()
   assert.deepEqual(results.map(result => result.text), ['cpu translation', 'cpu translation']);
 });
 
+test('start and translation arriving during fallback wait for retired CUDA to stop', async () => {
+  const stopped = deferred();
+  const cuda = server('cuda', {
+    translate: async () => { throw runtimeError('local_translation_host_closed'); },
+    stop: async () => stopped.promise,
+  });
+  const cpu = server('cpu');
+  const controller = await startedController({ cudaServer: cuda, cpuServer: cpu });
+
+  const failedFinal = controller.translate('translate.final', { utteranceId: 'failure' });
+  await new Promise(resolve => setImmediate(resolve));
+  const joiningStart = controller.start();
+  const joiningTranslation = controller.translate('translate.final', { utteranceId: 'joining' });
+  await new Promise(resolve => setImmediate(resolve));
+  const cpuStartsBeforeCudaStopped = cpu.calls.start;
+  stopped.resolve();
+  const [retriedResult, joinedHealth, joinedResult] = await Promise.all([
+    failedFinal, joiningStart, joiningTranslation,
+  ]);
+
+  assert.equal(cpuStartsBeforeCudaStopped, 0);
+  assert.equal(cuda.calls.stop, 1);
+  assert.equal(cpu.calls.start, 1);
+  assert.equal(cpu.calls.translate.length, 2);
+  assert.equal(joinedHealth.actualDevice, 'CPU');
+  assert.equal(retriedResult.fallbackReason, 'local_translation_host_closed');
+  assert.equal(joinedResult.fallbackReason, 'local_translation_host_closed');
+});
+
+test('caller AbortError with a transport-like code never triggers CUDA fallback', async () => {
+  const cancellation = runtimeError('ECONNRESET', 'cancelled by caller');
+  cancellation.name = 'AbortError';
+  const cudaProbe = probe(usable);
+  const cuda = server('cuda', { translate: async () => { throw cancellation; } });
+  const cpu = server('cpu');
+  const controller = await startedController({ probeImpl: cudaProbe, cudaServer: cuda, cpuServer: cpu });
+
+  await assert.rejects(
+    controller.translate('translate.final', { utteranceId: 'cancelled' }),
+    error => error === cancellation,
+  );
+  assert.equal(cudaProbe.calls.invalidate, 0);
+  assert.equal(cuda.calls.stop, 0);
+  assert.equal(cpu.calls.start, 0);
+});
+
+test('an already-aborted caller signal suppresses fallback for a transport failure', async () => {
+  const failure = runtimeError('ECONNRESET');
+  const caller = new AbortController();
+  caller.abort();
+  const cudaProbe = probe(usable);
+  const cuda = server('cuda', { translate: async () => { throw failure; } });
+  const cpu = server('cpu');
+  const controller = await startedController({ probeImpl: cudaProbe, cudaServer: cuda, cpuServer: cpu });
+
+  await assert.rejects(
+    controller.translate('translate.final', { utteranceId: 'already-aborted' }, { signal: caller.signal }),
+    error => error === failure,
+  );
+  assert.equal(cudaProbe.calls.invalidate, 0);
+  assert.equal(cpu.calls.start, 0);
+});
+
+test('a bounded nested transport cause retires CUDA and retries a final on CPU', async () => {
+  const failure = new TypeError('fetch failed', {
+    cause: runtimeError('ECONNRESET', 'socket closed'),
+  });
+  const cuda = server('cuda', { translate: async () => { throw failure; } });
+  const cpu = server('cpu');
+  const controller = await startedController({ cudaServer: cuda, cpuServer: cpu });
+
+  const result = await controller.translate('translate.final', { utteranceId: 'nested-cause' });
+
+  assert.equal(cpu.calls.start, 1);
+  assert.equal(cpu.calls.translate.length, 1);
+  assert.equal(result.fallbackReason, 'local_translation_host_closed');
+});
+
 test('CPU failure after CUDA failure preserves the local error contract and adds fallback metadata', async () => {
   const cpuError = runtimeError('local_translation_failed', 'llama.cpp returned HTTP 500');
   const cuda = server('cuda', {
@@ -286,6 +391,25 @@ test('CPU failure after CUDA failure preserves the local error contract and adds
       return true;
     },
   );
+});
+
+test('a CPU retry failure after its session is replaced rejects as stale', async () => {
+  const cpuRetry = deferred();
+  const cuda = server('cuda', {
+    translate: async () => { throw runtimeError('local_translation_host_closed'); },
+  });
+  const cpu = server('cpu', { translate: async () => cpuRetry.promise });
+  const controller = await startedController({ cudaServer: cuda, cpuServer: cpu });
+  const staleRetry = controller.translate('translate.final', { utteranceId: 'stale-retry' });
+  while (cpu.calls.translate.length === 0) {
+    await new Promise(resolve => setImmediate(resolve));
+  }
+
+  await controller.beginSession('session-2');
+  await controller.start();
+  cpuRetry.reject(runtimeError('local_translation_failed'));
+
+  await assert.rejects(staleRetry, { name: 'AbortError', code: 'ABORT_ERR' });
 });
 
 test('CUDA retirement is stable within a session but a new session may probe CUDA again', async () => {
@@ -355,6 +479,29 @@ test('CPU startup failure keeps its error code and attaches the attempted CUDA r
   });
 });
 
+for (const [label, optionalDependencies] of [
+  ['probe', { probe: null, cudaServer: server('cuda') }],
+  ['CUDA server', { probe: probe(usable), cudaServer: null }],
+]) {
+  test(`enabled acceleration with no ${label} starts CPU as CUDA unavailable`, async () => {
+    const cpu = server('cpu');
+    const controller = new HyMt2RuntimeController({
+      enabled: true,
+      probe: optionalDependencies.probe,
+      cudaServer: optionalDependencies.cudaServer,
+      cpuServer: cpu,
+    });
+    await controller.beginSession(`missing-${label}`);
+
+    const health = await controller.start();
+
+    assert.equal(cpu.calls.start, 1);
+    assert.equal(health.requestedDevice, 'CUDA_AUTO');
+    assert.equal(health.actualDevice, 'CPU');
+    assert.equal(health.fallbackReason, 'cuda_device_unavailable');
+  });
+}
+
 test('beginSession during an old probe prevents the stale session from starting a server', async () => {
   const oldProbe = deferred();
   const cudaProbe = probe(() => oldProbe.promise, usable);
@@ -409,4 +556,27 @@ test('stop during CUDA startup cancels stale selection and a subsequent start is
   await controller.start();
   assert.equal(cuda.calls.start, 2);
   assert.equal(controller.health().actualDevice, 'CUDA0');
+});
+
+test('stop during fallback waits for retired CUDA and prevents CPU startup', async () => {
+  const stopped = deferred();
+  const cuda = server('cuda', {
+    translate: async () => { throw runtimeError('local_translation_host_closed'); },
+    stop: async () => stopped.promise,
+  });
+  const cpu = server('cpu');
+  const controller = await startedController({ cudaServer: cuda, cpuServer: cpu });
+  const failedFinal = controller.translate('translate.final', { utteranceId: 'stop-fallback' });
+  await new Promise(resolve => setImmediate(resolve));
+
+  let stopSettled = false;
+  const stopping = controller.stop().then(() => { stopSettled = true; });
+  await new Promise(resolve => setImmediate(resolve));
+  const settledBeforeCudaStop = stopSettled;
+  stopped.resolve();
+  await stopping;
+
+  await assert.rejects(failedFinal, { name: 'AbortError', code: 'ABORT_ERR' });
+  assert.equal(settledBeforeCudaStop, false);
+  assert.equal(cpu.calls.start, 0);
 });

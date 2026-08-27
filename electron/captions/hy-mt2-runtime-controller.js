@@ -39,7 +39,15 @@ function cudaFailureReason(error, { startup = false } = {}) {
   const code = typeof error?.code === 'string' ? error.code : '';
   if (DEVICE_FAILURE_CODES.has(code)) return code;
   if (CONNECTION_FAILURE_CODES.has(code)) return 'local_translation_host_closed';
+  const causeCode = typeof error?.cause?.code === 'string' ? error.cause.code : '';
+  if (CONNECTION_FAILURE_CODES.has(causeCode)) return 'local_translation_host_closed';
   return startup ? 'cuda_runtime_start_failed' : null;
+}
+
+function callerCancelled(error, options) {
+  return error?.name === 'AbortError' ||
+    error?.code === 'ABORT_ERR' ||
+    options?.signal?.aborted === true;
 }
 
 function attachFallbackReason(error, fallbackReason) {
@@ -99,6 +107,11 @@ class HyMt2RuntimeController extends EventEmitter {
   async startAfterStop(requestedLifecycle) {
     if (this.stopPromise) await this.stopPromise;
     this.assertLifecycle(requestedLifecycle);
+    if (this.fallbackPromise) {
+      await this.fallbackPromise;
+      this.assertLifecycle(requestedLifecycle);
+      if (this.activeServer) return this.health();
+    }
     if (this.activeServer) return this.health();
     if (this.startPromise) return this.startPromise;
 
@@ -113,6 +126,11 @@ class HyMt2RuntimeController extends EventEmitter {
 
   async selectRuntime(lifecycle) {
     if (!this.enabled || this.cudaRetired) {
+      return this.startCpu(lifecycle);
+    }
+    if (!this.probe || !this.cudaServer) {
+      this.cudaRetired = true;
+      this.fallbackReason = 'cuda_device_unavailable';
       return this.startCpu(lifecycle);
     }
 
@@ -177,7 +195,7 @@ class HyMt2RuntimeController extends EventEmitter {
     if (!this.cudaRetired) this.generation += 1;
     this.cudaRetired = true;
     this.fallbackReason = reason || 'cuda_runtime_failed';
-    this.probe.invalidate();
+    this.probe?.invalidate?.();
   }
 
   health() {
@@ -213,31 +231,52 @@ class HyMt2RuntimeController extends EventEmitter {
   async translate(type, payload, options = {}) {
     if (!this.activeServer) await this.start();
     const requestGeneration = this.generation;
+    const requestLifecycle = this.lifecycleVersion;
+    const requestSessionId = this.sessionId;
     const requestFamily = this.activeFamily;
     const requestServer = this.activeServer;
     let result;
     try {
       result = await requestServer.translate(type, payload, options);
     } catch (error) {
+      if (requestLifecycle !== this.lifecycleVersion || requestSessionId !== this.sessionId) {
+        throw abortError();
+      }
+      if (callerCancelled(error, options)) throw error;
       const reason = requestFamily === 'cuda' ? cudaFailureReason(error) : null;
       if (!reason) throw error;
-      await this.fallbackToCpu(reason, requestGeneration);
+      const joiningSameFallback = this.cudaRetired && Boolean(this.fallbackPromise);
+      if (requestGeneration !== this.generation && !joiningSameFallback) throw abortError();
+      await this.fallbackToCpu(
+        reason,
+        requestGeneration,
+        requestLifecycle,
+        requestSessionId,
+      );
       if (type !== 'translate.final') throw abortError();
 
       const retryGeneration = this.generation;
       try {
         result = await this.cpuServer.translate(type, payload, options);
       } catch (cpuError) {
+        if (retryGeneration !== this.generation ||
+            requestLifecycle !== this.lifecycleVersion ||
+            requestSessionId !== this.sessionId) throw abortError();
         throw attachFallbackReason(cpuError, this.fallbackReason);
       }
       if (retryGeneration !== this.generation) throw abortError();
       return this.mergeProvenance(result);
     }
-    if (requestGeneration !== this.generation) throw abortError();
+    if (requestGeneration !== this.generation ||
+        requestLifecycle !== this.lifecycleVersion ||
+        requestSessionId !== this.sessionId) throw abortError();
     return this.mergeProvenance(result);
   }
 
-  fallbackToCpu(reason, requestGeneration) {
+  fallbackToCpu(reason, requestGeneration, requestLifecycle, requestSessionId) {
+    if (requestLifecycle !== this.lifecycleVersion || requestSessionId !== this.sessionId) {
+      throw abortError();
+    }
     if (this.fallbackPromise) return this.fallbackPromise;
     if (this.activeFamily === 'cpu') return Promise.resolve(this.health());
     if (requestGeneration !== this.generation && this.cudaRetired) {
@@ -266,6 +305,7 @@ class HyMt2RuntimeController extends EventEmitter {
     if (this.stopPromise) return this.stopPromise;
     this.lifecycleVersion += 1;
     this.generation += 1;
+    const pendingFallback = this.fallbackPromise;
     const servers = [...new Set([
       this.activeServer,
       this.startingServer,
@@ -278,6 +318,7 @@ class HyMt2RuntimeController extends EventEmitter {
     let stopPromise;
     stopPromise = (async () => {
       await Promise.allSettled(servers.map(server => server.stop()));
+      if (pendingFallback) await Promise.allSettled([pendingFallback]);
     })().finally(() => {
       if (this.stopPromise === stopPromise) this.stopPromise = null;
     });

@@ -296,6 +296,53 @@ test('concurrent failed finals share one fallback and each retry once', async ()
   assert.deepEqual(results.map(result => result.text), ['cpu translation', 'cpu translation']);
 });
 
+test('a delayed failure from the just-retired CUDA generation reschedules its final on active CPU', async () => {
+  const delayedFailure = deferred();
+  const cuda = server('cuda', {
+    translate: async (_type, _payload, _options, call) => {
+      if (call === 1) throw runtimeError('local_translation_host_closed');
+      return delayedFailure.promise;
+    },
+  });
+  const cpu = server('cpu');
+  const controller = await startedController({ cudaServer: cuda, cpuServer: cpu });
+
+  const first = controller.translate('translate.final', { utteranceId: 'first-final' });
+  const delayed = controller.translate('translate.final', { utteranceId: 'delayed-final' });
+  const firstResult = await first;
+  assert.equal(cpu.calls.translate.length, 1);
+  delayedFailure.reject(runtimeError('local_translation_host_closed'));
+  const delayedResult = await delayed;
+
+  assert.equal(cuda.calls.stop, 1);
+  assert.equal(cpu.calls.start, 1);
+  assert.equal(cpu.calls.translate.length, 2);
+  assert.equal(firstResult.authoritative, true);
+  assert.equal(delayedResult.authoritative, true);
+  assert.equal(delayedResult.requestedDevice, 'CUDA_AUTO');
+  assert.equal(delayedResult.actualDevice, 'CPU');
+  assert.equal(delayedResult.fallbackReason, 'local_translation_host_closed');
+});
+
+test('a delayed preview failure from the retired CUDA generation stays cancelled', async () => {
+  const delayedFailure = deferred();
+  const cuda = server('cuda', {
+    translate: async (type) => {
+      if (type === 'translate.final') throw runtimeError('local_translation_host_closed');
+      return delayedFailure.promise;
+    },
+  });
+  const cpu = server('cpu');
+  const controller = await startedController({ cudaServer: cuda, cpuServer: cpu });
+
+  const preview = controller.translate('translate.preview', { utteranceId: 'delayed-preview' });
+  await controller.translate('translate.final', { utteranceId: 'fallback-final' });
+  delayedFailure.reject(runtimeError('local_translation_host_closed'));
+
+  await assert.rejects(preview, { name: 'AbortError', code: 'ABORT_ERR' });
+  assert.equal(cpu.calls.translate.length, 1);
+});
+
 test('start and translation arriving during fallback wait for retired CUDA to stop', async () => {
   const stopped = deferred();
   const cuda = server('cuda', {
@@ -373,6 +420,31 @@ test('a bounded nested transport cause retires CUDA and retries a final on CPU',
   assert.equal(cpu.calls.translate.length, 1);
   assert.equal(result.fallbackReason, 'local_translation_host_closed');
 });
+
+for (const semanticCode of [
+  'local_translation_failed',
+  'local_translation_timeout',
+  'local_translation_invalid_result',
+]) {
+  test(`${semanticCode} is not overridden by a nested transport cause`, async () => {
+    const semanticError = runtimeError(semanticCode);
+    semanticError.cause = runtimeError('ECONNRESET');
+    const cudaProbe = probe(usable);
+    const cuda = server('cuda', { translate: async () => { throw semanticError; } });
+    const cpu = server('cpu');
+    const controller = await startedController({
+      probeImpl: cudaProbe, cudaServer: cuda, cpuServer: cpu,
+    });
+
+    await assert.rejects(
+      controller.translate('translate.final', { utteranceId: semanticCode }),
+      error => error === semanticError,
+    );
+    assert.equal(cudaProbe.calls.invalidate, 0);
+    assert.equal(cuda.calls.stop, 0);
+    assert.equal(cpu.calls.start, 0);
+  });
+}
 
 test('CPU failure after CUDA failure preserves the local error contract and adds fallback metadata', async () => {
   const cpuError = runtimeError('local_translation_failed', 'llama.cpp returned HTTP 500');

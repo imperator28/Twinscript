@@ -38,6 +38,7 @@ function abortError(message = 'Retired local translation request') {
 function cudaFailureReason(error, { startup = false } = {}) {
   const code = typeof error?.code === 'string' ? error.code : '';
   if (DEVICE_FAILURE_CODES.has(code)) return code;
+  if (/^local_translation_/.test(code)) return null;
   if (CONNECTION_FAILURE_CODES.has(code)) return 'local_translation_host_closed';
   const causeCode = typeof error?.cause?.code === 'string' ? error.cause.code : '';
   if (CONNECTION_FAILURE_CODES.has(causeCode)) return 'local_translation_host_closed';
@@ -246,13 +247,24 @@ class HyMt2RuntimeController extends EventEmitter {
       const reason = requestFamily === 'cuda' ? cudaFailureReason(error) : null;
       if (!reason) throw error;
       const joiningSameFallback = this.cudaRetired && Boolean(this.fallbackPromise);
-      if (requestGeneration !== this.generation && !joiningSameFallback) throw abortError();
-      await this.fallbackToCpu(
-        reason,
+      const rescheduleRetiredFinal = this.canRescheduleRetiredFinal({
+        type,
         requestGeneration,
         requestLifecycle,
         requestSessionId,
-      );
+        requestFamily,
+      });
+      if (requestGeneration !== this.generation &&
+          !joiningSameFallback &&
+          !rescheduleRetiredFinal) throw abortError();
+      if (!rescheduleRetiredFinal) {
+        await this.fallbackToCpu(
+          reason,
+          requestGeneration,
+          requestLifecycle,
+          requestSessionId,
+        );
+      }
       if (type !== 'translate.final') throw abortError();
 
       const retryGeneration = this.generation;
@@ -271,6 +283,28 @@ class HyMt2RuntimeController extends EventEmitter {
         requestLifecycle !== this.lifecycleVersion ||
         requestSessionId !== this.sessionId) throw abortError();
     return this.mergeProvenance(result);
+  }
+
+  canRescheduleRetiredFinal({
+    type,
+    requestGeneration,
+    requestLifecycle,
+    requestSessionId,
+    requestFamily,
+  }) {
+    if (type !== 'translate.final' ||
+        requestFamily !== 'cuda' ||
+        requestLifecycle !== this.lifecycleVersion ||
+        requestSessionId !== this.sessionId ||
+        this.generation !== requestGeneration + 1 ||
+        !this.cudaRetired ||
+        this.activeFamily !== 'cpu' ||
+        this.activeServer !== this.cpuServer) return false;
+    try {
+      return this.activeServer.health()?.ready === true;
+    } catch {
+      return false;
+    }
   }
 
   fallbackToCpu(reason, requestGeneration, requestLifecycle, requestSessionId) {

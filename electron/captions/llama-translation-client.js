@@ -136,6 +136,7 @@ class LlamaTranslationServer {
     this.loadMs = 0;
     this.processListeners = null;
     this.startupAttempt = null;
+    this.stopPromise = null;
     this.cleanupPromises = new WeakMap();
     this.resetEvidence();
   }
@@ -335,6 +336,7 @@ class LlamaTranslationServer {
   }
 
   async start() {
+    if (this.stopPromise) await this.stopPromise;
     if (this.started) return this.health();
     if (this.startPromise) return this.startPromise;
     if (this.restartCount > this.maxRestarts) {
@@ -562,12 +564,24 @@ class LlamaTranslationServer {
     };
   }
 
-  async stop() {
+  async performStop() {
     const pendingStart = this.startPromise;
     this.startupAttempt?.cancel();
     await this.cleanupProcess(this.child);
     if (pendingStart) await pendingStart.catch(() => {});
     this.clearProcessState();
+  }
+
+  stop() {
+    if (this.stopPromise) return this.stopPromise;
+    let stopPromise;
+    stopPromise = Promise.resolve()
+      .then(() => this.performStop())
+      .finally(() => {
+        if (this.stopPromise === stopPromise) this.stopPromise = null;
+      });
+    this.stopPromise = stopPromise;
+    return stopPromise;
   }
 }
 

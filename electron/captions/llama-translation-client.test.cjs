@@ -706,6 +706,82 @@ test('terminal health failure performs bounded child and listener cleanup', asyn
   assert.equal(server.health().ready, false);
 });
 
+test('start waits for an in-flight stop and old cleanup cannot erase the replacement', async () => {
+  const children = [];
+  const server = new LlamaTranslationServer({
+    binaryPath: 'llama-server.exe',
+    modelPath: 'hy-mt2.gguf',
+    shutdownTimeoutMs: 10,
+    allocatePort: async () => 25100 + children.length,
+    spawn: () => {
+      const index = children.length;
+      const spawned = child({
+        onKill: (process, signal) => {
+          if (index === 1) {
+            process.exitCode = signal === 'SIGKILL' ? 137 : 0;
+            process.emit('close', process.exitCode, signal);
+          }
+        },
+      });
+      children.push(spawned);
+      return spawned;
+    },
+    fetchImpl: async () => ({ ok: true, status: 200 }),
+  });
+
+  await server.start();
+  const firstStop = server.stop();
+  const replacementStart = server.start();
+  await new Promise((resolve) => setImmediate(resolve));
+  const spawnedBeforeStopSettled = children.length;
+
+  await firstStop;
+  const replacementHealth = await replacementStart;
+  assert.equal(spawnedBeforeStopSettled, 1);
+  assert.equal(children.length, 2);
+  assert.equal(replacementHealth.ready, true);
+  assert.equal(server.child, children[1]);
+
+  children[0].emit('close', null, 'SIGTERM');
+  assert.equal(server.health().ready, true);
+  assert.equal(server.child, children[1]);
+  assert.equal(children[1].listenerCount('close'), 1);
+
+  await server.stop();
+  assert.equal(children[1].killCalls.length > 0, true);
+  assert.equal(children[1].listenerCount('close'), 0);
+  assert.equal(children[1].stderr.listenerCount('data'), 0);
+  assert.equal(server.child, null);
+  assert.equal(server.health().ready, false);
+});
+
+test('concurrent stop calls share one bounded cleanup', async () => {
+  let spawnedChild;
+  const server = new LlamaTranslationServer({
+    binaryPath: 'llama-server.exe',
+    modelPath: 'hy-mt2.gguf',
+    shutdownTimeoutMs: 10,
+    allocatePort: async () => 25102,
+    spawn: () => {
+      spawnedChild = child({
+        onKill: (process, signal) => {
+          if (signal === 'SIGKILL') process.exitCode = 137;
+        },
+      });
+      return spawnedChild;
+    },
+    fetchImpl: async () => ({ ok: true, status: 200 }),
+  });
+  await server.start();
+
+  const firstStop = server.stop();
+  const secondStop = server.stop();
+  assert.equal(firstStop, secondStop);
+  await Promise.all([firstStop, secondStop]);
+  assert.deepEqual(spawnedChild.killCalls, [undefined, 'SIGKILL']);
+  assert.equal(spawnedChild.listenerCount('close'), 0);
+});
+
 test('stop waits for normal close and removes owned listeners', async () => {
   let spawnedChild;
   const server = new LlamaTranslationServer({

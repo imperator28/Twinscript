@@ -27,6 +27,8 @@ const CUDA_RUNTIME = freezeRuntimeDescriptor({
 });
 
 const NVIDIA_DEVICE_PATTERN = /\bNVIDIA\b/i;
+const STARTUP_CANCELLED = Symbol('startup-cancelled');
+const PROCESS_CLOSED = Symbol('process-closed');
 
 function runtimeArgumentValue(launchArgs, flag) {
   const index = launchArgs.indexOf(flag);
@@ -68,11 +70,12 @@ function validateRuntimeDescriptor(descriptor) {
         launchArgs[5] !== 'on') {
       throw runtimeDescriptorError('CUDA runtimeDescriptor must match the pinned CUDA runtime');
     }
+    const selectedDeviceId = `CUDA${BigInt(selectedDevice.slice(4))}`;
     return freezeRuntimeDescriptor({
       family,
       runtime,
       requestedDevice,
-      launchArgs: ['--device', selectedDevice.toUpperCase(), '--gpu-layers', 'auto', '--fit', 'on'],
+      launchArgs: ['--device', selectedDeviceId, '--gpu-layers', 'auto', '--fit', 'on'],
     });
   }
   throw runtimeDescriptorError('runtimeDescriptor.family must be cpu or cuda');
@@ -132,6 +135,8 @@ class LlamaTranslationServer {
     this.stderr = '';
     this.loadMs = 0;
     this.processListeners = null;
+    this.startupAttempt = null;
+    this.cleanupPromises = new WeakMap();
     this.resetEvidence();
   }
 
@@ -155,10 +160,11 @@ class LlamaTranslationServer {
   recordEvidenceLine(line) {
     const deviceMatch = line.match(/(?:\bDevice\s+|\bCUDA)(\d+)\s*:\s*(.+?)\s*$/i);
     if (deviceMatch) {
-      const deviceId = `CUDA${Number(deviceMatch[1])}`;
+      const deviceId = `CUDA${BigInt(deviceMatch[1])}`;
       const deviceName = deviceMatch[2].trim().slice(0, 160);
       const previous = this.runtimeEvidence.devices.get(deviceId);
-      if (!previous || (!NVIDIA_DEVICE_PATTERN.test(previous) && NVIDIA_DEVICE_PATTERN.test(deviceName))) {
+      if (deviceId === this.selectedCudaDevice &&
+          (!previous || (!NVIDIA_DEVICE_PATTERN.test(previous) && NVIDIA_DEVICE_PATTERN.test(deviceName)))) {
         this.runtimeEvidence.devices.set(deviceId, deviceName);
       }
     }
@@ -209,6 +215,125 @@ class LlamaTranslationServer {
     this.processListeners = null;
   }
 
+  createStartupAttempt() {
+    const controller = new AbortController();
+    let resolveCancellation;
+    const cancellation = new Promise((resolve) => { resolveCancellation = resolve; });
+    return {
+      cancelled: false,
+      cancellation,
+      controller,
+      cancel() {
+        if (this.cancelled) return;
+        this.cancelled = true;
+        resolveCancellation(STARTUP_CANCELLED);
+        controller.abort();
+      },
+    };
+  }
+
+  startupCancelledError() {
+    return llamaError('local_translation_start_cancelled', 'Local Hy-MT2 startup was cancelled');
+  }
+
+  hostClosedError(child, processState) {
+    const code = processState.code ?? child?.exitCode;
+    const signal = processState.signal ?? child?.signalCode;
+    const status = signal ? `signal ${signal}` : `code ${code ?? 'unknown'}`;
+    const stderr = processState.stderr || this.stderr.slice(-2_000);
+    return llamaError(
+      'local_translation_host_closed',
+      `llama.cpp exited with ${status}: ${stderr}`,
+    );
+  }
+
+  async awaitStartup(work, attempt, processState = null) {
+    const races = [Promise.resolve(work), attempt.cancellation];
+    if (processState) races.push(processState.closedPromise);
+    const result = await Promise.race(races);
+    if (result === STARTUP_CANCELLED) throw this.startupCancelledError();
+    if (result === PROCESS_CLOSED) throw this.hostClosedError(processState.child, processState);
+    return result;
+  }
+
+  async awaitStartupDelay(delayMs, attempt, processState) {
+    let timer;
+    try {
+      await this.awaitStartup(
+        new Promise((resolve) => { timer = setTimeout(resolve, delayMs); }),
+        attempt,
+        processState,
+      );
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+
+  assertProcessOpen(child, processState) {
+    if (processState.closed || child.exitCode != null || child.signalCode) {
+      if (!processState.stderr) processState.stderr = this.stderr.slice(-2_000);
+      throw this.hostClosedError(child, processState);
+    }
+  }
+
+  clearProcessState(child = null) {
+    if (child && this.child && this.child !== child) return;
+    this.child = null;
+    this.started = false;
+    this.port = 0;
+    this.loadMs = 0;
+    this.resetEvidence();
+  }
+
+  async cleanupProcess(child, { alreadyClosed = false } = {}) {
+    this.detachProcessListeners(child);
+    this.clearProcessState(child);
+    if (!child || alreadyClosed || child.exitCode != null || child.signalCode) return;
+    const existing = this.cleanupPromises.get(child);
+    if (existing) return existing;
+
+    const cleanup = (async () => {
+      let closed = false;
+      let resolveClosed;
+      const closedPromise = new Promise((resolve) => { resolveClosed = resolve; });
+      const onClose = () => {
+        closed = true;
+        resolveClosed();
+      };
+      child.once?.('close', onClose);
+      try {
+        child.kill();
+      } catch {
+        // A failed normal kill still gets one bounded force attempt below.
+      }
+      if (!closed && child.exitCode == null && !child.signalCode) {
+        let timer;
+        await Promise.race([
+          closedPromise,
+          new Promise((resolve) => {
+            timer = setTimeout(resolve, this.shutdownTimeoutMs);
+            timer.unref?.();
+          }),
+        ]);
+        if (timer) clearTimeout(timer);
+      }
+      if (!closed && child.exitCode == null && !child.signalCode) {
+        try {
+          child.kill('SIGKILL');
+        } catch {
+          // Public state is already clear; cleanup remains bounded.
+        }
+      }
+      child.removeListener?.('close', onClose);
+    })();
+    this.cleanupPromises.set(child, cleanup);
+    try {
+      await cleanup;
+    } finally {
+      this.cleanupPromises.delete(child);
+    }
+  }
+
   async start() {
     if (this.started) return this.health();
     if (this.startPromise) return this.startPromise;
@@ -218,116 +343,127 @@ class LlamaTranslationServer {
         'Local Hy-MT2 server already restarted once after an unexpected exit',
       );
     }
-    this.startPromise = this.startProcess();
+    const attempt = this.createStartupAttempt();
+    this.startupAttempt = attempt;
+    const startPromise = this.startProcess(attempt);
+    this.startPromise = startPromise;
     try {
-      return await this.startPromise;
+      return await startPromise;
     } finally {
-      this.startPromise = null;
+      if (this.startPromise === startPromise) this.startPromise = null;
+      if (this.startupAttempt === attempt) this.startupAttempt = null;
     }
   }
 
-  async startProcess() {
+  async startProcess(attempt) {
     const startedAt = performance.now();
     this.resetEvidence();
-    this.port = await this.allocatePort();
-    const args = [
-      '-m', this.modelPath,
-      '--host', '127.0.0.1',
-      '--port', String(this.port),
-      '--no-webui', '-c', '2048',
-      '--log-colors', 'off',
-      ...this.runtimeDescriptor.launchArgs,
-    ];
-    let child;
+    let child = null;
+    let processState = null;
     try {
-      child = this.spawnImpl(this.binaryPath, args, {
-        cwd: path.dirname(this.binaryPath),
-        windowsHide: true,
-        stdio: ['ignore', 'ignore', 'pipe'],
-      });
-    } catch (error) {
-      this.port = 0;
-      throw llamaError('local_translation_spawn_failed', error.message);
-    }
-    this.child = child;
-    let spawnError = null;
-    const onError = (error) => { spawnError = error; };
-    const onClose = () => {
-      if (this.child !== child) return;
-      const wasStarted = this.started;
-      this.child = null;
-      if (wasStarted) this.restartCount += 1;
-      this.started = false;
-      this.port = 0;
-      this.detachProcessListeners(child);
-      this.resetEvidence();
-    };
-    const onStderr = (chunk) => this.recordStderr(chunk);
-    this.processListeners = { child, onError, onClose, onStderr };
-    child.once?.('error', onError);
-    child.once?.('close', onClose);
-    child.stderr?.on('data', onStderr);
-    const deadline = Date.now() + this.startupTimeoutMs;
-    while (Date.now() < deadline) {
-      if (spawnError) {
-        const message = spawnError.message;
-        await this.stop();
-        throw llamaError('local_translation_spawn_failed', message);
-      }
-      if (child.exitCode != null) {
-        throw llamaError(
-          'local_translation_host_closed',
-          `llama.cpp exited with code ${child.exitCode}: ${this.stderr.slice(-2_000)}`,
-        );
-      }
+      this.port = await this.awaitStartup(this.allocatePort(), attempt);
+      if (attempt.cancelled) throw this.startupCancelledError();
+      const args = [
+        '-m', this.modelPath,
+        '--host', '127.0.0.1',
+        '--port', String(this.port),
+        '--no-webui', '-c', '2048',
+        '--log-colors', 'off',
+        ...this.runtimeDescriptor.launchArgs,
+      ];
       try {
-        const response = await this.fetchImpl(
-          `http://127.0.0.1:${this.port}/health`,
-          { signal: AbortSignal.timeout(2_000) },
-        );
-        if (spawnError) {
-          const message = spawnError.message;
-          await this.stop();
-          throw llamaError('local_translation_spawn_failed', message);
-        }
-        if (response.ok) {
-          if (child.exitCode != null || this.child !== child) {
-            throw llamaError(
-              'local_translation_host_closed',
-              'llama.cpp exited while reporting startup health',
-            );
-          }
-          const provenance = this.runtimeProvenance();
-          if (this.runtimeDescriptor.family === 'cuda' &&
-              (provenance.actualDevice !== this.selectedCudaDevice ||
-               !NVIDIA_DEVICE_PATTERN.test(provenance.deviceName || ''))) {
-            await this.stop();
-            throw llamaError(
-              'local_translation_device_unverified',
-              `llama.cpp did not prove NVIDIA execution on ${this.selectedCudaDevice}`,
-            );
-          }
-          this.started = true;
-          this.loadMs = performance.now() - startedAt;
-          return this.health();
-        }
-        if (response.status !== 503) {
-          throw llamaError('local_translation_health_failed', `llama.cpp health returned ${response.status}`);
-        }
+        child = this.spawnImpl(this.binaryPath, args, {
+          cwd: path.dirname(this.binaryPath),
+          windowsHide: true,
+          stdio: ['ignore', 'ignore', 'pipe'],
+        });
       } catch (error) {
-        if (error.code === 'local_translation_spawn_failed' ||
-            error.code === 'local_translation_health_failed' ||
-            error.code === 'local_translation_device_unverified' ||
-            error.code === 'local_translation_host_closed') throw error;
+        throw llamaError('local_translation_spawn_failed', error.message);
       }
-      await new Promise((resolve) => setTimeout(resolve, 200));
+      this.child = child;
+      let spawnError = null;
+      let resolveClosed;
+      processState = {
+        child,
+        closed: false,
+        code: null,
+        signal: null,
+        stderr: '',
+        closedPromise: new Promise((resolve) => { resolveClosed = resolve; }),
+      };
+      const onError = (error) => { spawnError = error; };
+      const onClose = (code, signal) => {
+        processState.closed = true;
+        processState.code = code;
+        processState.signal = signal;
+        processState.stderr = this.stderr.slice(-2_000);
+        resolveClosed(PROCESS_CLOSED);
+        if (this.child !== child) return;
+        const wasStarted = this.started;
+        if (wasStarted) this.restartCount += 1;
+        this.detachProcessListeners(child);
+        this.clearProcessState(child);
+      };
+      const onStderr = (chunk) => this.recordStderr(chunk);
+      this.processListeners = { child, onError, onClose, onStderr };
+      child.once?.('error', onError);
+      child.once?.('close', onClose);
+      child.stderr?.on('data', onStderr);
+
+      const deadline = Date.now() + this.startupTimeoutMs;
+      while (Date.now() < deadline) {
+        if (spawnError) {
+          throw llamaError('local_translation_spawn_failed', spawnError.message);
+        }
+        this.assertProcessOpen(child, processState);
+        try {
+          const timeoutSignal = AbortSignal.timeout(2_000);
+          const signal = typeof AbortSignal.any === 'function'
+            ? AbortSignal.any([timeoutSignal, attempt.controller.signal])
+            : timeoutSignal;
+          const response = await this.awaitStartup(
+            this.fetchImpl(`http://127.0.0.1:${this.port}/health`, { signal }),
+            attempt,
+            processState,
+          );
+          if (spawnError) {
+            throw llamaError('local_translation_spawn_failed', spawnError.message);
+          }
+          this.assertProcessOpen(child, processState);
+          if (response.ok) {
+            const provenance = this.runtimeProvenance();
+            if (this.runtimeDescriptor.family === 'cuda' &&
+                (provenance.actualDevice !== this.selectedCudaDevice ||
+                 !NVIDIA_DEVICE_PATTERN.test(provenance.deviceName || ''))) {
+              throw llamaError(
+                'local_translation_device_unverified',
+                `llama.cpp did not prove NVIDIA execution on ${this.selectedCudaDevice}`,
+              );
+            }
+            this.started = true;
+            this.loadMs = performance.now() - startedAt;
+            return this.health();
+          }
+          if (response.status !== 503) {
+            throw llamaError('local_translation_health_failed', `llama.cpp health returned ${response.status}`);
+          }
+        } catch (error) {
+          if (error.code === 'local_translation_start_cancelled' ||
+              error.code === 'local_translation_spawn_failed' ||
+              error.code === 'local_translation_health_failed' ||
+              error.code === 'local_translation_device_unverified' ||
+              error.code === 'local_translation_host_closed') throw error;
+        }
+        await this.awaitStartupDelay(200, attempt, processState);
+      }
+      throw llamaError(
+        'local_translation_start_timeout',
+        `llama.cpp did not become ready: ${this.stderr.slice(-2_000)}`,
+      );
+    } catch (error) {
+      await this.cleanupProcess(child, { alreadyClosed: processState?.closed });
+      throw error;
     }
-    const stderr = this.stderr;
-    await this.stop();
-    throw llamaError(
-      'local_translation_start_timeout',
-      `llama.cpp did not become ready: ${stderr.slice(-2_000)}`,
-    );
   }
 
   health() {
@@ -427,47 +563,11 @@ class LlamaTranslationServer {
   }
 
   async stop() {
-    const child = this.child;
-    this.child = null;
-    this.started = false;
-    this.port = 0;
-    this.loadMs = 0;
-    this.detachProcessListeners(child);
-    this.resetEvidence();
-    if (!child || child.exitCode != null) return;
-
-    let closed = false;
-    let resolveClosed;
-    const closedPromise = new Promise((resolve) => { resolveClosed = resolve; });
-    const onClose = () => {
-      closed = true;
-      resolveClosed();
-    };
-    child.once?.('close', onClose);
-    try {
-      child.kill();
-    } catch {
-      // A failed normal kill still gets one bounded force attempt below.
-    }
-    if (!closed && child.exitCode == null) {
-      let timer;
-      await Promise.race([
-        closedPromise,
-        new Promise((resolve) => {
-          timer = setTimeout(resolve, this.shutdownTimeoutMs);
-          timer.unref?.();
-        }),
-      ]);
-      if (timer) clearTimeout(timer);
-    }
-    if (!closed && child.exitCode == null) {
-      try {
-        child.kill('SIGKILL');
-      } catch {
-        // State and listeners are already cleared; stop remains bounded.
-      }
-    }
-    child.removeListener?.('close', onClose);
+    const pendingStart = this.startPromise;
+    this.startupAttempt?.cancel();
+    await this.cleanupProcess(this.child);
+    if (pendingStart) await pendingStart.catch(() => {});
+    this.clearProcessState();
   }
 }
 

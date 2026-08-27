@@ -33,6 +33,16 @@ function completion(text = ' translated ') {
   };
 }
 
+function deferred() {
+  let resolve;
+  let reject;
+  const promise = new Promise((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
+
 test('runtime descriptors and their launch arguments are immutable', () => {
   assert.equal(Object.isFrozen(CPU_RUNTIME), true);
   assert.equal(Object.isFrozen(CPU_RUNTIME.launchArgs), true);
@@ -137,6 +147,40 @@ test('CPU runtime remains the default for current supervisor compatibility', asy
   assert.equal(health.actualDevice, 'CPU');
 });
 
+test('stop cancels pending port allocation and prevents a late spawn', async () => {
+  const allocation = deferred();
+  let spawnCount = 0;
+  const server = new LlamaTranslationServer({
+    binaryPath: 'llama-server.exe',
+    modelPath: 'hy-mt2.gguf',
+    allocatePort: () => allocation.promise,
+    spawn: () => {
+      spawnCount += 1;
+      return child();
+    },
+    fetchImpl: async () => ({ ok: true, status: 200 }),
+  });
+
+  const startPromise = server.start();
+  const startedAt = Date.now();
+  await server.stop();
+  assert.equal(Date.now() - startedAt < 100, true);
+  const outcome = await Promise.race([
+    startPromise.then(
+      () => ({ code: 'resolved' }),
+      (error) => ({ code: error.code }),
+    ),
+    new Promise((resolve) => setTimeout(() => resolve({ code: 'still-pending' }), 50)),
+  ]);
+  allocation.resolve(26001);
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(outcome.code, 'local_translation_start_cancelled');
+  assert.equal(spawnCount, 0);
+  assert.equal(server.health().ready, false);
+  assert.equal(server.port, 0);
+});
+
 test('a spawn error racing a healthy response keeps the stable failure code', async () => {
   let spawnedChild;
   const server = new LlamaTranslationServer({
@@ -196,6 +240,34 @@ test('CUDA runtime launches exact device, automatic offload, and fit arguments',
       stdio: ['ignore', 'ignore', 'pipe'],
     },
   });
+});
+
+test('CUDA device IDs with leading zeros launch and verify canonically', async () => {
+  let launchArgs;
+  let spawnedChild;
+  const server = new LlamaTranslationServer({
+    binaryPath: 'llama-server.exe',
+    modelPath: 'hy-mt2.gguf',
+    runtimeDescriptor: {
+      ...CUDA_RUNTIME,
+      launchArgs: ['--device', 'cuda00', '--gpu-layers', 'auto', '--fit', 'on'],
+    },
+    allocatePort: async () => 23846,
+    spawn: (_binary, args) => {
+      launchArgs = args;
+      spawnedChild = child();
+      return spawnedChild;
+    },
+    fetchImpl: async () => {
+      spawnedChild.stderr.emit('data', Buffer.from('Device 0: NVIDIA RTX 4090\n'));
+      return { ok: true, status: 200 };
+    },
+  });
+
+  const health = await server.start();
+  assert.equal(launchArgs.includes('CUDA0'), true);
+  assert.equal(launchArgs.includes('CUDA00'), false);
+  assert.equal(health.actualDevice, 'CUDA0');
 });
 
 test('CUDA full evidence appears in health and translation provenance', async () => {
@@ -339,6 +411,32 @@ test('CUDA evidence survives split chunks and stderr rolling-buffer eviction', a
   assert.equal(server.stderr.length <= 8_000, true);
   assert.equal(health.deviceName, 'NVIDIA RTX 3000 Ada Generation Laptop GPU');
   assert.equal(health.offload, 'partial');
+});
+
+test('CUDA evidence retains only the selected device', async () => {
+  let spawnedChild;
+  const server = new LlamaTranslationServer({
+    binaryPath: 'llama-server.exe',
+    modelPath: 'hy-mt2.gguf',
+    runtimeDescriptor: CUDA_RUNTIME,
+    allocatePort: async () => 24004,
+    spawn: () => {
+      spawnedChild = child();
+      return spawnedChild;
+    },
+    fetchImpl: async () => {
+      const logs = Array.from({ length: 200 }, (_unused, index) =>
+        `CUDA${index}: NVIDIA device ${index}`
+      ).join('\n');
+      spawnedChild.stderr.emit('data', Buffer.from(`${logs}\n`));
+      return { ok: true, status: 200 };
+    },
+  });
+
+  const health = await server.start();
+  assert.equal(health.actualDevice, 'CUDA0');
+  assert.equal(server.runtimeEvidence.devices.size, 1);
+  assert.deepEqual([...server.runtimeEvidence.devices.keys()], ['CUDA0']);
 });
 
 test('caller descriptor and returned provenance mutations cannot alter server state', async () => {
@@ -529,6 +627,83 @@ test('llama.cpp exit clears readiness and the next translation restarts once', a
   await assert.rejects(server.translate('translate.final', {
     targetLanguage: 'Chinese', text: 'do not restart forever',
   }), { code: 'local_translation_restart_exhausted' });
+});
+
+test('signal-only close during startup rejects promptly with preserved diagnostics', async () => {
+  let spawnedChild;
+  const server = new LlamaTranslationServer({
+    binaryPath: 'llama-server.exe',
+    modelPath: 'hy-mt2.gguf',
+    startupTimeoutMs: 1_000,
+    allocatePort: async () => 25004,
+    spawn: () => {
+      spawnedChild = child();
+      return spawnedChild;
+    },
+    fetchImpl: async () => {
+      spawnedChild.stderr.emit('data', Buffer.from('fatal CUDA initialization context\n'));
+      spawnedChild.emit('close', null, 'SIGTERM');
+      return { ok: false, status: 503 };
+    },
+  });
+
+  const startedAt = Date.now();
+  await assert.rejects(server.start(), (error) => {
+    assert.equal(error.code, 'local_translation_host_closed');
+    assert.match(error.message, /SIGTERM/);
+    assert.match(error.message, /fatal CUDA initialization context/);
+    return true;
+  });
+  assert.equal(Date.now() - startedAt < 500, true);
+  assert.equal(server.child, null);
+  assert.equal(server.port, 0);
+  assert.equal(server.health().ready, false);
+});
+
+test('signal-only close after readiness clears health and permits one restart', async () => {
+  const children = [];
+  const server = new LlamaTranslationServer({
+    binaryPath: 'llama-server.exe',
+    modelPath: 'hy-mt2.gguf',
+    allocatePort: async () => 25005 + children.length,
+    spawn: () => {
+      const spawned = child();
+      children.push(spawned);
+      return spawned;
+    },
+    fetchImpl: async () => ({ ok: true, status: 200 }),
+  });
+
+  await server.start();
+  children[0].emit('close', null, 'SIGTERM');
+  assert.equal(server.health().ready, false);
+  await server.start();
+  assert.equal(children.length, 2);
+  assert.equal(server.health().ready, true);
+});
+
+test('terminal health failure performs bounded child and listener cleanup', async () => {
+  let spawnedChild;
+  const server = new LlamaTranslationServer({
+    binaryPath: 'llama-server.exe',
+    modelPath: 'hy-mt2.gguf',
+    shutdownTimeoutMs: 10,
+    allocatePort: async () => 25006,
+    spawn: () => {
+      spawnedChild = child();
+      return spawnedChild;
+    },
+    fetchImpl: async () => ({ ok: false, status: 500 }),
+  });
+
+  await assert.rejects(server.start(), { code: 'local_translation_health_failed' });
+  assert.equal(spawnedChild.killCalls.length > 0, true);
+  assert.equal(spawnedChild.listenerCount('close'), 0);
+  assert.equal(spawnedChild.listenerCount('error'), 0);
+  assert.equal(spawnedChild.stderr.listenerCount('data'), 0);
+  assert.equal(server.child, null);
+  assert.equal(server.port, 0);
+  assert.equal(server.health().ready, false);
 });
 
 test('stop waits for normal close and removes owned listeners', async () => {

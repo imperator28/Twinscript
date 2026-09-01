@@ -1359,6 +1359,24 @@ input[type="range"] { width: 100%; accent-color: var(--accent); }
   line-height: var(--leading-tight);
 }
 .local-model-row__metadata i { font-style: normal; }
+.local-model-row__runtime-detail {
+  grid-column: 1 / -1;
+  margin-top: var(--space-2);
+  color: var(--text-secondary);
+  font-size: var(--size-xs);
+  line-height: var(--leading-tight);
+}
+.local-model-row__runtime-detail summary {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-weight: var(--weight-medium);
+  text-underline-offset: 3px;
+}
+.local-model-row__runtime-detail summary:hover { color: var(--text); text-decoration: underline; }
+.local-model-row__runtime-detail p { max-width: 72ch; margin: 0 0 var(--space-2); }
 .local-model-row__progress-wrap { display: grid; grid-column: 1 / -1; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: var(--space-3); margin-top: var(--space-3); }
 .local-model-row__progress {
   width: 100%;

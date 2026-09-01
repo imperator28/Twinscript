@@ -68,7 +68,11 @@ import {
   type ThemePreference,
 } from './theme';
 import { TwinscriptLogo } from './TwinscriptLogo';
-import { LocalModelInstallCard, type LocalModelAction } from './LocalModelInstallCard';
+import {
+  formatHyMt2DeviceStatus,
+  LocalModelInstallCard,
+  type LocalModelAction,
+} from './LocalModelInstallCard';
 import {
   APP_LICENSE,
   APP_LICENSE_URL,
@@ -639,6 +643,9 @@ export function ControlApp() {
 
   const whisperLocalReady = localModels?.models['whisper-small'].ready ?? false;
   const translationLocalReady = localModels?.models['hy-mt2-1.8b'].ready ?? false;
+  const translationDeviceStatus = localModels
+    ? formatHyMt2DeviceStatus(localModels.models['hy-mt2-1.8b'])
+    : null;
   const whisperMissing = settings.transcriptionModel === 'whisper-local'
     && localModels !== null
     && !whisperLocalReady;
@@ -2109,7 +2116,7 @@ export function ControlApp() {
                 <strong>Final translation model</strong>
                 <span>{settings.finalTranslationModel === 'hy-mt2-local'
                   ? translationLocalReady
-                    ? `${localModels?.models['hy-mt2-1.8b'].actualDevice || 'CPU'} ready`
+                    ? translationDeviceStatus?.label ?? 'CPU'
                     : localModels ? 'Model not installed' : 'Checking local model'
                   : 'Luna is authoritative'}</span>
               </div>

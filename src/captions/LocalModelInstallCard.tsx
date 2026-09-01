@@ -71,9 +71,52 @@ const unavailableModel = (id: LocalModelId): LocalModelState => ({
 const mutationIsLocked = (status: LocalModelStatus, action: LocalModelAction) =>
   status.actionLocks.meetingActive || status.actionLocks[action === 'install' ? 'download' : action];
 
-const deviceText = (id: LocalModelId, model: LocalModelState) => {
+export interface HyMt2DeviceStatus {
+  label: string;
+  detail: string | null;
+}
+
+const cudaFallbackDetail: Record<string, string> = {
+  local_translation_host_closed:
+    'The NVIDIA translation process stopped unexpectedly, so Twinscript continued locally on the CPU.',
+  local_translation_device_unverified:
+    'The NVIDIA translation runtime could not be verified, so Twinscript continued locally on the CPU.',
+  local_translation_start_timeout:
+    'The NVIDIA translation runtime took too long to start, so Twinscript continued locally on the CPU.',
+  local_translation_spawn_failed:
+    'The NVIDIA translation runtime could not start, so Twinscript continued locally on the CPU.',
+  local_translation_health_failed:
+    'The NVIDIA translation runtime did not become ready, so Twinscript continued locally on the CPU.',
+  local_translation_restart_exhausted:
+    'The NVIDIA translation runtime stopped repeatedly, so Twinscript continued locally on the CPU.',
+  cuda_model_allocation_failed:
+    'The NVIDIA runtime could not allocate the translation model, so Twinscript continued locally on the CPU.',
+};
+
+export const formatHyMt2DeviceStatus = (model: LocalModelState): HyMt2DeviceStatus => {
+  if (model.actualDevice === 'CUDA0') {
+    return {
+      label: model.offload === 'partial' ? 'NVIDIA GPU · partial offload' : 'NVIDIA GPU',
+      detail: null,
+    };
+  }
+  if (model.actualDevice === 'CPU' && model.fallbackReason && model.fallbackReason !== 'cuda_device_unavailable') {
+    return {
+      label: 'CPU fallback',
+      detail: cudaFallbackDetail[model.fallbackReason]
+        ?? 'NVIDIA acceleration was unavailable, so Twinscript continued locally on the CPU.',
+    };
+  }
+  if (model.actualDevice === 'CPU') return { label: 'CPU', detail: null };
+  return {
+    label: 'Uses NVIDIA GPU when available; CPU fallback included',
+    detail: null,
+  };
+};
+
+const whisperDeviceText = (model: LocalModelState) => {
   if (model.actualDevice) return `Last ran on ${model.actualDevice}`;
-  return id === 'whisper-small' ? 'Designed for Intel NPU' : 'Runs locally on CPU';
+  return 'Designed for Intel NPU';
 };
 
 const stateIcon = (phase: LocalModelPhase) => {
@@ -153,6 +196,7 @@ export function LocalModelInstallCard({ status, busyModel = null, rowRefs, onAct
             ? Math.min(100, Math.round((model.downloadedBytes / model.downloadBytes) * 100))
             : null;
           const actions = actionsFor(model, catalogAvailable, localAdoptionAvailable);
+          const translationDevice = id === 'hy-mt2-1.8b' ? formatHyMt2DeviceStatus(model) : null;
 
           return (
             <section
@@ -173,11 +217,19 @@ export function LocalModelInstallCard({ status, busyModel = null, rowRefs, onAct
                 </span>
               </div>
 
-              <p className="local-model-row__metadata">
+              <div className="local-model-row__metadata">
                 <span>{model.version ? `Version ${model.version}` : 'Version not available'}</span>
                 {total && <><i aria-hidden="true">·</i><span>{total} download</span></>}
-                <i aria-hidden="true">·</i><span>{deviceText(id, model)}</span>
-              </p>
+                <i aria-hidden="true">·</i>
+                <span>{translationDevice?.label ?? whisperDeviceText(model)}</span>
+              </div>
+
+              {translationDevice?.detail && (
+                <details className="local-model-row__runtime-detail">
+                  <summary>Why Twinscript is using the CPU</summary>
+                  <p>{translationDevice.detail}</p>
+                </details>
+              )}
 
               {model.phase === 'downloading' && progress !== null && (
                 <div className="local-model-row__progress-wrap">

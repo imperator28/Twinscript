@@ -1,7 +1,7 @@
 import { createRef } from 'react';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import { LocalModelInstallCard } from './LocalModelInstallCard';
+import { formatHyMt2DeviceStatus, LocalModelInstallCard } from './LocalModelInstallCard';
 import type { LocalModelId, LocalModelPhase, LocalModelStatus } from './types';
 
 const model = (
@@ -39,6 +39,34 @@ const status = (overrides: Partial<LocalModelStatus> = {}): LocalModelStatus => 
 });
 
 describe('LocalModelInstallCard', () => {
+  it.each([
+    [{ actualDevice: 'CUDA0', offload: 'full' }, 'NVIDIA GPU'],
+    [{ actualDevice: 'CUDA0', offload: 'partial' }, 'NVIDIA GPU · partial offload'],
+    [{ actualDevice: 'CPU', fallbackReason: 'local_translation_host_closed' }, 'CPU fallback'],
+    [{ actualDevice: 'CPU', fallbackReason: 'cuda_device_unavailable' }, 'CPU'],
+    [{ actualDevice: 'CPU', fallbackReason: null }, 'CPU'],
+    [{ actualDevice: null, fallbackReason: null }, 'Uses NVIDIA GPU when available; CPU fallback included'],
+  ] as const)('formats HY-MT2 device evidence as %s', (runtime, label) => {
+    expect(formatHyMt2DeviceStatus(model('hy-mt2-1.8b', 'ready', runtime)).label).toBe(label);
+  });
+
+  it('shows a keyboard-accessible friendly CPU fallback explanation without raw codes', () => {
+    render(<LocalModelInstallCard status={status({ models: {
+      'whisper-small': model('whisper-small', 'ready'),
+      'hy-mt2-1.8b': model('hy-mt2-1.8b', 'ready', {
+        actualDevice: 'CPU', requestedDevice: 'CUDA_AUTO', offload: 'none',
+        fallbackReason: 'local_translation_host_closed',
+      }),
+    } })} onAction={vi.fn()} />);
+
+    const row = screen.getByRole('region', { name: 'HY-MT2 1.8B' });
+    expect(within(row).getByText('CPU fallback')).toBeVisible();
+    fireEvent.click(within(row).getByText('Why Twinscript is using the CPU'));
+    expect(within(row).getByText(/NVIDIA translation process stopped unexpectedly/i)).toBeVisible();
+    expect(row).not.toHaveTextContent('local_translation_host_closed');
+    expect(row).not.toHaveTextContent('CUDA0');
+  });
+
   it('renders the private local-model card with independent model detail rows', () => {
     const whisperRef = createRef<HTMLElement>();
     render(
@@ -60,7 +88,7 @@ describe('LocalModelInstallCard', () => {
     expect(screen.getByText('Version v3.1')).toBeVisible();
     expect(screen.getByText(/512 MB download/i)).toBeVisible();
     expect(screen.getByText('Designed for Intel NPU')).toBeVisible();
-    expect(screen.getByText('Runs locally on CPU')).toBeVisible();
+    expect(screen.getByText('Uses NVIDIA GPU when available; CPU fallback included')).toBeVisible();
     expect(whisperRef.current).toHaveAttribute('tabindex', '-1');
   });
 

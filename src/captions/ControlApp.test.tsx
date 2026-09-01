@@ -2149,6 +2149,27 @@ describe('meeting caption controls', () => {
     expect(localModelStatusUnsubscribe).toHaveBeenCalledOnce();
   });
 
+  it('uses the same verified HY-MT2 device label in the pipeline and model card', async () => {
+    const accelerated = localModels('ready', 'ready');
+    Object.assign(accelerated.models['hy-mt2-1.8b'], {
+      actualDevice: 'CUDA0',
+      requestedDevice: 'CUDA_AUTO',
+      offload: 'partial',
+    });
+    window.captions.getSettings = () => Promise.resolve({
+      ok: true as const,
+      data: { ...settings, finalTranslationModel: 'hy-mt2-local' as const },
+    });
+    window.captions.getLocalModelStatus = () => Promise.resolve({ ok: true as const, data: accelerated });
+
+    render(<ControlApp />);
+    await screen.findByRole('button', { name: /Start session/i });
+    fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+
+    expect(await screen.findAllByText('NVIDIA GPU · partial offload')).toHaveLength(2);
+    expect(screen.queryByText('CUDA0')).not.toBeInTheDocument();
+  });
+
   it('keeps a newer live local-model status when the initial request resolves late', async () => {
     const initialStatus = deferred<{ ok: true; data: LocalModelStatus }>();
     window.captions.getLocalModelStatus = vi.fn(() => initialStatus.promise);

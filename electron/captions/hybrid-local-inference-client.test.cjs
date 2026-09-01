@@ -35,12 +35,20 @@ test('hybrid hello and health expose both truthful runtimes', async () => {
       on() {}, off() {}, dispose() {},
     },
     translation: {
-      health: () => ({ id: 'hy-mt2-1.8b', runtime: 'llama.cpp-b9940', actualDevice: 'CPU' }),
+      health: () => ({
+        id: 'hy-mt2-1.8b', runtime: 'llama.cpp-b9940-cuda12.4', requestedDevice: 'CUDA_AUTO',
+        actualDevice: 'CUDA0', deviceName: 'NVIDIA RTX', offload: 'partial',
+        fallbackReason: 'local_translation_host_closed',
+      }),
     },
   });
 
   assert.equal((await client.request('hello')).models.length, 2);
-  assert.equal((await client.request('health')).models['hy-mt2-1.8b'].actualDevice, 'CPU');
+  assert.deepEqual((await client.request('health')).models['hy-mt2-1.8b'], {
+    id: 'hy-mt2-1.8b', runtime: 'llama.cpp-b9940-cuda12.4', requestedDevice: 'CUDA_AUTO',
+    actualDevice: 'CUDA0', deviceName: 'NVIDIA RTX', offload: 'partial',
+    fallbackReason: 'local_translation_host_closed',
+  });
 });
 
 test('hybrid client keeps listeners and routes requests after native host replacement', async () => {

@@ -404,6 +404,8 @@ app.whenReady().then(async () => {
     resourcesPath: process.resourcesPath,
     appPath: app.getAppPath(),
     userDataPath: app.getPath('userData'),
+    cudaEnabled:
+      process.platform === 'win32' && process.env.TWINSCRIPT_HYMT2_CUDA === '1',
   });
   localInferenceSupervisor = localInferenceRuntime.supervisor;
   localModelService = localInferenceRuntime.service;

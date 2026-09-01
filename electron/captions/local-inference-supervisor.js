@@ -5,7 +5,13 @@ const path = require('path');
 const childProcess = require('child_process');
 const { LocalInferenceClient } = require('./local-inference-client');
 const { HybridLocalInferenceClient } = require('./hybrid-local-inference-client');
-const { LlamaTranslationServer } = require('./llama-translation-client');
+const {
+  CPU_RUNTIME,
+  CUDA_RUNTIME,
+  LlamaTranslationServer,
+} = require('./llama-translation-client');
+const { LlamaCudaProbe } = require('./llama-runtime-probe');
+const { HyMt2RuntimeController } = require('./hy-mt2-runtime-controller');
 
 function supervisorError(code, message) {
   const error = new Error(message);
@@ -98,6 +104,7 @@ class LocalInferenceSupervisor extends EventEmitter {
     llamaCpuBinaryPath = null,
     llamaCudaBinaryPath = null,
     hyMt2ModelPath = null,
+    cudaEnabled = false,
     translationRuntime = null,
     exists = fs.existsSync,
     artifactReady = null,
@@ -119,19 +126,43 @@ class LocalInferenceSupervisor extends EventEmitter {
     this.llamaCpuBinaryPath = llamaCpuBinaryPath;
     this.llamaCudaBinaryPath = llamaCudaBinaryPath;
     this.hyMt2ModelPath = hyMt2ModelPath;
+    this.cudaEnabled = cudaEnabled === true;
     this.exists = exists;
     this.artifactReady = artifactReady;
     this.modelReady = modelReady;
     this.runtimeIntegrity = null;
     this.lastModels = new Map();
-    this.translationRuntime = translationRuntime || (
-      llamaCpuBinaryPath && hyMt2ModelPath
+    if (translationRuntime) {
+      this.translationRuntime = translationRuntime;
+    } else if (llamaCpuBinaryPath && hyMt2ModelPath) {
+      const cpuServer = new LlamaTranslationServer({
+        binaryPath: llamaCpuBinaryPath,
+        modelPath: hyMt2ModelPath,
+        runtimeDescriptor: CPU_RUNTIME,
+      });
+      const cudaServer = llamaCudaBinaryPath
         ? new LlamaTranslationServer({
-            binaryPath: llamaCpuBinaryPath,
+            binaryPath: llamaCudaBinaryPath,
             modelPath: hyMt2ModelPath,
+            runtimeDescriptor: CUDA_RUNTIME,
+            maxRestarts: 0,
           })
-        : null
-    );
+        : null;
+      this.translationRuntime = new HyMt2RuntimeController({
+        enabled: this.cudaEnabled,
+        probe: cudaServer ? new LlamaCudaProbe({ binaryPath: llamaCudaBinaryPath }) : null,
+        cudaServer,
+        cpuServer,
+      });
+    } else {
+      this.translationRuntime = null;
+    }
+    this.onTranslationStatus = (model) => {
+      if (!model || model.id !== 'hy-mt2-1.8b') return;
+      this.lastModels.set(model.id, model);
+      this.emit('model-status', model);
+    };
+    this.translationRuntime?.on?.('status', this.onTranslationStatus);
     this.requestedModels = [];
     this.lastSessionId = 'local-host';
     this.child = null;
@@ -222,6 +253,12 @@ class LocalInferenceSupervisor extends EventEmitter {
 
   readiness() {
     const actual = (model) => this.lastModels.get(model)?.actualDevice || null;
+    let translationHealth = null;
+    try {
+      translationHealth = this.translationRuntime?.health?.() || null;
+    } catch {
+      translationHealth = null;
+    }
     if (this.runtimeIntegrity == null) {
       this.runtimeIntegrity = this.artifactReady
         ? this.artifactReady('runtime', this.executablePath)
@@ -256,7 +293,9 @@ class LocalInferenceSupervisor extends EventEmitter {
         },
         'hy-mt2-1.8b': {
           ready: hyMt2Ready,
-          actualDevice: actual('hy-mt2-1.8b'),
+          actualDevice: translationHealth
+            ? translationHealth.actualDevice || null
+            : actual('hy-mt2-1.8b'),
         },
       },
     };
@@ -334,6 +373,7 @@ class LocalInferenceSupervisor extends EventEmitter {
           'Local Hy-MT2 is selected but its verified runtime is unavailable',
         );
       }
+      await this.translationRuntime.beginSession?.(sessionId);
       await this.translationRuntime.start();
     }
     const nativeModels = models.filter((model) => model === 'whisper-small');
@@ -406,8 +446,12 @@ class LocalInferenceSupervisor extends EventEmitter {
 
   async dispose() {
     this.shuttingDown = true;
-    await this.disposeProcess();
-    this.removeAllListeners();
+    try {
+      await this.disposeProcess();
+    } finally {
+      this.translationRuntime?.off?.('status', this.onTranslationStatus);
+      this.removeAllListeners();
+    }
   }
 }
 

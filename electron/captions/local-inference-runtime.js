@@ -46,6 +46,7 @@ function createLocalInferenceRuntime(options, dependencies = {}) {
     whisperDevice: 'NPU',
   });
   service.supervisor = supervisor;
+  supervisor.on?.('model-status', () => service.publishStatus?.());
   return {
     catalog,
     paths,

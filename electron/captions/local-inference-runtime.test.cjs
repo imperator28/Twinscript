@@ -1,5 +1,6 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
+const { EventEmitter } = require('node:events');
 
 const { createLocalInferenceRuntime } = require('./local-inference-runtime');
 
@@ -36,6 +37,7 @@ test('bootstrap derives paths and packaged readiness from the loaded catalog', (
     resourcesPath: 'C:\\resources',
     appPath: 'C:\\app',
     userDataPath: 'C:\\user',
+    cudaEnabled: true,
   }, {
     loadCatalog: (options) => {
       calls.catalog = options;
@@ -61,11 +63,38 @@ test('bootstrap derives paths and packaged readiness from the loaded catalog', (
   assert.equal(calls.supervisor.whisperModelPath, 'whisper-path');
   assert.equal(calls.supervisor.llamaCpuBinaryPath, 'llama-cpu-path');
   assert.equal(calls.supervisor.llamaCudaBinaryPath, 'llama-cuda-path');
+  assert.equal(calls.supervisor.cudaEnabled, true);
   assert.equal(calls.supervisor.modelReady('whisper-small'), true);
   assert.equal(calls.supervisor.modelReady('hy-mt2-1.8b'), false);
   assert.equal(runtime.supervisor instanceof Supervisor, true);
   assert.equal(runtime.service.supervisor, runtime.supervisor);
   assert.equal(typeof runtime.attachSessionManager, 'function');
+});
+
+test('controller model-status publishes a fresh service snapshot and is removed on supervisor disposal', async () => {
+  let publications = 0;
+  class Service {
+    constructor() {}
+    modelReady() { return true; }
+    publishStatus() { publications += 1; }
+  }
+  class Supervisor extends EventEmitter {
+    constructor() { super(); }
+    async dispose() { this.removeAllListeners(); }
+  }
+  const runtime = createLocalInferenceRuntime({}, {
+    loadCatalog: () => ({ available: false, manifest: null, error: null }),
+    resolvePaths: () => ({ modelRoot: 'models' }),
+    LocalModelService: Service,
+    LocalInferenceSupervisor: Supervisor,
+  });
+
+  runtime.supervisor.emit('model-status', { id: 'hy-mt2-1.8b', actualDevice: 'CUDA0' });
+  assert.equal(publications, 1);
+
+  await runtime.supervisor.dispose();
+  runtime.supervisor.emit('model-status', { id: 'hy-mt2-1.8b', actualDevice: 'CPU' });
+  assert.equal(publications, 1);
 });
 
 test('manager progress publishes ongoing service snapshots and one terminal ready snapshot', async () => {

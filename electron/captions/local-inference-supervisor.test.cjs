@@ -12,6 +12,9 @@ const {
   resolveLocalInferenceExecutable,
   verifyRuntimeManifest,
 } = require('./local-inference-supervisor');
+const { HyMt2RuntimeController } = require('./hy-mt2-runtime-controller');
+const { LlamaCudaProbe } = require('./llama-runtime-probe');
+const { CUDA_RUNTIME, CPU_RUNTIME, LlamaTranslationServer } = require('./llama-translation-client');
 
 
 test('supervisor discards replies from a replaced host generation', () => {
@@ -91,6 +94,7 @@ test('an unexpected active-host close triggers the one supervised restart', asyn
 test('prepare starts Hy-MT2 only when selected and exposes the hybrid client', async () => {
   const calls = [];
   const translationRuntime = {
+    beginSession: async (sessionId) => calls.push(['translation:session', sessionId]),
     start: async () => calls.push('translation:start'),
     translate: async () => ({ text: 'local' }),
     health: () => ({ id: 'hy-mt2-1.8b', actualDevice: 'CPU' }),
@@ -114,20 +118,81 @@ test('prepare starts Hy-MT2 only when selected and exposes the hybrid client', a
 
   assert.equal(result.text, 'local');
   assert.deepEqual(calls, [
+    ['translation:session', 's1'],
     'translation:start',
     ['model.prepare', []],
   ]);
 });
 
-test('supervisor creates the default translation runtime from the CPU binary path', () => {
+test('supervisor composes CPU, optional CUDA, probe, and session controller', () => {
   const supervisor = new LocalInferenceSupervisor({
     llamaCpuBinaryPath: 'llama-cpu.exe',
     llamaCudaBinaryPath: 'llama-cuda.exe',
     hyMt2ModelPath: 'hy.gguf',
+    cudaEnabled: true,
   });
 
-  assert.equal(supervisor.translationRuntime.binaryPath, 'llama-cpu.exe');
-  assert.equal(supervisor.translationRuntime.modelPath, 'hy.gguf');
+  assert.equal(supervisor.translationRuntime instanceof HyMt2RuntimeController, true);
+  assert.equal(supervisor.translationRuntime.enabled, true);
+  assert.equal(supervisor.translationRuntime.cpuServer instanceof LlamaTranslationServer, true);
+  assert.equal(supervisor.translationRuntime.cpuServer.binaryPath, 'llama-cpu.exe');
+  assert.equal(supervisor.translationRuntime.cpuServer.modelPath, 'hy.gguf');
+  assert.deepEqual(supervisor.translationRuntime.cpuServer.runtimeDescriptor, CPU_RUNTIME);
+  assert.equal(supervisor.translationRuntime.cudaServer instanceof LlamaTranslationServer, true);
+  assert.equal(supervisor.translationRuntime.cudaServer.binaryPath, 'llama-cuda.exe');
+  assert.deepEqual(supervisor.translationRuntime.cudaServer.runtimeDescriptor, CUDA_RUNTIME);
+  assert.equal(supervisor.translationRuntime.cudaServer.maxRestarts, 0);
+  assert.equal(supervisor.translationRuntime.probe instanceof LlamaCudaProbe, true);
+  assert.equal(supervisor.translationRuntime.probe.binaryPath, 'llama-cuda.exe');
+});
+
+test('supervisor composes CPU-only controller when optional CUDA runtime is absent', () => {
+  const supervisor = new LocalInferenceSupervisor({
+    llamaCpuBinaryPath: 'llama-cpu.exe',
+    hyMt2ModelPath: 'hy.gguf',
+    cudaEnabled: true,
+  });
+
+  assert.equal(supervisor.translationRuntime instanceof HyMt2RuntimeController, true);
+  assert.equal(supervisor.translationRuntime.cpuServer.binaryPath, 'llama-cpu.exe');
+  assert.equal(supervisor.translationRuntime.cudaServer, null);
+  assert.equal(supervisor.translationRuntime.probe, null);
+});
+
+test('controller status updates readiness evidence and emits sanitized model status', () => {
+  const translationRuntime = new EventEmitter();
+  translationRuntime.health = () => ({
+    id: 'hy-mt2-1.8b', ready: true, requestedDevice: 'CUDA_AUTO', actualDevice: 'CUDA0',
+    offload: 'full', fallbackReason: null,
+  });
+  translationRuntime.stop = async () => {};
+  const supervisor = new LocalInferenceSupervisor({
+    executablePath: 'host.exe',
+    llamaCpuBinaryPath: 'llama-cpu.exe',
+    hyMt2ModelPath: 'hy.gguf',
+    translationRuntime,
+    exists: () => true,
+    artifactReady: () => true,
+  });
+  const seen = [];
+  supervisor.on('model-status', model => seen.push(model));
+
+  translationRuntime.emit('status', translationRuntime.health());
+
+  assert.equal(supervisor.lastModels.get('hy-mt2-1.8b').actualDevice, 'CUDA0');
+  assert.equal(supervisor.readiness().models['hy-mt2-1.8b'].actualDevice, 'CUDA0');
+  assert.equal(seen.length, 1);
+  assert.equal(seen[0].offload, 'full');
+
+  translationRuntime.health = () => ({
+    id: 'hy-mt2-1.8b', ready: false, requestedDevice: 'CUDA_AUTO', actualDevice: null,
+    offload: 'unknown', fallbackReason: null,
+  });
+  assert.equal(
+    supervisor.readiness().models['hy-mt2-1.8b'].actualDevice,
+    null,
+    'current controller health must outrank the previous session snapshot',
+  );
 });
 
 test('development Hy-MT2 readiness requires the CPU runtime but not CUDA', () => {

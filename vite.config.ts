@@ -121,6 +121,8 @@ export default defineConfig(({ command, mode }) => {
             'captions/glossary-request-context': 'electron/captions/glossary-request-context.js',
             'captions/live-transcription-session': 'electron/captions/live-transcription-session.js',
             'captions/hybrid-local-inference-client': 'electron/captions/hybrid-local-inference-client.js',
+            'captions/hy-mt2-runtime-controller': 'electron/captions/hy-mt2-runtime-controller.js',
+            'captions/llama-runtime-probe': 'electron/captions/llama-runtime-probe.js',
             'captions/llama-translation-client': 'electron/captions/llama-translation-client.js',
             'captions/local-inference-client': 'electron/captions/local-inference-client.js',
             'captions/local-inference-paths': 'electron/captions/local-inference-paths.js',

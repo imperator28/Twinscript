@@ -71,8 +71,24 @@ function hasDevelopmentModel(modelPath, requiredFiles, fsImpl = fs) {
 function verifyRuntimeManifest(executablePath, fsImpl = fs) {
   try {
     const root = path.dirname(executablePath);
-    const manifest = JSON.parse(fsImpl.readFileSync(path.join(root, 'runtime-manifest.json'), 'utf8'));
-    if (manifest.schemaVersion !== 1 || !Array.isArray(manifest.files)) return false;
+    const manifest = JSON.parse(
+      fsImpl.readFileSync(path.join(root, 'runtime-manifest.json'), 'utf8').replace(/^\uFEFF/, ''),
+    );
+    if (manifest.schemaVersion !== 2 || !Array.isArray(manifest.files)) return false;
+    const families = manifest.runtimeFamilies;
+    if (!families?.cpu || !families?.cuda || families.cpu.revision !== families.cuda.revision) return false;
+    const expectedEntryPoints = {
+      cpu: 'llama/cpu/llama-server.exe',
+      cuda: 'llama/cuda/llama-server.exe',
+    };
+    const inventoryPaths = new Set(manifest.files.map(entry => entry?.path));
+    for (const familyName of ['cpu', 'cuda']) {
+      const family = families[familyName];
+      if (family.entryPoint !== expectedEntryPoints[familyName] ||
+          !Array.isArray(family.files) || !family.files.includes(family.entryPoint)) return false;
+      if (family.files.some(file =>
+        typeof file !== 'string' || !file.startsWith(`llama/${familyName}/`) || !inventoryPaths.has(file))) return false;
+    }
     let containsHost = false;
     for (const entry of manifest.files) {
       if (!entry || typeof entry.path !== 'string' || !Number.isSafeInteger(entry.size)) return false;

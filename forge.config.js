@@ -5,6 +5,9 @@ const path = require('path');
 const {
   resolveMacSigningIdentity,
 } = require('./scripts/macos-local-signing.cjs');
+const {
+  assertRuntimeLayout,
+} = require('./scripts/local-inference-runtime-layout.cjs');
 
 const macSigningIdentity = resolveMacSigningIdentity();
 
@@ -65,6 +68,18 @@ function stageNativeCameraResources(buildPath, platform) {
       );
     }
     fs.copyFileSync(source, path.join(target, resource.name));
+  }
+}
+
+function validatePackagedLocalInference(buildPath, platform) {
+  if (platform !== 'win32') return;
+  const runtimeRoot = path.resolve(buildPath, '..', 'local-inference-host');
+  try {
+    assertRuntimeLayout(runtimeRoot);
+  } catch (error) {
+    throw new Error(
+      `Invalid packaged local-inference runtime: ${error instanceof Error ? error.message : String(error)}`,
+    );
   }
 }
 
@@ -249,6 +264,7 @@ module.exports = {
     packageAfterCopy: async (_forgeConfig, buildPath, _electronVersion, platform) => {
       pruneElectronLocales(buildPath, platform);
       stageNativeCameraResources(buildPath, platform);
+      validatePackagedLocalInference(buildPath, platform);
     },
     packageAfterPrune: async (forgeConfig, buildPath) => {
       // List of directories to check and remove unnecessary files

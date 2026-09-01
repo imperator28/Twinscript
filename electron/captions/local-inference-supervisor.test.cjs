@@ -331,14 +331,29 @@ test('runtime readiness verifies the staged manifest hash', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'twinscript-runtime-'));
   const executable = path.join(root, 'twinscript-local-inference.exe');
   const bytes = Buffer.from('verified runtime');
+  const cpuEntry = path.join(root, 'llama', 'cpu', 'llama-server.exe');
+  const cudaEntry = path.join(root, 'llama', 'cuda', 'llama-server.exe');
+  fs.mkdirSync(path.dirname(cpuEntry), { recursive: true });
+  fs.mkdirSync(path.dirname(cudaEntry), { recursive: true });
   fs.writeFileSync(executable, bytes);
+  fs.writeFileSync(cpuEntry, bytes);
+  fs.writeFileSync(cudaEntry, bytes);
+  const inventoryEntry = (relativePath) => ({
+    path: relativePath,
+    size: bytes.length,
+    sha256: crypto.createHash('sha256').update(bytes).digest('hex'),
+  });
   fs.writeFileSync(path.join(root, 'runtime-manifest.json'), JSON.stringify({
-    schemaVersion: 1,
-    files: [{
-      path: 'twinscript-local-inference.exe',
-      size: bytes.length,
-      sha256: crypto.createHash('sha256').update(bytes).digest('hex'),
-    }],
+    schemaVersion: 2,
+    runtimeFamilies: {
+      cpu: { revision: 'b9940', entryPoint: 'llama/cpu/llama-server.exe', files: ['llama/cpu/llama-server.exe'] },
+      cuda: { revision: 'b9940', entryPoint: 'llama/cuda/llama-server.exe', files: ['llama/cuda/llama-server.exe'] },
+    },
+    files: [
+      inventoryEntry('twinscript-local-inference.exe'),
+      inventoryEntry('llama/cpu/llama-server.exe'),
+      inventoryEntry('llama/cuda/llama-server.exe'),
+    ],
   }));
 
   assert.equal(verifyRuntimeManifest(executable), true);

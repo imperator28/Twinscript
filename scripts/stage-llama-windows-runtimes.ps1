@@ -1,10 +1,13 @@
 param(
   [Parameter(Mandatory = $true)][string]$OutputDirectory,
   [Parameter(Mandatory = $true)][string]$CacheDirectory,
-  [string]$LockPath = (Join-Path $PSScriptRoot "llama-windows-runtime-lock.json")
+  [string]$LockPath
 )
 
 $ErrorActionPreference = "Stop"
+if ([string]::IsNullOrWhiteSpace($LockPath)) {
+  $LockPath = Join-Path $PSScriptRoot "llama-windows-runtime-lock.json"
+}
 
 function Get-FullPath {
   param([Parameter(Mandatory = $true)][string]$Path)

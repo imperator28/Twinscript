@@ -13,7 +13,12 @@ test('Hy-MT2 conforms to the normalizer result shape', async () => {
       text: '已确认',
       model: 'hy-mt2-1.8b',
       runtime: 'llama.cpp',
-      actualDevice: 'CPU',
+      requestedDevice: 'CUDA_AUTO',
+      actualDevice: 'CUDA0',
+      deviceName: 'NVIDIA RTX 3000 Ada Generation Laptop GPU',
+      offload: 'partial',
+      fallbackReason: null,
+      inferenceMs: 410,
       inputTokens: 4,
       outputTokens: 3,
       sourceRevision: payload.sourceRevision,
@@ -30,7 +35,12 @@ test('Hy-MT2 conforms to the normalizer result shape', async () => {
   assert.equal(result.text, '已确认');
   assert.equal(result.model, 'hy-mt2-1.8b');
   assert.equal(result.runtime, 'llama.cpp');
-  assert.equal(result.actualDevice, 'CPU');
+  assert.equal(result.requestedDevice, 'CUDA_AUTO');
+  assert.equal(result.actualDevice, 'CUDA0');
+  assert.equal(result.deviceName, 'NVIDIA RTX 3000 Ada Generation Laptop GPU');
+  assert.equal(result.offload, 'partial');
+  assert.equal(result.fallbackReason, null);
+  assert.equal(result.inferenceMs, 410);
   assert.deepEqual(result.usage, { inputTokens: 4, outputTokens: 3 });
 });
 

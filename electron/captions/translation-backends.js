@@ -65,7 +65,12 @@ class LocalHyMt2Backend {
       sourceLanguage: message.sourceLanguage || sourceLanguage || 'unknown',
       model: message.model || 'hy-mt2-1.8b',
       runtime: message.runtime || 'llama.cpp',
+      requestedDevice: message.requestedDevice || 'CPU',
       actualDevice: message.actualDevice || 'CPU',
+      deviceName: message.deviceName || null,
+      offload: message.offload || 'unknown',
+      fallbackReason: message.fallbackReason || null,
+      inferenceMs: Number.isFinite(message.inferenceMs) ? message.inferenceMs : null,
       authoritative: message.authoritative === true,
       sourceRevision: message.sourceRevision,
       usage: {

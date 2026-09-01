@@ -20,11 +20,53 @@ function safeError(error) {
   };
 }
 
-function safeDevice(device) {
+function safeExpectedDevice(device) {
   return ['NPU', 'GPU', 'CPU'].includes(device) ? device : null;
 }
 
-function unavailableModel(modelId, actualDevice = null) {
+function safeActualDevice(modelId, device) {
+  const allowed = modelId === 'hy-mt2-1.8b' ? ['CUDA0', 'CPU'] : ['NPU', 'CPU'];
+  return allowed.includes(device) ? device : null;
+}
+
+function safeRequestedDevice(modelId, device) {
+  const allowed = modelId === 'hy-mt2-1.8b' ? ['CUDA_AUTO', 'CPU'] : ['NPU', 'CPU'];
+  return allowed.includes(device) ? device : null;
+}
+
+function safeDeviceName(value, actualDevice) {
+  if (actualDevice !== 'CUDA0' || typeof value !== 'string' || !value.trim()) return null;
+  const name = value.trim();
+  if (!/\bNVIDIA\b/i.test(name) || /[\\/\r\n]/.test(name)) return null;
+  return name.slice(0, 160);
+}
+
+function safeOffload(value) {
+  return ['full', 'partial', 'none', 'unknown'].includes(value) ? value : 'unknown';
+}
+
+function safeFallbackReason(value) {
+  if (value == null) return null;
+  return /^[a-z0-9_]{1,80}$/.test(value) ? value : null;
+}
+
+function safeLoadMs(value) {
+  return Number.isFinite(value) && value >= 0 ? value : null;
+}
+
+function safeRuntimeModel(modelId, runtime = {}) {
+  const actualDevice = safeActualDevice(modelId, runtime.actualDevice);
+  return {
+    actualDevice,
+    requestedDevice: safeRequestedDevice(modelId, runtime.requestedDevice),
+    deviceName: modelId === 'hy-mt2-1.8b' ? safeDeviceName(runtime.deviceName, actualDevice) : null,
+    offload: modelId === 'hy-mt2-1.8b' ? safeOffload(runtime.offload) : 'unknown',
+    fallbackReason: modelId === 'hy-mt2-1.8b' ? safeFallbackReason(runtime.fallbackReason) : null,
+    loadMs: modelId === 'hy-mt2-1.8b' ? safeLoadMs(runtime.loadMs) : null,
+  };
+}
+
+function unavailableModel(modelId, runtime = {}) {
   return {
     id: modelId,
     version: null,
@@ -32,17 +74,17 @@ function unavailableModel(modelId, actualDevice = null) {
     ready: false,
     installed: false,
     verified: false,
-    actualDevice: safeDevice(actualDevice),
+    ...safeRuntimeModel(modelId, runtime),
     error: CATALOG_UNAVAILABLE,
   };
 }
 
-function rendererModel(model = {}, actualDevice, catalogModel) {
+function rendererModel(model = {}, runtime, catalogModel) {
   return {
     id: catalogModel.id,
     displayName: catalogModel.displayName,
     purpose: catalogModel.purpose,
-    expectedDevice: safeDevice(catalogModel.expectedDevice),
+    expectedDevice: safeExpectedDevice(catalogModel.expectedDevice),
     version: catalogModel.version,
     downloadBytes: model.downloadBytes,
     installedBytes: model.installedBytes,
@@ -53,7 +95,7 @@ function rendererModel(model = {}, actualDevice, catalogModel) {
     ready: model.ready === true,
     repairRecommended: model.repairRecommended === true,
     error: safeError(model.error),
-    actualDevice: safeDevice(actualDevice),
+    ...safeRuntimeModel(catalogModel.id, runtime),
   };
 }
 
@@ -145,11 +187,11 @@ class LocalModelService extends EventEmitter {
         },
         runtime: {
           ready: Boolean(readiness.runtimeReady),
-          requestedDevice: safeDevice(readiness.requestedDevice) || 'NPU',
+          requestedDevice: safeExpectedDevice(readiness.requestedDevice) || 'NPU',
         },
         models: Object.fromEntries(ALLOWED_MODEL_IDS.map((modelId) => [
           modelId,
-          unavailableModel(modelId, readiness.models?.[modelId]?.actualDevice),
+          unavailableModel(modelId, readiness.models?.[modelId]),
         ])),
         actionLocks,
       };
@@ -164,13 +206,13 @@ class LocalModelService extends EventEmitter {
       },
       runtime: {
         ready: Boolean(readiness.runtimeReady),
-        requestedDevice: safeDevice(readiness.requestedDevice) || 'NPU',
+        requestedDevice: safeExpectedDevice(readiness.requestedDevice) || 'NPU',
       },
       models: Object.fromEntries(this.catalog.manifest.models.map((model) => [
         model.id,
         rendererModel(
           lifecycle.models?.[model.id],
-          readiness.models?.[model.id]?.actualDevice,
+          readiness.models?.[model.id],
           model,
         ),
       ])),

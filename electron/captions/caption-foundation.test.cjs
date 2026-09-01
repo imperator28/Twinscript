@@ -1392,6 +1392,51 @@ test('stop waits for an in-flight final caption before finalizing its transcript
   assert.deepEqual(order.slice(-2), ['caption', 'record-stop']);
 });
 
+test('caption records preserve current and final HY-MT2 runtime provenance', async () => {
+  const manager = new CaptionSessionManager({ credentialStore: {}, settingsStore: {} });
+  manager.active = true;
+  manager.sessionId = 'session';
+  manager.settings = { primaryProfile: 'economy', glossary: [] };
+  manager.cost = { canSpend: () => true, snapshot: () => ({ totalUsd: 0 }) };
+  const provenance = {
+    sourceLanguage: 'en', model: 'hy-mt2-1.8b', runtime: 'llama.cpp-b9940-cuda12.4',
+    requestedDevice: 'CUDA_AUTO', actualDevice: 'CUDA0', deviceName: 'NVIDIA RTX',
+    offload: 'partial', fallbackReason: null, inferenceMs: 410,
+    usage: { inputTokens: 1, outputTokens: 1 },
+  };
+  manager.previewTranslator = { normalize: async () => ({ ...provenance, text: '预览' }) };
+  manager.finalTranslator = { normalize: async () => ({
+    ...provenance, text: '最终', actualDevice: 'CPU', offload: 'none',
+    fallbackReason: 'local_translation_host_closed',
+  }) };
+  const key = 'microphone:item';
+  const caption = createCaptionEvent({
+    sessionId: 'session', sequence: 1, sourceChannel: 'microphone', providerItemId: 'item',
+    sourceText: 'Confirmed.', sourceStartedAt: 1, transcriptStatus: 'final', profile: 'economy',
+  });
+  manager.eventsByItem.set(key, caption);
+
+  await manager.normalizePrimary(key, caption, false);
+  let stored = manager.eventsByItem.get(key);
+  assert.equal(stored.provider.normalizationRequestedDevice, 'CUDA_AUTO');
+  assert.equal(stored.provider.normalizationDevice, 'CUDA0');
+  assert.equal(stored.provider.normalizationDeviceName, 'NVIDIA RTX');
+  assert.equal(stored.provider.normalizationOffload, 'partial');
+  assert.equal(stored.provider.normalizationFallbackReason, null);
+  assert.equal(stored.provider.normalizationInferenceMs, 410);
+
+  await manager.normalizePrimary(key, stored, true);
+  stored = manager.eventsByItem.get(key);
+  assert.equal(stored.provider.normalizationDevice, 'CPU');
+  assert.equal(stored.provider.normalizationFallbackReason, 'local_translation_host_closed');
+  assert.equal(stored.provider.finalNormalizationRequestedDevice, 'CUDA_AUTO');
+  assert.equal(stored.provider.finalNormalizationDevice, 'CPU');
+  assert.equal(stored.provider.finalNormalizationDeviceName, 'NVIDIA RTX');
+  assert.equal(stored.provider.finalNormalizationOffload, 'none');
+  assert.equal(stored.provider.finalNormalizationFallbackReason, 'local_translation_host_closed');
+  assert.equal(stored.provider.finalNormalizationInferenceMs, 410);
+});
+
 test('stop aborts and proceeds when a final translation never settles', async () => {
   let aborted = false;
   const manager = new CaptionSessionManager({

@@ -296,6 +296,11 @@ class LocalInferenceSupervisor extends EventEmitter {
           actualDevice: translationHealth
             ? translationHealth.actualDevice || null
             : actual('hy-mt2-1.8b'),
+          requestedDevice: translationHealth?.requestedDevice || null,
+          deviceName: translationHealth?.deviceName || null,
+          offload: translationHealth?.offload || 'unknown',
+          fallbackReason: translationHealth?.fallbackReason || null,
+          loadMs: Number.isFinite(translationHealth?.loadMs) ? translationHealth.loadMs : null,
         },
       },
     };

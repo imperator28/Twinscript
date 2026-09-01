@@ -726,10 +726,20 @@ class CaptionSessionManager {
           updated.provider.normalizationModel = result.model;
           updated.provider.normalizationRuntime = result.runtime || 'openai-responses';
           updated.provider.normalizationDevice = result.actualDevice || 'cloud';
+          updated.provider.normalizationRequestedDevice = result.requestedDevice;
+          updated.provider.normalizationDeviceName = result.deviceName;
+          updated.provider.normalizationOffload = result.offload;
+          updated.provider.normalizationFallbackReason = result.fallbackReason;
+          updated.provider.normalizationInferenceMs = result.inferenceMs;
           if (final) {
             updated.provider.finalNormalizationModel = result.model;
             updated.provider.finalNormalizationRuntime = result.runtime || 'openai-responses';
             updated.provider.finalNormalizationDevice = result.actualDevice || 'cloud';
+            updated.provider.finalNormalizationRequestedDevice = result.requestedDevice;
+            updated.provider.finalNormalizationDeviceName = result.deviceName;
+            updated.provider.finalNormalizationOffload = result.offload;
+            updated.provider.finalNormalizationFallbackReason = result.fallbackReason;
+            updated.provider.finalNormalizationInferenceMs = result.inferenceMs;
           }
           updated.usage = {
             ...updated.usage,

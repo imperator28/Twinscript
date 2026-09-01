@@ -216,7 +216,15 @@ test('development Hy-MT2 readiness requires the CPU runtime but not CUDA', () =>
     requestedDevice: 'NPU',
     models: {
       'whisper-small': { ready: true, actualDevice: null },
-      'hy-mt2-1.8b': { ready: true, actualDevice: null },
+      'hy-mt2-1.8b': {
+        ready: true,
+        actualDevice: null,
+        requestedDevice: 'CPU',
+        deviceName: null,
+        offload: 'unknown',
+        fallbackReason: null,
+        loadMs: null,
+      },
     },
   });
 });

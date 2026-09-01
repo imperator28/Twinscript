@@ -34,9 +34,19 @@ export interface CaptionEvent {
     normalizationModel: string;
     normalizationRuntime?: string;
     normalizationDevice?: string;
+    normalizationRequestedDevice?: string;
+    normalizationDeviceName?: string | null;
+    normalizationOffload?: 'full' | 'partial' | 'none' | 'unknown';
+    normalizationFallbackReason?: string | null;
+    normalizationInferenceMs?: number | null;
     finalNormalizationModel?: string;
     finalNormalizationRuntime?: string;
     finalNormalizationDevice?: string;
+    finalNormalizationRequestedDevice?: string;
+    finalNormalizationDeviceName?: string | null;
+    finalNormalizationOffload?: 'full' | 'partial' | 'none' | 'unknown';
+    finalNormalizationFallbackReason?: string | null;
+    finalNormalizationInferenceMs?: number | null;
     profile: string;
   };
   usage: {
@@ -326,7 +336,12 @@ export interface LocalModelState {
   ready: boolean;
   repairRecommended?: boolean;
   error: { code: string; message: string } | null;
-  actualDevice: 'NPU' | 'GPU' | 'CPU' | null;
+  actualDevice: 'NPU' | 'CUDA0' | 'CPU' | null;
+  requestedDevice?: 'NPU' | 'CUDA_AUTO' | 'CPU' | null;
+  deviceName?: string | null;
+  offload?: 'full' | 'partial' | 'none' | 'unknown';
+  fallbackReason?: string | null;
+  loadMs?: number | null;
 }
 
 /** Snapshot published by LocalModelService over the narrow renderer IPC bridge. */

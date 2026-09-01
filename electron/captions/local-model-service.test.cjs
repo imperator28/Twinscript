@@ -40,7 +40,15 @@ test('status merges model lifecycle, runtime device truth, and meeting action lo
         requestedDevice: 'NPU',
         models: {
           'whisper-small': { ready: true, actualDevice: 'NPU' },
-          'hy-mt2-1.8b': { ready: false, actualDevice: 'CPU' },
+          'hy-mt2-1.8b': {
+            ready: false,
+            requestedDevice: 'CUDA_AUTO',
+            actualDevice: 'CUDA0',
+            deviceName: 'NVIDIA RTX 3000 Ada Generation Laptop GPU',
+            offload: 'partial',
+            fallbackReason: null,
+            loadMs: 812,
+          },
         },
       }),
     },
@@ -55,7 +63,21 @@ test('status merges model lifecycle, runtime device truth, and meeting action lo
   assert.equal(status.runtime.requestedDevice, 'NPU');
   assert.equal(status.models['whisper-small'].phase, 'ready');
   assert.equal(status.models['whisper-small'].actualDevice, 'NPU');
-  assert.equal(status.models['hy-mt2-1.8b'].actualDevice, 'CPU');
+  assert.deepEqual({
+    requestedDevice: status.models['hy-mt2-1.8b'].requestedDevice,
+    actualDevice: status.models['hy-mt2-1.8b'].actualDevice,
+    deviceName: status.models['hy-mt2-1.8b'].deviceName,
+    offload: status.models['hy-mt2-1.8b'].offload,
+    fallbackReason: status.models['hy-mt2-1.8b'].fallbackReason,
+    loadMs: status.models['hy-mt2-1.8b'].loadMs,
+  }, {
+    requestedDevice: 'CUDA_AUTO',
+    actualDevice: 'CUDA0',
+    deviceName: 'NVIDIA RTX 3000 Ada Generation Laptop GPU',
+    offload: 'partial',
+    fallbackReason: null,
+    loadMs: 812,
+  });
   assert.deepEqual(status.actionLocks, {
     meetingActive: true,
     download: true,
@@ -151,6 +173,77 @@ test('status defaults an unsafe requested runtime device without leaking it', ()
 
   assert.equal(status.runtime.requestedDevice, 'NPU');
   assert.equal(JSON.stringify(status).includes('C:\\private\\runtime'), false);
+});
+
+test('translation runtime provenance is model-aware, bounded, and fail-closed', () => {
+  const longName = 'NVIDIA ' + 'x'.repeat(300);
+  const service = new LocalModelService({
+    catalog: catalog(),
+    manager: { status: () => ({ models: {
+      'whisper-small': { id: 'whisper-small', phase: 'ready', ready: true },
+      'hy-mt2-1.8b': { id: 'hy-mt2-1.8b', phase: 'ready', ready: true },
+    } }) },
+    supervisor: { readiness: () => ({
+      runtimeReady: true,
+      requestedDevice: 'NPU',
+      models: {
+        'whisper-small': { actualDevice: 'CUDA0', requestedDevice: 'CUDA_AUTO' },
+        'hy-mt2-1.8b': {
+          actualDevice: 'GPU', requestedDevice: 'NPU', deviceName: longName,
+          offload: 'everything', fallbackReason: 'BAD CODE/path', loadMs: -1,
+        },
+      },
+    }) },
+  });
+
+  const status = service.status();
+  assert.equal(status.models['whisper-small'].actualDevice, null);
+  assert.equal(status.models['whisper-small'].requestedDevice, null);
+  assert.equal(status.models['hy-mt2-1.8b'].actualDevice, null);
+  assert.equal(status.models['hy-mt2-1.8b'].requestedDevice, null);
+  assert.equal(status.models['hy-mt2-1.8b'].deviceName, null);
+  assert.equal(status.models['hy-mt2-1.8b'].offload, 'unknown');
+  assert.equal(status.models['hy-mt2-1.8b'].fallbackReason, null);
+  assert.equal(status.models['hy-mt2-1.8b'].loadMs, null);
+  assert.equal(JSON.stringify(status).includes('BAD CODE/path'), false);
+});
+
+test('renderer provenance caps a verified NVIDIA device name', () => {
+  const service = new LocalModelService({
+    catalog: catalog(),
+    manager: { status: () => ({ models: {
+      'whisper-small': { id: 'whisper-small', phase: 'ready', ready: true },
+      'hy-mt2-1.8b': { id: 'hy-mt2-1.8b', phase: 'ready', ready: true },
+    } }) },
+    supervisor: { readiness: () => ({ runtimeReady: true, requestedDevice: 'NPU', models: {
+      'hy-mt2-1.8b': {
+        actualDevice: 'CUDA0', requestedDevice: 'CUDA_AUTO',
+        deviceName: 'NVIDIA ' + 'x'.repeat(300), offload: 'full',
+      },
+    } }) },
+  });
+
+  assert.equal(service.status().models['hy-mt2-1.8b'].deviceName.length, 160);
+});
+
+test('renderer provenance rejects path-like device names even when CUDA is claimed', () => {
+  const service = new LocalModelService({
+    catalog: catalog(),
+    manager: { status: () => ({ models: {
+      'whisper-small': { id: 'whisper-small', phase: 'ready', ready: true },
+      'hy-mt2-1.8b': { id: 'hy-mt2-1.8b', phase: 'ready', ready: true },
+    } }) },
+    supervisor: { readiness: () => ({ runtimeReady: true, requestedDevice: 'NPU', models: {
+      'hy-mt2-1.8b': {
+        actualDevice: 'CUDA0', requestedDevice: 'CUDA_AUTO',
+        deviceName: 'C:\\private\\NVIDIA stderr.log', offload: 'full',
+      },
+    } }) },
+  });
+
+  const status = service.status();
+  assert.equal(status.models['hy-mt2-1.8b'].deviceName, null);
+  assert.equal(JSON.stringify(status).includes('C:\\private'), false);
 });
 
 test('install publishes a fresh status after a manager operation succeeds or fails', async () => {

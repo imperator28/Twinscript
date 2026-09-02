@@ -23,7 +23,9 @@ const CUDA_RUNTIME = freezeRuntimeDescriptor({
   family: 'cuda',
   runtime: 'llama.cpp-b9940-cuda12.4',
   requestedDevice: 'CUDA_AUTO',
-  launchArgs: ['--device', 'CUDA0', '--gpu-layers', 'auto', '--fit', 'on'],
+  // b9940 only emits device and layer-offload evidence at verbosity 4. Keep
+  // this pinned so CUDA is never claimed from the requested arguments alone.
+  launchArgs: ['--device', 'CUDA0', '--gpu-layers', 'auto', '--fit', 'on', '--verbosity', '4'],
 });
 
 const NVIDIA_DEVICE_PATTERN = /\bNVIDIA\b/i;
@@ -67,7 +69,9 @@ function validateRuntimeDescriptor(descriptor) {
         launchArgs[2] !== '--gpu-layers' ||
         launchArgs[3] !== 'auto' ||
         launchArgs[4] !== '--fit' ||
-        launchArgs[5] !== 'on') {
+        launchArgs[5] !== 'on' ||
+        launchArgs[6] !== '--verbosity' ||
+        launchArgs[7] !== '4') {
       throw runtimeDescriptorError('CUDA runtimeDescriptor must match the pinned CUDA runtime');
     }
     const selectedDeviceId = `CUDA${BigInt(selectedDevice.slice(4))}`;
@@ -75,7 +79,12 @@ function validateRuntimeDescriptor(descriptor) {
       family,
       runtime,
       requestedDevice,
-      launchArgs: ['--device', selectedDeviceId, '--gpu-layers', 'auto', '--fit', 'on'],
+      launchArgs: [
+        '--device', selectedDeviceId,
+        '--gpu-layers', 'auto',
+        '--fit', 'on',
+        '--verbosity', '4',
+      ],
     });
   }
   throw runtimeDescriptorError('runtimeDescriptor.family must be cpu or cuda');

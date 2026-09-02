@@ -58,7 +58,7 @@ test('runtime descriptors and their launch arguments are immutable', () => {
     family: 'cuda',
     runtime: 'llama.cpp-b9940-cuda12.4',
     requestedDevice: 'CUDA_AUTO',
-    launchArgs: ['--device', 'CUDA0', '--gpu-layers', 'auto', '--fit', 'on'],
+    launchArgs: ['--device', 'CUDA0', '--gpu-layers', 'auto', '--fit', 'on', '--verbosity', '4'],
   });
 });
 
@@ -75,7 +75,7 @@ test('runtime descriptors reject noncanonical fields and conflicting launch argu
     ['CUDA wrong runtime', { ...CUDA_RUNTIME, runtime: 'llama.cpp-b9940-cpu' }],
     ['CUDA wrong requested device', { ...CUDA_RUNTIME, requestedDevice: 'CUDA2' }],
     ['CUDA wrong family', { ...CUDA_RUNTIME, family: 'cpu' }],
-    ['CUDA malformed selected id', { ...CUDA_RUNTIME, launchArgs: ['--device', 'CUDA-2', '--gpu-layers', 'auto', '--fit', 'on'] }],
+    ['CUDA malformed selected id', { ...CUDA_RUNTIME, launchArgs: ['--device', 'CUDA-2', '--gpu-layers', 'auto', '--fit', 'on', '--verbosity', '4'] }],
   ];
 
   for (const [label, runtimeDescriptor] of invalidDescriptors) {
@@ -233,6 +233,7 @@ test('CUDA runtime launches exact device, automatic offload, and fit arguments',
       '-m', 'C:\\models\\hy-mt2.gguf', '--host', '127.0.0.1',
       '--port', '23843', '--no-webui', '-c', '2048', '--log-colors', 'off',
       '--device', 'CUDA0', '--gpu-layers', 'auto', '--fit', 'on',
+      '--verbosity', '4',
     ],
     options: {
       cwd: 'C:\\runtime\\cuda',
@@ -250,7 +251,7 @@ test('CUDA device IDs with leading zeros launch and verify canonically', async (
     modelPath: 'hy-mt2.gguf',
     runtimeDescriptor: {
       ...CUDA_RUNTIME,
-      launchArgs: ['--device', 'cuda00', '--gpu-layers', 'auto', '--fit', 'on'],
+      launchArgs: ['--device', 'cuda00', '--gpu-layers', 'auto', '--fit', 'on', '--verbosity', '4'],
     },
     allocatePort: async () => 23846,
     spawn: (_binary, args) => {
@@ -444,7 +445,7 @@ test('caller descriptor and returned provenance mutations cannot alter server st
     family: 'cuda',
     runtime: 'llama.cpp-b9940-cuda12.4',
     requestedDevice: 'CUDA_AUTO',
-    launchArgs: ['--device', 'cuda2', '--gpu-layers', 'auto', '--fit', 'on'],
+    launchArgs: ['--device', 'cuda2', '--gpu-layers', 'auto', '--fit', 'on', '--verbosity', '4'],
   };
   let launchArgs;
   let spawnedChild;

@@ -71,9 +71,9 @@ function stageNativeCameraResources(buildPath, platform) {
   }
 }
 
-function validatePackagedLocalInference(buildPath, platform) {
+function validatePackagedLocalInference(packageRoot, platform) {
   if (platform !== 'win32') return;
-  const runtimeRoot = path.resolve(buildPath, '..', 'local-inference-host');
+  const runtimeRoot = path.resolve(packageRoot, 'resources', 'local-inference-host');
   try {
     assertRuntimeLayout(runtimeRoot);
   } catch (error) {
@@ -118,6 +118,18 @@ module.exports = {
       // fail if its verified runtime was not staged; silently omitting it would
       // produce a Settings option that can never start.
       ...(process.platform === 'win32' ? ['artifacts/local-inference-host'] : []),
+    ],
+    // Electron Packager copies extraResource after its ordinary afterCopy hook.
+    // Validate at the first hook where the packaged runtime actually exists.
+    afterCopyExtraResources: [
+      (packageRoot, _electronVersion, platform, _arch, done) => {
+        try {
+          validatePackagedLocalInference(packageRoot, platform);
+          done();
+        } catch (error) {
+          done(error);
+        }
+      },
     ],
     icon: process.platform === 'win32' ? 'assets/icon.ico' : 'assets/icon',
     appBundleId: 'com.jiyu.twinscript',
@@ -264,7 +276,6 @@ module.exports = {
     packageAfterCopy: async (_forgeConfig, buildPath, _electronVersion, platform) => {
       pruneElectronLocales(buildPath, platform);
       stageNativeCameraResources(buildPath, platform);
-      validatePackagedLocalInference(buildPath, platform);
     },
     packageAfterPrune: async (forgeConfig, buildPath) => {
       // List of directories to check and remove unnecessary files

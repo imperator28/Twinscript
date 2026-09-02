@@ -5,6 +5,10 @@ const { loadLocalModelCatalog } = require('./local-model-manifest-loader');
 const { LocalModelManager } = require('./local-model-manager');
 const { LocalModelService } = require('./local-model-service');
 
+function defaultHyMt2CudaEnabled({ platform = process.platform, env = process.env } = {}) {
+  return platform === 'win32' && env.TWINSCRIPT_DISABLE_HYMT2_CUDA !== '1';
+}
+
 function createLocalInferenceRuntime(options, dependencies = {}) {
   const loadCatalog = dependencies.loadCatalog || loadLocalModelCatalog;
   const resolvePaths = dependencies.resolvePaths || resolveLocalInferencePaths;
@@ -60,4 +64,4 @@ function createLocalInferenceRuntime(options, dependencies = {}) {
   };
 }
 
-module.exports = { createLocalInferenceRuntime };
+module.exports = { createLocalInferenceRuntime, defaultHyMt2CudaEnabled };

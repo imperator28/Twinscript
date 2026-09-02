@@ -2,7 +2,24 @@ const assert = require('node:assert/strict');
 const test = require('node:test');
 const { EventEmitter } = require('node:events');
 
-const { createLocalInferenceRuntime } = require('./local-inference-runtime');
+const {
+  createLocalInferenceRuntime,
+  defaultHyMt2CudaEnabled,
+} = require('./local-inference-runtime');
+
+test('Windows enables HY-MT2 CUDA automatically unless the kill switch is set', () => {
+  assert.equal(defaultHyMt2CudaEnabled({ platform: 'win32', env: {} }), true);
+  assert.equal(defaultHyMt2CudaEnabled({
+    platform: 'win32',
+    env: { TWINSCRIPT_DISABLE_HYMT2_CUDA: '1' },
+  }), false);
+  assert.equal(defaultHyMt2CudaEnabled({
+    platform: 'win32',
+    env: { TWINSCRIPT_DISABLE_HYMT2_CUDA: '0' },
+  }), true);
+  assert.equal(defaultHyMt2CudaEnabled({ platform: 'darwin', env: {} }), false);
+  assert.equal(defaultHyMt2CudaEnabled({ platform: 'linux', env: {} }), false);
+});
 
 test('bootstrap derives paths and packaged readiness from the loaded catalog', () => {
   const calls = {};

@@ -21,7 +21,10 @@ const {
 } = require('./captions/camera-stage-frame-publisher');
 const { CredentialStore } = require('./captions/credential-store');
 const { EvaluationRecorder } = require('./captions/evaluation-recorder');
-const { createLocalInferenceRuntime } = require('./captions/local-inference-runtime');
+const {
+  createLocalInferenceRuntime,
+  defaultHyMt2CudaEnabled,
+} = require('./captions/local-inference-runtime');
 const {
   MeetingRecordController,
 } = require('./captions/meeting-record-controller');
@@ -404,8 +407,7 @@ app.whenReady().then(async () => {
     resourcesPath: process.resourcesPath,
     appPath: app.getAppPath(),
     userDataPath: app.getPath('userData'),
-    cudaEnabled:
-      process.platform === 'win32' && process.env.TWINSCRIPT_HYMT2_CUDA === '1',
+    cudaEnabled: defaultHyMt2CudaEnabled(),
   });
   localInferenceSupervisor = localInferenceRuntime.supervisor;
   localModelService = localInferenceRuntime.service;

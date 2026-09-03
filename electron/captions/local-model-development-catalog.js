@@ -7,6 +7,28 @@ const CATALOG_ERROR = {
   message: 'Local model downloads are unavailable in this build.',
 };
 
+const WHISPER_SMALL_REQUIRED_PATHS = [
+  'added_tokens.json',
+  'config.json',
+  'generation_config.json',
+  'merges.txt',
+  'normalizer.json',
+  'openvino_config.json',
+  'openvino_decoder_model.bin',
+  'openvino_decoder_model.xml',
+  'openvino_detokenizer.bin',
+  'openvino_detokenizer.xml',
+  'openvino_encoder_model.bin',
+  'openvino_encoder_model.xml',
+  'openvino_tokenizer.bin',
+  'openvino_tokenizer.xml',
+  'preprocessor_config.json',
+  'special_tokens_map.json',
+  'tokenizer.json',
+  'tokenizer_config.json',
+  'vocab.json',
+];
+
 function unavailable(root) {
   return {
     available: false,
@@ -37,12 +59,16 @@ function developmentLocalModelCatalog({ appPath, fsImpl = fs }) {
       path.join(appPath, 'artifacts', 'local-inference', 'hymt2-cpu.json'),
       'utf8',
     ));
-    if (!Array.isArray(whisper?.files) || !whisper.files.length ||
-        typeof whisper.resolvedRevision !== 'string' ||
+    const whisperPaths = new Set(whisper?.files?.map((file) => file.path));
+    if (whisper?.exported !== true ||
+        !Array.isArray(whisper.files) || !whisper.files.length ||
+        !WHISPER_SMALL_REQUIRED_PATHS.every((requiredPath) => whisperPaths.has(requiredPath)) ||
+        !/^[a-f0-9]{40}$/i.test(whisper.resolvedRevision || '') ||
+        hyMt2?.passed !== true ||
         typeof hyMt2?.modelFile !== 'string' ||
         !Number.isSafeInteger(hyMt2.modelBytes) ||
         !/^[a-f0-9]{64}$/i.test(hyMt2.modelSha256 || '') ||
-        typeof hyMt2.resolvedRevision !== 'string') {
+        !/^[a-f0-9]{40}$/i.test(hyMt2.resolvedRevision || '')) {
       return unavailable(root);
     }
     const whisperFiles = whisper.files.map((file) => localOnlyFile('whisper-small', file));
@@ -92,4 +118,4 @@ function developmentLocalModelCatalog({ appPath, fsImpl = fs }) {
   }
 }
 
-module.exports = { developmentLocalModelCatalog };
+module.exports = { WHISPER_SMALL_REQUIRED_PATHS, developmentLocalModelCatalog };

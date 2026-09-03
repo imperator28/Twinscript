@@ -603,7 +603,7 @@ describe('meeting caption controls', () => {
     expect(
       await screen.findByRole('heading', { name: 'Connection' }),
     ).toBeInTheDocument();
-    expect(screen.getAllByText('OpenAI live').some((element) => element.classList.contains('is-selected'))).toBe(true);
+    expect(screen.getByRole('button', { name: 'OpenAI live transcription' })).toHaveAttribute('aria-pressed', 'true');
     expect(screen.getAllByText('Whisper local').length).toBeGreaterThan(0);
   });
 
@@ -652,12 +652,24 @@ describe('meeting caption controls', () => {
     await screen.findByRole('button', { name: /Start session/i });
     fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
 
-    fireEvent.click(screen.getByRole('switch', { name: 'Use local Whisper transcription' }));
+    const openAi = screen.getByRole('button', { name: 'OpenAI live transcription' });
+    const whisper = screen.getByRole('button', { name: 'Whisper local transcription' });
+    expect(openAi).toHaveAttribute('aria-pressed', 'true');
+    expect(whisper).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.queryByRole('switch', { name: /Whisper transcription/i })).not.toBeInTheDocument();
+
+    fireEvent.click(whisper);
     await waitFor(() => expect(window.captions.setSettings).toHaveBeenCalledWith({
       transcriptionModel: 'whisper-local',
     }));
 
-    fireEvent.click(screen.getByRole('switch', { name: 'Use local Hy-MT2 for final translation' }));
+    const luna = screen.getByRole('button', { name: 'Luna final translation' });
+    const hyMt2 = screen.getByRole('button', { name: 'HY-MT2 local final translation' });
+    expect(luna).toHaveAttribute('aria-pressed', 'true');
+    expect(hyMt2).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.queryByRole('switch', { name: /Hy-MT2 for final translation/i })).not.toBeInTheDocument();
+
+    fireEvent.click(hyMt2);
     await waitFor(() => expect(window.captions.setSettings).toHaveBeenCalledWith({
       finalTranslationModel: 'hy-mt2-local',
     }));
@@ -2149,7 +2161,7 @@ describe('meeting caption controls', () => {
     expect(localModelStatusUnsubscribe).toHaveBeenCalledOnce();
   });
 
-  it('uses the same verified HY-MT2 device label in the pipeline and model card', async () => {
+  it('keeps the pipeline status concise while preserving HY-MT2 device detail in its model card', async () => {
     const accelerated = localModels('ready', 'ready');
     Object.assign(accelerated.models['hy-mt2-1.8b'], {
       actualDevice: 'CUDA0',
@@ -2166,7 +2178,8 @@ describe('meeting caption controls', () => {
     await screen.findByRole('button', { name: /Start session/i });
     fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
 
-    expect(await screen.findAllByText('NVIDIA GPU · partial offload')).toHaveLength(2);
+    expect(await screen.findByText('NVIDIA GPU · partial offload')).toBeVisible();
+    expect(screen.getByText('Local ready')).toBeVisible();
     expect(screen.queryByText('CUDA0')).not.toBeInTheDocument();
   });
 
@@ -2276,6 +2289,6 @@ describe('meeting caption controls', () => {
     const row = screen.getByRole('heading', { name: 'Whisper Small' }).closest('section');
     expect(row).toHaveFocus();
     expect(scrollIntoView).toHaveBeenCalledWith({ behavior: 'auto', block: 'center' });
-    expect(screen.getByRole('switch', { name: 'Use local Whisper transcription' })).toBeChecked();
+    expect(screen.getByRole('button', { name: 'Whisper local transcription' })).toHaveAttribute('aria-pressed', 'true');
   });
 });

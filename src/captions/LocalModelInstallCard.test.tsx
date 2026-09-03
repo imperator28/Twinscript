@@ -109,6 +109,8 @@ describe('LocalModelInstallCard', () => {
     expect(onAction).toHaveBeenNthCalledWith(1, 'verify', 'whisper-small');
     expect(onAction).toHaveBeenNthCalledWith(2, 'remove', 'whisper-small');
     expect(onAction).toHaveBeenNthCalledWith(3, 'repair', 'hy-mt2-1.8b');
+    expect(screen.getByRole('button', { name: 'Verify Whisper local transcription model' })).toHaveTextContent(/^Verify$/);
+    expect(screen.getByRole('button', { name: 'Remove Whisper local transcription model' })).toHaveTextContent(/^Remove$/);
   });
 
   it('offers Use local files instead of download for a local-only development catalog', () => {

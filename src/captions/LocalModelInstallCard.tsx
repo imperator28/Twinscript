@@ -268,7 +268,7 @@ export function LocalModelInstallCard({ status, busyModel = null, rowRefs, onAct
                         aria-describedby={meetingLocked ? 'local-models-meeting-lock' : undefined}
                         onClick={() => onAction(action, id)}
                       >
-                        {action === 'adopt' ? 'Use local files' : `${action[0].toUpperCase() + action.slice(1)} ${displayName}`}
+                        {action === 'adopt' ? 'Use local files' : action[0].toUpperCase() + action.slice(1)}
                       </button>
                     );
                   })}

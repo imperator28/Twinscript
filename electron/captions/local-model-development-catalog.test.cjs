@@ -4,7 +4,10 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
-const { developmentLocalModelCatalog } = require('./local-model-development-catalog');
+const {
+  WHISPER_SMALL_REQUIRED_PATHS,
+  developmentLocalModelCatalog,
+} = require('./local-model-development-catalog');
 
 function temporaryDirectory() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'development-local-models-'));
@@ -19,12 +22,18 @@ test('builds a local-only catalog for the fixed Whisper and HY-MT2 CPU artifacts
     models: {
       'whisper-small': {
         resolvedRevision: '973afd24965f72e36ca33b3055d56a652f456b4d',
-        files: [{ path: 'openvino_encoder_model.xml', size: 12, sha256: 'a'.repeat(64) }],
+        exported: true,
+        files: WHISPER_SMALL_REQUIRED_PATHS.map((filePath) => ({
+          path: filePath,
+          size: 12,
+          sha256: 'a'.repeat(64),
+        })),
       },
     },
   }));
   fs.writeFileSync(path.join(appPath, 'artifacts', 'local-inference', 'hymt2-cpu.json'), JSON.stringify({
     resolvedRevision: '1cd5208700acedef4ef93019b6cfc148b8522d45',
+    passed: true,
     modelFile: 'Hy-MT2-1.8B-Q4_K_M.gguf',
     modelBytes: 24,
     modelSha256: 'b'.repeat(64),

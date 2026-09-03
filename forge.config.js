@@ -8,6 +8,9 @@ const {
 const {
   assertRuntimeLayout,
 } = require('./scripts/local-inference-runtime-layout.cjs');
+const {
+  stageBetaLocalModelCatalog,
+} = require('./scripts/beta-local-model-catalog.cjs');
 
 const macSigningIdentity = resolveMacSigningIdentity();
 
@@ -73,6 +76,7 @@ function stageNativeCameraResources(buildPath, platform) {
 
 function validatePackagedLocalInference(packageRoot, platform) {
   if (platform !== 'win32') return;
+  stageBetaLocalModelCatalog({ appPath: __dirname, packageRoot });
   const runtimeRoot = path.resolve(packageRoot, 'resources', 'local-inference-host');
   try {
     assertRuntimeLayout(runtimeRoot);

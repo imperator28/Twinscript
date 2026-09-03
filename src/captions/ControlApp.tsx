@@ -69,7 +69,6 @@ import {
 } from './theme';
 import { TwinscriptLogo } from './TwinscriptLogo';
 import {
-  formatHyMt2DeviceStatus,
   LocalModelInstallCard,
   type LocalModelAction,
 } from './LocalModelInstallCard';
@@ -643,9 +642,6 @@ export function ControlApp() {
 
   const whisperLocalReady = localModels?.models['whisper-small'].ready ?? false;
   const translationLocalReady = localModels?.models['hy-mt2-1.8b'].ready ?? false;
-  const translationDeviceStatus = localModels
-    ? formatHyMt2DeviceStatus(localModels.models['hy-mt2-1.8b'])
-    : null;
   const whisperMissing = settings.transcriptionModel === 'whisper-local'
     && localModels !== null
     && !whisperLocalReady;
@@ -2084,60 +2080,72 @@ export function ControlApp() {
             <p className="supporting-copy">
               Choose transcription and final translation independently. These choices are locked when a meeting starts.
             </p>
-            <div className="pipeline-choice">
-              <div className="pipeline-choice__heading">
-                <strong>Transcription model</strong>
-                <span>{settings.transcriptionModel === 'whisper-local'
-                  ? whisperLocalReady
-                    ? `${localModels?.models['whisper-small'].actualDevice || localModels?.runtime.requestedDevice || 'CPU'} ready`
-                    : localModels ? 'Model not installed' : 'Checking local model'
-                  : 'Cloud live transcription'}</span>
+            <fieldset className="pipeline-choice">
+              <legend>Transcription model</legend>
+              <div className="model-picker" aria-label="Transcription model">
+                <button
+                  type="button"
+                  className={settings.transcriptionModel === 'openai-live' ? 'is-selected' : ''}
+                  aria-label="OpenAI live transcription"
+                  aria-pressed={settings.transcriptionModel === 'openai-live'}
+                  disabled={active}
+                  onClick={() => void saveSettings({ transcriptionModel: 'openai-live' })}
+                >
+                  <span className="model-picker__copy"><strong>OpenAI live</strong><small>Cloud · automatic language switching</small></span>
+                  <span className="model-picker__state">Live</span>
+                  <Check className="model-picker__check" size={16} strokeWidth={2.5} aria-hidden="true" />
+                </button>
+                <button
+                  type="button"
+                  className={settings.transcriptionModel === 'whisper-local' ? 'is-selected' : ''}
+                  aria-label="Whisper local transcription"
+                  aria-pressed={settings.transcriptionModel === 'whisper-local'}
+                  disabled={active}
+                  onClick={() => void saveSettings({ transcriptionModel: 'whisper-local' })}
+                >
+                  <span className="model-picker__copy"><strong>Whisper local</strong><small>Private · on-device speech recognition</small></span>
+                  <span className={`model-picker__state ${whisperLocalReady ? 'is-ready' : 'is-missing'}`}>
+                    {whisperLocalReady
+                      ? `${localModels?.models['whisper-small'].actualDevice || localModels?.runtime.requestedDevice || 'CPU'} ready`
+                      : localModels ? 'Needs setup' : 'Checking'}
+                  </span>
+                  <Check className="model-picker__check" size={16} strokeWidth={2.5} aria-hidden="true" />
+                </button>
               </div>
-              <div className="model-switch-row">
-                <span className={settings.transcriptionModel === 'openai-live' ? 'is-selected' : ''}>OpenAI live</span>
-                <label className="model-switch">
-                  <input
-                    type="checkbox"
-                    role="switch"
-                    aria-label="Use local Whisper transcription"
-                    disabled={active}
-                    checked={settings.transcriptionModel === 'whisper-local'}
-                    onChange={(event) => void saveSettings({
-                      transcriptionModel: event.target.checked ? 'whisper-local' : 'openai-live',
-                    })}
-                  />
-                  <i aria-hidden="true" />
-                </label>
-                <span className={settings.transcriptionModel === 'whisper-local' ? 'is-selected' : ''}>Whisper local</span>
+            </fieldset>
+            <fieldset className="pipeline-choice">
+              <legend>Final translation model</legend>
+              <div className="model-picker" aria-label="Final translation model">
+                <button
+                  type="button"
+                  className={settings.finalTranslationModel === 'luna' ? 'is-selected' : ''}
+                  aria-label="Luna final translation"
+                  aria-pressed={settings.finalTranslationModel === 'luna'}
+                  disabled={active}
+                  onClick={() => void saveSettings({ finalTranslationModel: 'luna' })}
+                >
+                  <span className="model-picker__copy"><strong>Luna</strong><small>Cloud · authoritative translation</small></span>
+                  <span className="model-picker__state">Cloud</span>
+                  <Check className="model-picker__check" size={16} strokeWidth={2.5} aria-hidden="true" />
+                </button>
+                <button
+                  type="button"
+                  className={settings.finalTranslationModel === 'hy-mt2-local' ? 'is-selected' : ''}
+                  aria-label="HY-MT2 local final translation"
+                  aria-pressed={settings.finalTranslationModel === 'hy-mt2-local'}
+                  disabled={active}
+                  onClick={() => void saveSettings({ finalTranslationModel: 'hy-mt2-local' })}
+                >
+                  <span className="model-picker__copy"><strong>HY-MT2 local</strong><small>Private · English and Chinese</small></span>
+                  <span className={`model-picker__state ${translationLocalReady ? 'is-ready' : 'is-missing'}`}>
+                    {translationLocalReady
+                      ? 'Local ready'
+                      : localModels ? 'Needs setup' : 'Checking'}
+                  </span>
+                  <Check className="model-picker__check" size={16} strokeWidth={2.5} aria-hidden="true" />
+                </button>
               </div>
-            </div>
-            <div className="pipeline-choice">
-              <div className="pipeline-choice__heading">
-                <strong>Final translation model</strong>
-                <span>{settings.finalTranslationModel === 'hy-mt2-local'
-                  ? translationLocalReady
-                    ? translationDeviceStatus?.label ?? 'CPU'
-                    : localModels ? 'Model not installed' : 'Checking local model'
-                  : 'Luna is authoritative'}</span>
-              </div>
-              <div className="model-switch-row">
-                <span className={settings.finalTranslationModel === 'luna' ? 'is-selected' : ''}>Luna</span>
-                <label className="model-switch">
-                  <input
-                    type="checkbox"
-                    role="switch"
-                    aria-label="Use local Hy-MT2 for final translation"
-                    disabled={active}
-                    checked={settings.finalTranslationModel === 'hy-mt2-local'}
-                    onChange={(event) => void saveSettings({
-                      finalTranslationModel: event.target.checked ? 'hy-mt2-local' : 'luna',
-                    })}
-                  />
-                  <i aria-hidden="true" />
-                </label>
-                <span className={settings.finalTranslationModel === 'hy-mt2-local' ? 'is-selected' : ''}>Hy-MT2 local</span>
-              </div>
-            </div>
+            </fieldset>
             <label className="toggle pipeline-acceleration">
               <input
                 type="checkbox"

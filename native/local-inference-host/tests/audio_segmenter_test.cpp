@@ -65,25 +65,29 @@ TEST_CASE("utterance gate force-finalizes continuous speech before the audio cap
   REQUIRE_FALSE(gate.observe(std::vector<std::int16_t>(24000, 0)).append);
 }
 
-TEST_CASE("local Whisper gate quickly reacquires language at a phrase boundary") {
+TEST_CASE("local Whisper gate retains context through short pauses") {
   auto gate = twinscript::make_local_whisper_utterance_gate();
 
   REQUIRE_FALSE(
       gate.observe(std::vector<std::int16_t>(24000, 1200)).finalize);
   REQUIRE_FALSE(
-      gate.observe(std::vector<std::int16_t>(4096, 0)).finalize);
+      gate.observe(std::vector<std::int16_t>(6000, 0)).finalize);
+  REQUIRE_FALSE(
+      gate.observe(std::vector<std::int16_t>(5999, 0)).finalize);
   REQUIRE(
-      gate.observe(std::vector<std::int16_t>(4096, 0)).finalize);
+      gate.observe(std::vector<std::int16_t>(1, 0)).finalize);
 }
 
-TEST_CASE("local Whisper gate periodically reacquires language during continuous speech") {
+TEST_CASE("local Whisper gate periodically refreshes language with useful context") {
   auto gate = twinscript::make_local_whisper_utterance_gate();
   twinscript::UtteranceDecision decision;
 
-  for (int second = 0; second < 3; ++second) {
+  for (int second = 0; second < 11; ++second) {
     decision = gate.observe(std::vector<std::int16_t>(24000, 1200));
+    REQUIRE_FALSE(decision.finalize);
   }
 
+  decision = gate.observe(std::vector<std::int16_t>(24000, 1200));
   REQUIRE(decision.append);
   REQUIRE(decision.finalize);
 }

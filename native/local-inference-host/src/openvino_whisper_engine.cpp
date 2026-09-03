@@ -32,7 +32,7 @@ class OpenVinoWhisperEngine::Impl {
     std::size_t sequence{};
     std::size_t revision{};
     std::size_t last_decoded_samples{};
-    UtteranceGate gate{24000, 0.001, 500, 20000};
+    UtteranceGate gate{make_local_whisper_utterance_gate()};
     std::vector<std::int16_t> pre_roll;
   };
 

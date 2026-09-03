@@ -104,20 +104,36 @@ async function main() {
         sampleRate: 24000, capturedAt: Date.now(), audio: Buffer.alloc(6000 * 2).toString('base64'),
       });
       assert.equal(preRoll.accepted, true);
-      const partialTranscript = await client.request('asr.audio', {
-        sessionId: 'native-app-smoke', channel: 'microphone', encoding: 'pcm_s16le',
-        sampleRate: 24000, capturedAt: Date.now(), audio: quietPcm.toString('base64'),
-      });
-      const transcript = await client.request('asr.audio', {
-        sessionId: 'native-app-smoke', channel: 'microphone', encoding: 'pcm_s16le',
-        sampleRate: 24000, capturedAt: Date.now(), audio: Buffer.alloc(12000 * 2).toString('base64'),
-      });
-      assert.equal(partialTranscript.final, false);
-      assert.ok(partialTranscript.audioDurationMs >= 2700, 'leading pre-roll must be retained');
-      assert.match(transcript.text, /Ask not what your country can do for you/i);
-      assert.equal(transcript.final, true);
-      assert.equal(transcript.actualDevice, 'NPU');
-      whisperEvidence = { sourceRms, validatedRms: quietTargetRms, partialTranscript, transcript };
+      const transcriptEvents = [];
+      const frameBytes = 4096 * Int16Array.BYTES_PER_ELEMENT;
+      for (let offset = 0; offset < quietPcm.length; offset += frameBytes) {
+        const event = await client.request('asr.audio', {
+          sessionId: 'native-app-smoke', channel: 'microphone', encoding: 'pcm_s16le',
+          sampleRate: 24000, capturedAt: Date.now(),
+          audio: quietPcm.subarray(offset, offset + frameBytes).toString('base64'),
+        });
+        if (event.text) transcriptEvents.push(event);
+      }
+      for (let index = 0; index < 2; ++index) {
+        const event = await client.request('asr.audio', {
+          sessionId: 'native-app-smoke', channel: 'microphone', encoding: 'pcm_s16le',
+          sampleRate: 24000, capturedAt: Date.now(),
+          audio: Buffer.alloc(frameBytes).toString('base64'),
+        });
+        if (event.text) transcriptEvents.push(event);
+      }
+      assert.match(
+        transcriptEvents.map((event) => event.text).join(' '),
+        /Ask not what your country can do for you/i,
+      );
+      assert.equal(transcriptEvents.some((event) => event.final), true);
+      assert.equal(transcriptEvents.every((event) => event.actualDevice === 'NPU'), true);
+      assert.equal(
+        transcriptEvents.some((event) => event.audioDurationMs >= 2200),
+        true,
+        'leading pre-roll must be retained',
+      );
+      whisperEvidence = { sourceRms, validatedRms: quietTargetRms, transcriptEvents };
     }
 
     const translation = await client.request('translate.final', {

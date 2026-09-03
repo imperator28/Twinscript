@@ -56,6 +56,13 @@ void UtteranceGate::reset() {
   speech_seen_ = false;
 }
 
+UtteranceGate make_local_whisper_utterance_gate() {
+  // Audio arrives in roughly 170 ms worklet frames. Two quiet frames form a
+  // phrase boundary, while the six-second cap guarantees periodic language
+  // reacquisition even when a speaker code-switches without pausing.
+  return UtteranceGate{24000, 0.001, 250, 6000};
+}
+
 AudioSegmenter::AudioSegmenter(
     int input_rate,
     int output_rate,

@@ -36,6 +36,11 @@ class UtteranceGate {
   bool speech_seen_{};
 };
 
+// Local Whisper must re-run language detection at natural phrase boundaries.
+// Keep this factory shared by the engine and its behavioral tests so the
+// latency-sensitive segmentation policy cannot silently drift.
+UtteranceGate make_local_whisper_utterance_gate();
+
 class AudioSegmenter {
  public:
   AudioSegmenter(int input_rate, int output_rate, int maximum_seconds);

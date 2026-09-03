@@ -59,6 +59,51 @@ test('local Whisper drops punctuation-only decoder hallucinations', () => {
   assert.deepEqual(events, []);
 });
 
+test('local Whisper drops runaway repeated-word decoder hallucinations', () => {
+  const events = [];
+  const backend = new LocalWhisperBackend({
+    client: { request: async () => ({}) },
+    channel: 'microphone',
+    sessionId: 's1',
+    onEvent: (event) => events.push(event),
+  });
+
+  assert.equal(backend.accept({
+    type: 'asr.result',
+    channel: 'microphone',
+    utteranceId: 'u-repeat',
+    text: Array(30).fill('quickly').join(', '),
+    final: true,
+  }), false);
+  assert.equal(backend.accept({
+    type: 'asr.result',
+    channel: 'microphone',
+    utteranceId: 'u-repeat-phrase',
+    text: Array(20).fill('even more').join(', '),
+    final: true,
+  }), false);
+  assert.deepEqual(events, []);
+});
+
+test('local Whisper preserves ordinary text that repeats a meaningful word', () => {
+  const events = [];
+  const backend = new LocalWhisperBackend({
+    client: { request: async () => ({}) },
+    channel: 'microphone',
+    sessionId: 's1',
+    onEvent: (event) => events.push(event),
+  });
+
+  assert.equal(backend.accept({
+    type: 'asr.result',
+    channel: 'microphone',
+    utteranceId: 'u-normal',
+    text: 'Move quickly, but verify the result quickly before the next test.',
+    final: true,
+  }), true);
+  assert.equal(events[0].transcript, 'Move quickly, but verify the result quickly before the next test.');
+});
+
 test('local Whisper namespaces utterance IDs by native host generation', () => {
   const events = [];
   const backend = new LocalWhisperBackend({

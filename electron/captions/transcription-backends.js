@@ -15,6 +15,19 @@ function waitForAbort(signal) {
   });
 }
 
+function isRunawayWhisperRepetition(text) {
+  const tokens = String(text || '').toLocaleLowerCase().match(
+    /\p{Script=Han}|[\p{L}\p{N}]+/gu,
+  ) || [];
+  if (tokens.length < 12) return false;
+
+  const counts = new Map();
+  for (const token of tokens) counts.set(token, (counts.get(token) || 0) + 1);
+  const mostRepeated = Math.max(...counts.values());
+  if (mostRepeated >= 6 && mostRepeated / tokens.length >= 0.45) return true;
+  return tokens.length >= 20 && counts.size / tokens.length <= 0.2;
+}
+
 class LocalWhisperBackend {
   constructor({
     client,
@@ -171,6 +184,7 @@ class LocalWhisperBackend {
     if (message?.type !== 'asr.result' || message.channel !== this.channel) return false;
     const transcript = String(message.text || '').trim();
     if (!/[\p{L}\p{N}]/u.test(transcript)) return false;
+    if (isRunawayWhisperRepetition(transcript)) return false;
     this.onEvent({
       type: 'transcript',
       channel: this.channel,
@@ -269,6 +283,7 @@ class TranscriptionBackendFactory {
 
 module.exports = {
   MAX_QUEUED_AUDIO_SAMPLES,
+  isRunawayWhisperRepetition,
   LocalWhisperBackend,
   TranscriptionBackendFactory,
 };

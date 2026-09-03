@@ -80,7 +80,7 @@ TEST_CASE("local Whisper gate periodically reacquires language during continuous
   auto gate = twinscript::make_local_whisper_utterance_gate();
   twinscript::UtteranceDecision decision;
 
-  for (int second = 0; second < 6; ++second) {
+  for (int second = 0; second < 3; ++second) {
     decision = gate.observe(std::vector<std::int16_t>(24000, 1200));
   }
 

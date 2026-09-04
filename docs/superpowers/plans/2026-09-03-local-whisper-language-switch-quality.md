@@ -16,7 +16,7 @@
 - Modify: `native/local-inference-host/tests/audio_segmenter_test.cpp`
 - Modify: `native/local-inference-host/src/audio_segmenter.cpp`
 
-- [ ] **Step 1: Write the failing quiet-boundary test**
+- [x] **Step 1: Write the failing quiet-boundary test**
 
 Replace the existing local phrase-boundary test with assertions that 250 ms and 500 ms minus one frame do not finalize, while 500 ms or more does:
 
@@ -30,7 +30,7 @@ TEST_CASE("local Whisper gate retains context through short pauses") {
 }
 ```
 
-- [ ] **Step 2: Write the failing continuous-context test**
+- [x] **Step 2: Write the failing continuous-context test**
 
 Replace the three-second test with a test that remains open through 11 seconds and finalizes at 12:
 
@@ -48,7 +48,7 @@ TEST_CASE("local Whisper gate periodically refreshes language with useful contex
 }
 ```
 
-- [ ] **Step 3: Run the focused test and verify RED**
+- [x] **Step 3: Run the focused test and verify RED**
 
 Run:
 
@@ -59,7 +59,7 @@ ctest --test-dir native/local-inference-host/build -C Release --output-on-failur
 
 Expected: both updated tests fail because the current gate finalizes at 250 ms or 3 seconds.
 
-- [ ] **Step 4: Implement the minimal gate change**
+- [x] **Step 4: Implement the minimal gate change**
 
 Update `make_local_whisper_utterance_gate()`:
 
@@ -72,11 +72,11 @@ UtteranceGate make_local_whisper_utterance_gate() {
 }
 ```
 
-- [ ] **Step 5: Run the focused test and verify GREEN**
+- [x] **Step 5: Run the focused test and verify GREEN**
 
 Run the commands from Step 3. Expected: all matching tests pass.
 
-- [ ] **Step 6: Commit the regression fix**
+- [x] **Step 6: Commit the regression fix**
 
 ```powershell
 git add native/local-inference-host/tests/audio_segmenter_test.cpp native/local-inference-host/src/audio_segmenter.cpp
@@ -89,7 +89,7 @@ git commit -m "fix: restore Whisper phrase context"
 - Rebuild: `artifacts/local-inference-host/twinscript-local-inference.exe`
 - Rebuild: `out/Twinscript-win32-x64/`
 
-- [ ] **Step 1: Run native and policy tests**
+- [x] **Step 1: Run native and policy tests**
 
 ```powershell
 ctest --test-dir native/local-inference-host/build -C Release --output-on-failure
@@ -98,19 +98,19 @@ npm run test:captions
 
 Expected: zero failures.
 
-- [ ] **Step 2: Rebuild the OpenVINO GenAI sidecar**
+- [x] **Step 2: Rebuild the OpenVINO GenAI sidecar**
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-local-inference-host.ps1 -Configuration Release -OpenVinoGenAiSdk "C:\Users\jqian\AppData\Local\Temp\openvino-genai-sdk-2026.3\openvino_genai_windows_2026.3.0.0_x86_64"
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-local-inference-host.ps1 -Configuration Release -OpenVinoRoot "C:\Users\jqian\AppData\Local\Temp\twinscript-openvino-genai-2026.3-rebuild\expanded\openvino_genai_windows_2026.3.0.0_x86_64" -OutputDirectory artifacts/local-inference-host -LlamaCpuRoot artifacts/local-inference-host/llama/cpu -LlamaCudaRoot artifacts/local-inference-host/llama/cuda
 ```
 
 Expected: the Release native host and Whisper smoke target compile and native tests pass.
 
-- [ ] **Step 3: Run the installed-model NPU smoke**
+- [x] **Step 3: Run the installed-model NPU smoke**
 
-Run `whisper_engine_smoke.exe` with the installed Whisper Small model, NPU device, and the repository test audio. Expected: a non-empty English transcript, device `NPU`, and inference faster than audio duration.
+Run `scripts/smoke-local-inference.cjs` with the installed Whisper Small and HY-MT2 model paths, NPU device, repository test audio, and an existing writable cache directory. Expected: the JFK English transcript, device `NPU`, HY-MT2 output preserving `24 VDC`, and inference faster than audio duration.
 
-- [ ] **Step 4: Package and smoke the Electron app**
+- [x] **Step 4: Package and smoke the Electron app**
 
 ```powershell
 npm run package

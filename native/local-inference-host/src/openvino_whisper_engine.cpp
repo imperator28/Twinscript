@@ -65,10 +65,10 @@ class OpenVinoWhisperEngine::Impl {
     const auto started = Clock::now();
     auto config = pipeline->get_generation_config();
     config.task = "transcribe";
-    // Live utterances are capped at three seconds. The exported model's default
+    // Live utterances are capped at twelve seconds. The exported model's default
     // of 448 tokens lets a rare repetition loop monopolize the NPU long enough
     // to overflow the real-time audio queue. Sixty-four tokens is ample for a
-    // three-second English or Chinese phrase and bounds worst-case decode time.
+    // twelve-second English or Chinese phrase and bounds worst-case decode time.
     config.max_new_tokens = 64;
     const auto decoded = pipeline->generate(ov::genai::AudioInputs{audio}, config);
     ++state.revision;

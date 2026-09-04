@@ -119,7 +119,7 @@ npm run smoke:packaged
 
 Expected: packaging and packaged lifecycle smoke both exit successfully.
 
-- [ ] **Step 5: Restart the packaged beta**
+- [x] **Step 5: Restart the packaged beta**
 
 Close only Twinscript processes whose executable path is the worktree package, launch `out/Twinscript-win32-x64/twinscript.exe`, and verify the visible window is responding.
 

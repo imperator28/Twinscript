@@ -13,6 +13,9 @@ const {
 const path = require('path');
 const { initMain } = require('electron-audio-loopback');
 const { appIconPath } = require('./captions/app-icon');
+const {
+  loadDevRendererUrl,
+} = require('./captions/dev-renderer-load');
 const { CaptionSessionManager } = require('./captions/caption-session-manager');
 const { CaptionWindowManager } = require('./captions/caption-window-manager');
 const { CameraRegionPublisher } = require('./captions/camera-region-publisher');
@@ -106,12 +109,22 @@ function hardenWindow(window) {
 
 function loadControlWindow(window) {
   if (isDevelopment()) {
-    void window.loadURL('http://localhost:5173/?surface=control');
-  } else {
-    void window.loadFile(path.join(app.getAppPath(), 'build/index.html'), {
-      query: { surface: 'control' },
+    // Retried: Electron starts well before the renderer dev server is listening.
+    // See dev-renderer-load.js for why a single attempt left a blank app.
+    loadDevRendererUrl({
+      window,
+      url: 'http://localhost:5173/?surface=control',
+      onGiveUp: (error) =>
+        console.error(
+          '[Twinscript] The renderer dev server never answered; is `npm run dev` still running?',
+          error,
+        ),
     });
+    return;
   }
+  void window.loadFile(path.join(app.getAppPath(), 'build/index.html'), {
+    query: { surface: 'control' },
+  });
 }
 
 function createControlWindow() {
@@ -153,7 +166,23 @@ function createControlWindow() {
   });
   hardenWindow(controlWindow);
   loadControlWindow(controlWindow);
-  controlWindow.once('ready-to-show', () => controlWindow?.show());
+  // `ready-to-show` cannot fire for a page that never loaded, and the window is
+  // created hidden - so a failed load used to mean no window at all, with nothing
+  // on screen to indicate the app had even started. Showing it regardless turns a
+  // silent nothing into a visible failure the operator can act on.
+  const revealAnyway = setTimeout(() => {
+    if (controlWindow && !controlWindow.isDestroyed() && !controlWindow.isVisible()) {
+      console.warn(
+        '[Twinscript] Control window never painted; showing it so the failure is visible.',
+      );
+      controlWindow.show();
+    }
+  }, 20000);
+  controlWindow.once('ready-to-show', () => {
+    clearTimeout(revealAnyway);
+    controlWindow?.show();
+  });
+  controlWindow.once('closed', () => clearTimeout(revealAnyway));
   registerControlWindowLifecycle({
     app,
     controlWindow,

@@ -39,6 +39,24 @@ const status = (overrides: Partial<LocalModelStatus> = {}): LocalModelStatus => 
 });
 
 describe('LocalModelInstallCard', () => {
+  it('offers setup only for the missing selected model', () => {
+    const install = vi.fn();
+    render(<LocalModelInstallCard status={status({ models: {
+      'whisper-small': model('whisper-small', 'ready'),
+      'hy-mt2-1.8b': model('hy-mt2-1.8b', 'not-installed'),
+    } })} requiredModels={['whisper-small', 'hy-mt2-1.8b']} onInstallMissing={install} onAction={vi.fn()} />);
+    expect(screen.getByText(/Your selected pipeline needs HY-MT2/)).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: 'Install missing model' }));
+    expect(install).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not offer automatic setup for a file-only beta catalog', () => {
+    render(<LocalModelInstallCard status={status({ catalog: { available: true, localAdoptionAvailable: true, error: null } })}
+      requiredModels={['whisper-small']} onInstallMissing={vi.fn()} onAction={vi.fn()} />);
+    expect(screen.getByRole('button', { name: 'Install missing model' })).toBeDisabled();
+    expect(screen.getByText(/download-enabled release is required/)).toBeVisible();
+  });
+
   it.each([
     [{ actualDevice: 'CUDA0', offload: 'full' }, 'NVIDIA GPU'],
     [{ actualDevice: 'CUDA0', offload: 'partial' }, 'NVIDIA GPU · partial offload'],

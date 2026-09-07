@@ -1711,3 +1711,13 @@ a:hover { text-decoration-color: currentColor; }
   .camera-stage__entry { transition: opacity 120ms linear; }
   .local-model-row__progress::-webkit-progress-value { transition: none; }
 }
+.local-model-card__setup {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  margin-block: 20px;
+  min-width: 0;
+}
+.local-model-card__setup p { margin: 0; overflow-wrap: anywhere; }
+.local-model-card__setup .button { max-width: 100%; white-space: normal; }

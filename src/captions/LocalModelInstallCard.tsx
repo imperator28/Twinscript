@@ -9,6 +9,7 @@ import {
   Wrench,
 } from 'lucide-react';
 import type { LocalModelId, LocalModelPhase, LocalModelState, LocalModelStatus } from './types';
+import { missingLocalModels } from './localModelSetup';
 
 export type LocalModelAction = 'install' | 'verify' | 'repair' | 'remove' | 'adopt';
 
@@ -19,6 +20,8 @@ export interface LocalModelInstallCardProps {
   busyModel?: LocalModelId | null;
   rowRefs?: Partial<Record<LocalModelId, RefObject<HTMLElement | null>>>;
   onAction: (action: LocalModelAction, modelId: LocalModelId) => void;
+  requiredModels?: LocalModelId[];
+  onInstallMissing?: () => void;
 }
 
 const modelCopy: Record<LocalModelId, Pick<LocalModelState, 'displayName' | 'purpose' | 'expectedDevice'>> = {
@@ -152,12 +155,14 @@ const actionsFor = (model: LocalModelState, catalogAvailable: boolean, localAdop
   }
 };
 
-export function LocalModelInstallCard({ status, busyModel = null, rowRefs, onAction }: LocalModelInstallCardProps) {
+export function LocalModelInstallCard({ status, busyModel = null, rowRefs, onAction, requiredModels = [], onInstallMissing }: LocalModelInstallCardProps) {
   const catalogAvailable = status?.catalog.available ?? false;
   const localAdoptionAvailable = status?.catalog.localAdoptionAvailable === true;
   const readyCount = modelIds.filter((id) => status?.models[id].ready).length;
   const meetingLocked = status?.actionLocks.meetingActive ?? false;
   const catalogMessage = status?.catalog.error?.message ?? (status ? null : 'Checking whether local models are available.');
+  const missing = missingLocalModels(requiredModels, status);
+  const setupBusy = busyModel !== null || requiredModels.some((id) => ['downloading', 'verifying'].includes(status?.models[id]?.phase ?? ''));
 
   return (
     <article className="card local-model-card" aria-labelledby="local-models-heading">
@@ -178,6 +183,21 @@ export function LocalModelInstallCard({ status, busyModel = null, rowRefs, onAct
         <p className="local-model-card__catalog" role={status?.catalog.error ? 'status' : undefined}>
           {catalogMessage}
         </p>
+      )}
+      {onInstallMissing && requiredModels.length > 0 && (
+        <div className="local-model-card__setup">
+          <p>{missing.length === 0
+            ? 'The models for your selected pipeline are installed.'
+            : `Your selected pipeline needs ${missing.map((id) => modelCopy[id].displayName).join(' and ')}. Installed models are kept.`}</p>
+          {missing.length > 0 && (
+            <button type="button" className="button button--primary"
+              disabled={setupBusy || !status || mutationIsLocked(status, 'install') || localAdoptionAvailable}
+              onClick={onInstallMissing}>
+              {setupBusy ? 'Setting up models…' : `Install missing ${missing.length === 1 ? 'model' : 'models'}`}
+            </button>
+          )}
+          {localAdoptionAvailable && missing.length > 0 && <p>This build supports local files only. A download-enabled release is required for automatic setup.</p>}
+        </div>
       )}
       {meetingLocked && (
         <p id="local-models-meeting-lock" className="local-model-card__lock" role="status">

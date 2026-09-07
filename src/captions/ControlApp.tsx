@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { requiredLocalModels, missingLocalModels } from './localModelSetup';
 import {
   AlertTriangle,
   Check,
@@ -627,6 +628,27 @@ export function ControlApp() {
       setLocalModels(result.data);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'Local model action could not complete.');
+    } finally {
+      setBusyModel(null);
+    }
+  };
+
+  const installMissingLocalModels = async () => {
+    if (busyModel !== null) return;
+    const missing = missingLocalModels(requiredLocalModels(settings), localModels);
+    setNotice('');
+    try {
+      for (const modelId of missing) {
+        setBusyModel(modelId);
+        const result = await window.captions.installLocalModel(modelId);
+        if (!result.ok) {
+          setNotice(result.error.message);
+          return;
+        }
+        setLocalModels(result.data);
+      }
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Model setup could not complete. Please retry.');
     } finally {
       setBusyModel(null);
     }
@@ -2202,6 +2224,8 @@ export function ControlApp() {
 
           <LocalModelInstallCard
             status={localModels}
+            requiredModels={requiredLocalModels(settings)}
+            onInstallMissing={() => void installMissingLocalModels()}
             busyModel={busyModel}
             rowRefs={{
               'whisper-small': whisperModelRow,

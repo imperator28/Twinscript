@@ -582,7 +582,14 @@ h2 { margin-bottom: var(--space-4); font-size: var(--size-title); line-height: v
 .settings-layout { align-items: stretch; }
 /* A note explaining the buttons above it needs room to read as a caption rather than as
    a wrapped third line of the button row. */
-.button-row + .field-note, .button-row + .supporting-copy { margin-top: var(--space-3); }
+/* Anything following a button row clears it by the same 12px, including another
+   button row. Two adjacent rows previously touched: the row's own `gap` spaces
+   buttons *within* a group and nothing spaced the groups apart, so the setup
+   card's "Go to the checklist" sat flush on top of the reset pair and read as
+   one lopsided three-button block that had wrapped.
+   12px rather than the 8px intra-group `gap` on purpose - separate groups have to
+   be further apart than the buttons inside one, or the grouping is not visible. */
+.button-row + .field-note, .button-row + .supporting-copy, .button-row + .button-row { margin-top: var(--space-3); }
 /* The save action closes the editor, so it needs separation from the last section's
    inputs rather than sitting flush against them. */
 .glossary-advanced__body > .button-row { margin-top: var(--space-5); }

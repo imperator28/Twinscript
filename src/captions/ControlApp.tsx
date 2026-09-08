@@ -38,6 +38,7 @@ import {
   filterTerms,
   parseContextNotes,
   type DraftTerm,
+  type EffectiveGlossaryTerm,
   type EffectiveGlossary,
 } from './glossaryView';
 import {
@@ -271,6 +272,10 @@ export function ControlApp() {
     tone: 'success' | 'warning' | 'danger' = 'warning',
   ) => setNoticeState({ message, tone });
   const setNotice = (message: string) => notify(message, 'warning');
+  // The editor is a disclosure, and the preview list can now open it - so its
+  // state has to be controlled rather than left to the browser.
+  const [glossaryEditorOpen, setGlossaryEditorOpen] = useState(false);
+  const [focusDraftId, setFocusDraftId] = useState<string | null>(null);
   const [pairDrafts, setPairDrafts] = useState<DraftTerm[]>(
     () => draftSections([]).pairs,
   );
@@ -1120,10 +1125,20 @@ export function ControlApp() {
     ]);
   };
 
-  const saveGlossaryOverrides = async () => {
+  /**
+   * Save an explicit set of editor rows.
+   *
+   * Taken as arguments rather than read from state, because the row actions in
+   * the preview list compute the next set and save it immediately - reading
+   * state there would save the version from before the change.
+   */
+  const persistGlossary = async (
+    pairs: DraftTerm[],
+    literals: DraftTerm[],
+  ) => {
     const { terms: draftTerms, incomplete } = draftsToTerms([
-      ...pairDrafts,
-      ...literalDrafts,
+      ...pairs,
+      ...literals,
     ]);
     if (incomplete > 0) {
       // Refused rather than silently dropped: a row with one side filled is unfinished
@@ -1170,6 +1185,60 @@ export function ControlApp() {
         : 'Your glossary entries were cleared.',
       'success',
     );
+  };
+
+  const saveGlossaryOverrides = () => persistGlossary(pairDrafts, literalDrafts);
+
+  /** Which editor list a term belongs to: kept-in-English rows live separately. */
+  const draftListFor = (term: { doNotTranslate?: boolean }) =>
+    term.doNotTranslate ? 'literal' : 'pairs';
+
+  /**
+   * Row actions for the preview list.
+   *
+   * Built-in terms are shipped data. The glossary model has no notion of
+   * deleting one - a custom row SHADOWS a built-in rather than replacing it in
+   * place - so Remove is offered only for the operator's own rows, and a
+   * built-in gets Override, which seeds an editable copy that takes precedence.
+   * Offering Remove on a built-in would be a button that cannot do what it says.
+   */
+  const editGlossaryTerm = (term: EffectiveGlossaryTerm) => {
+    const list = draftListFor(term);
+    const drafts = list === 'literal' ? literalDrafts : pairDrafts;
+    const existing = drafts.find((draft) => draft.en === term.en);
+    setGlossaryEditorOpen(true);
+    if (existing) {
+      setFocusDraftId(existing.id);
+      return;
+    }
+    // A built-in, or a custom row that is not in the editor yet: seed one from
+    // it so Override lands on something editable.
+    const seeded = {
+      ...blankDraft(list === 'literal'),
+      en: term.en,
+      zh: term.doNotTranslate ? '' : term.zh,
+      doNotTranslate: Boolean(term.doNotTranslate),
+    };
+    const next = [
+      ...drafts.filter((draft) => draft.en || draft.zh),
+      seeded,
+      blankDraft(list === 'literal'),
+    ];
+    if (list === 'literal') setLiteralDrafts(next);
+    else setPairDrafts(next);
+    setFocusDraftId(seeded.id);
+  };
+
+  const removeGlossaryTerm = async (term: EffectiveGlossaryTerm) => {
+    if (term.source !== 'custom') return;
+    const list = draftListFor(term);
+    const keep = (drafts: DraftTerm[]) =>
+      drafts.filter((draft) => draft.en !== term.en);
+    const nextPairs = list === 'pairs' ? keep(pairDrafts) : pairDrafts;
+    const nextLiterals = list === 'literal' ? keep(literalDrafts) : literalDrafts;
+    setPairDrafts(nextPairs.length ? nextPairs : [blankDraft(false)]);
+    setLiteralDrafts(nextLiterals.length ? nextLiterals : [blankDraft(true)]);
+    await persistGlossary(nextPairs, nextLiterals);
   };
 
   const importGlossary = async () => {
@@ -2454,6 +2523,30 @@ export function ControlApp() {
                             <span className="glossary-list__tag is-muted">STORED</span>
                           )}
                         </span>
+                        {/* Revealed on hover or keyboard focus. Always rendered so
+                            the row's width never changes as the pointer crosses it,
+                            and so they are reachable by Tab rather than by pointer
+                            only. */}
+                        <span className="glossary-list__actions">
+                          <button
+                            type="button"
+                            className="glossary-list__action"
+                            disabled={active}
+                            onClick={() => editGlossaryTerm(term)}
+                          >
+                            {term.source === 'custom' ? 'Edit' : 'Override'}
+                          </button>
+                          {term.source === 'custom' && (
+                            <button
+                              type="button"
+                              className="glossary-list__action is-danger"
+                              disabled={active || busy}
+                              onClick={() => void removeGlossaryTerm(term)}
+                            >
+                              Remove
+                            </button>
+                          )}
+                        </span>
                       </li>
                     ))}
                   </ul>
@@ -2482,11 +2575,18 @@ export function ControlApp() {
               )}
             </div>
 
-            <details className="glossary-advanced">
+            <details
+              className="glossary-advanced"
+              open={glossaryEditorOpen}
+              onToggle={(event) =>
+                setGlossaryEditorOpen((event.target as HTMLDetailsElement).open)
+              }
+            >
               <summary>Edit your own terms, phrases and context</summary>
               <div className="glossary-advanced__body">
                 <TermPairSection
                   drafts={pairDrafts}
+                  focusId={focusDraftId}
                   disabled={active}
                   onChange={(id, patch) => updateDraft('pairs', id, patch)}
                   onRemove={(id) => removeDraft('pairs', id)}
@@ -2494,6 +2594,7 @@ export function ControlApp() {
                 />
                 <LiteralSection
                   drafts={literalDrafts}
+                  focusId={focusDraftId}
                   disabled={active}
                   onChange={(id, patch) => updateDraft('literal', id, patch)}
                   onRemove={(id) => removeDraft('literal', id)}

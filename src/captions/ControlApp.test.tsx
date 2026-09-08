@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ControlApp } from './ControlApp';
 import type { LocalModelId, LocalModelPhase, LocalModelStatus } from './types';
@@ -2313,5 +2313,73 @@ describe('meeting caption controls', () => {
     expect(row).toHaveFocus();
     expect(scrollIntoView).toHaveBeenCalledWith({ behavior: 'auto', block: 'center' });
     expect(screen.getByRole('button', { name: 'Whisper local transcription' })).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('offers per-row glossary actions on the terms it can actually change', async () => {
+    // Built-in terms are shipped data: the model shadows them with a custom row
+    // rather than deleting them, so Remove is only honest for the operator's own
+    // entries. A built-in gets Override, which seeds an editable copy.
+    render(<ControlApp />);
+    await screen.findByRole('button', { name: /Start session/i });
+    fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+
+    const customRow = (await screen.findByText('boss')).closest('li');
+    expect(customRow).not.toBeNull();
+    expect(
+      within(customRow as HTMLElement).getByRole('button', { name: 'Edit' }),
+    ).toBeInTheDocument();
+    expect(
+      within(customRow as HTMLElement).getByRole('button', { name: 'Remove' }),
+    ).toBeInTheDocument();
+
+    // A built-in is shipped data. Override seeds an editable copy that shadows
+    // it; Remove would be a button that cannot do what it says.
+    const builtinRow = screen.getByText('wall thickness').closest('li');
+    expect(
+      within(builtinRow as HTMLElement).getByRole('button', { name: 'Override' }),
+    ).toBeInTheDocument();
+    expect(
+      within(builtinRow as HTMLElement).queryByRole('button', { name: 'Remove' }),
+    ).toBeNull();
+  });
+
+  it('opens the editor focused on the row picked from the list', async () => {
+    // Reaching a collapsed editor and having to hunt for the term just clicked
+    // is the failure this avoids.
+    render(<ControlApp />);
+    await screen.findByRole('button', { name: /Start session/i });
+    fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+
+    const customRow = (await screen.findByText('boss')).closest('li');
+    fireEvent.click(
+      within(customRow as HTMLElement).getByRole('button', { name: 'Edit' }),
+    );
+
+    const editor = document.querySelector('details.glossary-advanced');
+    expect((editor as HTMLDetailsElement).open).toBe(true);
+  });
+
+  it('removing a row saves the glossary without it', async () => {
+    render(<ControlApp />);
+    await screen.findByRole('button', { name: /Start session/i });
+    fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+
+    const customRow = (await screen.findByText('boss')).closest('li');
+    fireEvent.click(
+      within(customRow as HTMLElement).getByRole('button', { name: 'Remove' }),
+    );
+
+    // Asserted on the saved payload rather than a shape, because clearing the
+    // last custom term legitimately produces `null` rather than an empty list -
+    // and either way the removed term must not survive the save.
+    await waitFor(() => expect(window.captions.setSettings).toHaveBeenCalled());
+    // Not `.at(-1)`: this project targets ES2020, where Array.prototype.at is
+    // absent from the type library.
+    const calls = vi.mocked(window.captions.setSettings).mock.calls;
+    const saved = calls[calls.length - 1]?.[0] as {
+      customGlossaryConfiguration?: { terms?: { en: string }[] } | null;
+    };
+    const savedTerms = saved.customGlossaryConfiguration?.terms ?? [];
+    expect(savedTerms.some((term) => term.en === 'boss')).toBe(false);
   });
 });

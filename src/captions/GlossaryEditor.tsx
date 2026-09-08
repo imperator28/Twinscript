@@ -11,6 +11,12 @@ import type { DraftTerm } from './glossaryView';
 
 interface PairSectionProps {
   drafts: DraftTerm[];
+  /**
+   * A row to reveal and focus, set when the operator picks Edit or Override on
+   * a row in the preview list above. Without it they arrive at a collapsed
+   * editor and have to hunt for the term they just clicked.
+   */
+  focusId?: string | null;
   disabled: boolean;
   onChange: (id: string, patch: Partial<DraftTerm>) => void;
   onRemove: (id: string) => void;
@@ -20,6 +26,7 @@ interface PairSectionProps {
 /** One-to-one terminology: English in, Chinese out. */
 export function TermPairSection({
   drafts,
+  focusId = null,
   disabled,
   onChange,
   onRemove,
@@ -46,6 +53,15 @@ export function TermPairSection({
               value={draft.en}
               aria-label={`English term ${index + 1}`}
               placeholder="wall thickness"
+              ref={(node) => {
+                // Scrolled as well as focused: the row can be well below the
+                // fold in a long glossary, and a focused input the operator
+                // cannot see is the same as no focus at all.
+                if (node && focusId && draft.id === focusId) {
+                  node.focus();
+                  node.scrollIntoView({ block: 'center' });
+                }
+              }}
               onChange={(event) => onChange(draft.id, { en: event.target.value })}
             />
             <span className="glossary-row__arrow" aria-hidden="true">→</span>
@@ -77,6 +93,7 @@ export function TermPairSection({
 
 interface LiteralSectionProps {
   drafts: DraftTerm[];
+  focusId?: string | null;
   disabled: boolean;
   onChange: (id: string, patch: Partial<DraftTerm>) => void;
   onRemove: (id: string) => void;
@@ -86,6 +103,7 @@ interface LiteralSectionProps {
 /** Phrases that must appear untranslated in both captions. One column, not two. */
 export function LiteralSection({
   drafts,
+  focusId = null,
   disabled,
   onChange,
   onRemove,
@@ -112,6 +130,15 @@ export function LiteralSection({
               value={draft.en}
               aria-label={`Never-translate phrase ${index + 1}`}
               placeholder="Design for Six Sigma"
+              ref={(node) => {
+                // Scrolled as well as focused: the row can be well below the
+                // fold in a long glossary, and a focused input the operator
+                // cannot see is the same as no focus at all.
+                if (node && focusId && draft.id === focusId) {
+                  node.focus();
+                  node.scrollIntoView({ block: 'center' });
+                }
+              }}
               onChange={(event) => onChange(draft.id, { en: event.target.value })}
             />
             <button

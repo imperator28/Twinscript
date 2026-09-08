@@ -596,7 +596,15 @@ h2 { margin-bottom: var(--space-4); font-size: var(--size-title); line-height: v
 .section-heading > div { flex: 1; min-width: 0; }
 .supporting-copy, .field-note, .comparison-summary { color: var(--text-secondary); font-size: var(--size-sm); line-height: var(--leading-body); }
 .field { display: grid; gap: 7px; margin: var(--space-4) 0; color: var(--text); font-size: var(--size-sm); font-weight: var(--weight-semibold); }
-select, input[type="password"], input[type="number"], input[type="text"], textarea { width: 100%; min-height: var(--target); padding: 10px var(--space-3); border: 1px solid var(--border-strong); border-radius: var(--radius); background: var(--surface); color: var(--text); }
+/* `search` belongs in this list. Without it the glossary search box fell back
+   to the platform default - square corners, its own border, its own height -
+   which is why it was the one control in the app that did not match. */
+select, input[type="password"], input[type="number"], input[type="text"], input[type="search"], textarea { width: 100%; min-height: var(--target); padding: 10px var(--space-3); border: 1px solid var(--border-strong); border-radius: var(--radius); background: var(--surface); color: var(--text); }
+/* Chromium draws its own clear affordance and inner padding on a search
+   field; neither matches the rest of the app. */
+input[type="search"] { appearance: none; -webkit-appearance: none; }
+input[type="search"]::-webkit-search-decoration,
+input[type="search"]::-webkit-search-cancel-button { -webkit-appearance: none; }
 textarea { resize: vertical; line-height: var(--leading-body); }
 input[type="range"] { width: 100%; accent-color: var(--accent); }
 .toggle { display: flex; align-items: center; gap: 10px; min-height: var(--target); font-size: var(--size-body); font-weight: var(--weight-semibold); cursor: pointer; }
@@ -961,7 +969,9 @@ input[type="range"] { width: 100%; accent-color: var(--accent); }
 }
 .glossary-list li {
   display: grid;
-  grid-template-columns: 1fr 1fr auto;
+  /* A fourth column reserved for the row actions, so revealing them cannot
+     reflow the two term columns and shift the text under the pointer. */
+  grid-template-columns: 1fr 1fr auto auto;
   align-items: baseline;
   gap: var(--space-3);
   padding: var(--space-2) var(--space-3);
@@ -979,6 +989,50 @@ input[type="range"] { width: 100%; accent-color: var(--accent); }
 .glossary-list__tag.is-muted { background: var(--surface-inset); color: var(--text-secondary); }
 .glossary-list li.is-inactive .glossary-list__en,
 .glossary-list li.is-inactive .glossary-list__zh { opacity: .6; }
+
+/* Per-row actions.
+   Hidden until the row is hovered or something in it takes keyboard focus, so a
+   list of 138 terms is not 276 competing buttons - but always rendered and in the
+   tab order, because a control that only exists under a pointer cannot be reached
+   from the keyboard. `visibility` rather than `display` keeps the row's height
+   and column widths identical either way. */
+.glossary-list__actions {
+  display: flex;
+  gap: var(--space-1);
+  align-self: center;
+  visibility: hidden;
+  opacity: 0;
+  transition: opacity var(--dur-fast) var(--ease-out);
+}
+.glossary-list li:hover .glossary-list__actions,
+.glossary-list li:focus-within .glossary-list__actions {
+  visibility: visible;
+  opacity: 1;
+}
+.glossary-list__action {
+  min-height: 26px;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text-secondary);
+  font-size: var(--size-2xs);
+  font-weight: var(--weight-semibold);
+  white-space: nowrap;
+}
+.glossary-list__action:hover:not(:disabled) {
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+.glossary-list__action.is-danger:hover:not(:disabled) {
+  border-color: var(--danger-border);
+  background: var(--danger-surface);
+  color: var(--danger-text);
+}
+.glossary-list__action:disabled { opacity: .5; }
+/* Hovering a row is a signal in itself, so the row lifts slightly to show which
+   one the actions belong to. */
+.glossary-list li:hover { background: var(--surface-hover); }
 /* One section per kind of instruction. Each is a bordered group so the boundary between
    "translate this as that" and "never translate this" is visible, rather than four sets
    of inputs running together down one column. */

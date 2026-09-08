@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Square } from 'lucide-react';
 import type { SessionMetrics, SessionStatus } from './types';
 
@@ -37,43 +37,19 @@ export function SessionHud() {
   const [stopping, setStopping] = useState(false);
   // The main process owns the window size, so the renderer must not ask for the
   // same state twice - each request is a real window resize.
-  const lastRequested = useRef<boolean | null>(null);
-  const collapseTimer = useRef<number | null>(null);
-
-  /**
-   * Expand immediately, collapse only after a pause.
-   *
-   * Reported as being unable to stop a session from the pill, and this is why.
-   * Expanding resizes the window, which moves its edges out from under the
-   * cursor; Chromium then fires `pointerleave`, which collapsed it, which resized
-   * it back, which fired `pointerenter` again. Stop appeared and vanished faster
-   * than it could be clicked.
-   *
-   * The delay breaks that loop: a leave caused by the window moving is cancelled
-   * by the enter that immediately follows it, while a real departure still
-   * collapses a moment later.
-   */
-  const requestExpanded = (next: boolean) => {
-    if (collapseTimer.current !== null) {
-      window.clearTimeout(collapseTimer.current);
-      collapseTimer.current = null;
-    }
-    if (next) {
-      setExpanded(true);
-      return;
-    }
-    collapseTimer.current = window.setTimeout(() => {
-      collapseTimer.current = null;
-      setExpanded(false);
-    }, 420);
-  };
-
-  useEffect(
-    () => () => {
-      if (collapseTimer.current !== null) window.clearTimeout(collapseTimer.current);
-    },
-    [],
-  );
+  // Expansion is decided by the main process and nothing else.
+  //
+  // The renderer cannot see hover: the pill is a `-webkit-app-region: drag`
+  // region, and on Windows those are non-client areas that receive no mouse
+  // events. What it CAN see is the Stop button, which opts out with `no-drag` -
+  // and that was the bug behind the pill retracting as the cursor moved onto it.
+  // Leaving the button fired `pointerleave`, the renderer collapsed on its own
+  // authority, the window shrank, and the main process - correctly seeing the
+  // cursor still inside - expanded it again. The two fought and the pill flapped.
+  //
+  // So there is one authority now, in caption-window-manager.js, which polls the
+  // cursor against the window's real bounds. This surface only draws what it is
+  // told.
 
   // The stylesheet paints `--surface-sunken` on :root for the control window.
   // This window is transparent, so inheriting that would draw an opaque grey
@@ -131,15 +107,9 @@ export function SessionHud() {
     // cannot see it: the pill is a drag region, and on Windows those are
     // non-client areas that receive no mouse events at all. The pointer handlers
     // below stay as a second signal for platforms where they do fire.
-    const offHover = attach(window.captions?.onSessionHudHover, (next) => {
-      const wanted = Boolean((next as { expanded?: boolean })?.expanded);
-      if (collapseTimer.current !== null) {
-        window.clearTimeout(collapseTimer.current);
-        collapseTimer.current = null;
-      }
-      lastRequested.current = wanted;
-      setExpanded(wanted);
-    });
+    const offHover = attach(window.captions?.onSessionHudHover, (next) =>
+      setExpanded(Boolean((next as { expanded?: boolean })?.expanded)),
+    );
     return () => {
       offStatus();
       offMetrics();
@@ -148,19 +118,15 @@ export function SessionHud() {
     };
   }, []);
 
-  useEffect(() => {
-    if (lastRequested.current === expanded) return;
-    lastRequested.current = expanded;
-    // Same reasoning: if this channel is unavailable the pill stays whatever size
-    // the main process last gave it rather than crashing on hover.
-    try {
-      void window.captions?.setSessionHudExpanded?.(expanded);
-    } catch (error) {
-      console.warn('[Twinscript] session HUD resize unavailable', error);
-    }
-  }, [expanded]);
 
   const live = status.state === 'running' || status.state === 'connected';
+
+  // The HUD window is hidden between sessions, not unmounted, so `stopping`
+  // survived into the next one and the button read "Stopping..." forever - which
+  // also made it look dead when it was not. Any live session clears it.
+  useEffect(() => {
+    if (live || status.state === 'starting') setStopping(false);
+  }, [live, status.state]);
   const elapsed = formatElapsed(Number(metrics?.elapsedMs) || 0);
   const spend = Number(metrics?.totalUsd);
   const budget = Number(metrics?.budgetUsd);
@@ -170,11 +136,10 @@ export function SessionHud() {
     setStopping(true);
     try {
       await window.captions?.stopSession?.();
-    } finally {
-      // Left true: the window is hidden by the main process as soon as the
-      // session reports stopped, and re-enabling first would flash the button
-      // back to its normal state on the way out.
-      setStopping(true);
+    } catch {
+      // A failed stop must not leave the button dead. The operator needs to be
+      // able to try again, and this is their only reachable control.
+      setStopping(false);
     }
   };
 
@@ -183,12 +148,6 @@ export function SessionHud() {
       className={`session-hud${expanded ? ' is-expanded' : ''}${
         dockEdge ? ` is-docked is-docked-${dockEdge}` : ''
       }`}
-      // Pointer, not mouse: this has to work for a pen or touch as well.
-      onPointerEnter={() => requestExpanded(true)}
-      onPointerLeave={() => requestExpanded(false)}
-      // A press anywhere in the pill means the operator is using it, so hold it
-      // open even if the window shifts under them mid-gesture.
-      onPointerDown={() => requestExpanded(true)}
     >
       {/* The whole pill drags, and the buttons opt out. `user-select: none` in
           the stylesheet is what stops a press turning into a text selection,
@@ -215,10 +174,6 @@ export function SessionHud() {
           type="button"
           className="session-hud__stop"
           disabled={stopping}
-          // Kept open while the pointer is on the button itself, so a resize
-          // cannot pull it out from under the click.
-          onPointerEnter={() => requestExpanded(true)}
-          onPointerDown={() => requestExpanded(true)}
           onClick={() => void stop()}
         >
           <Square size={11} strokeWidth={2.5} fill="currentColor" aria-hidden="true" />

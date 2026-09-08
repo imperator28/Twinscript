@@ -863,7 +863,13 @@ class CaptionWindowManager {
     if (!window || window.isDestroyed()) return;
     const workArea = this.targetWorkArea();
     const current = window.getBounds();
-    this.sessionHudEdge = resolveDockEdge({ bounds: current, workArea });
+    // The edge it is already on is passed in, so an attached pill needs a
+    // deliberate drag to let go rather than snapping back from a nudge.
+    this.sessionHudEdge = resolveDockEdge({
+      bounds: current,
+      workArea,
+      currentEdge: this.sessionHudEdge,
+    });
     window.setBounds(
       anchoredBounds({
         edge: this.sessionHudEdge,
@@ -978,9 +984,11 @@ class CaptionWindowManager {
       clearTimeout(this.sessionHudMoveTimer);
       this.sessionHudMoveTimer = null;
     }
-    // Collapsed on the way out, so the next session opens showing status rather
-    // than a Stop button already stretched open.
-    this.sessionHudExpanded = false;
+    // Collapsed on the way out, and actually resized - not just flagged. Setting
+    // the flag alone left the window at its expanded size, so the next session
+    // opened as a wide pill with no Stop in it until the cursor happened to pass
+    // over. Caught by session-hud-hover.test.cjs.
+    this.setSessionHudExpanded(false);
     window.hide();
   }
 

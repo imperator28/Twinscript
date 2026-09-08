@@ -250,7 +250,27 @@ export function ControlApp() {
   const [metrics, setMetrics] = useState<SessionMetrics>({});
   const [captions, setCaptions] = useState<CaptionEvent[]>([]);
   const [busy, setBusy] = useState(false);
-  const [notice, setNotice] = useState('');
+  /**
+   * Feedback, and how serious it is.
+   *
+   * Everything used to be the same amber, so a stored API key and a failed model
+   * install looked identical - the operator had to read the sentence to find out
+   * whether anything was wrong. Tone carries that now: green for something that
+   * worked, amber for something worth knowing, red for a failure.
+   *
+   * `setNotice` keeps its old signature and defaults to amber, so the forty-odd
+   * existing call sites did not all have to be re-read and re-decided at once;
+   * `notify` is the explicit form used where the severity is unambiguous.
+   */
+  const [notice, setNoticeState] = useState<{
+    message: string;
+    tone: 'success' | 'warning' | 'danger';
+  }>({ message: '', tone: 'warning' });
+  const notify = (
+    message: string,
+    tone: 'success' | 'warning' | 'danger' = 'warning',
+  ) => setNoticeState({ message, tone });
+  const setNotice = (message: string) => notify(message, 'warning');
   const [pairDrafts, setPairDrafts] = useState<DraftTerm[]>(
     () => draftSections([]).pairs,
   );
@@ -359,7 +379,7 @@ export function ControlApp() {
     const handleStatus = (next: SessionStatus) => {
       setStatus(next);
       if (next.state === 'degraded' && next.message) {
-        setNotice(next.message);
+        notify(next.message, 'danger');
       }
       if (['starting', 'running', 'degraded', 'budget-warning'].includes(next.state)) {
         setSessionActive(true);
@@ -504,7 +524,7 @@ export function ControlApp() {
     if (!repairedLaunch.current || tab !== 'settings' || !credential) return;
     repairedLaunch.current = false;
     window.localStorage.removeItem('captions.secureStorageRepaired');
-    setNotice('Secure storage was repaired. Enter your API key to continue.');
+    notify('Secure storage was repaired. Enter your API key to continue.', 'success');
     window.requestAnimationFrame(() => apiKeyInput.current?.focus());
   }, [credential, tab]);
 
@@ -526,7 +546,7 @@ export function ControlApp() {
     const result = await window.captions.setSettings(patch as Record<string, unknown>);
     if (!result.ok) {
       setSettingsState(previous);
-      setNotice(result.error.message);
+      notify(result.error.message, 'danger');
       return null;
     }
     const next = result.data as unknown as CaptionSettings;
@@ -552,7 +572,7 @@ export function ControlApp() {
     const result = await window.captions.setLayout(layout);
     if (!result.ok) {
       setSettingsState(previous);
-      setNotice(result.error.message);
+      notify(result.error.message, 'danger');
       return;
     }
     const appliedLayout =
@@ -575,7 +595,7 @@ export function ControlApp() {
           ? await window.captions.hideWindows()
           : await window.captions.showWindows();
     if (!result.ok) {
-      setNotice(result.error.message);
+      notify(result.error.message, 'danger');
       return;
     }
     setPreviewVisibility(result.data);
@@ -595,7 +615,7 @@ export function ControlApp() {
     const result = await operation();
     setBusy(false);
     if (!result.ok) {
-      setNotice(result.error.message);
+      notify(result.error.message, 'danger');
       return;
     }
     setNativeCameraHealth(result.data);
@@ -608,7 +628,7 @@ export function ControlApp() {
       if (action === 'remove') {
         const result = await window.captions.removeLocalModel(modelId);
         if (!result.ok) {
-          setNotice(result.error.message);
+          notify(result.error.message, 'danger');
           return;
         }
         setLocalModels(result.data.status);
@@ -623,12 +643,12 @@ export function ControlApp() {
       }[action];
       const result = await operation(modelId);
       if (!result.ok) {
-        setNotice(result.error.message);
+        notify(result.error.message, 'danger');
         return;
       }
       setLocalModels(result.data);
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : 'Local model action could not complete.');
+      notify(error instanceof Error ? error.message : 'Local model action could not complete.', 'danger');
     } finally {
       setBusyModel(null);
     }
@@ -643,13 +663,13 @@ export function ControlApp() {
         setBusyModel(modelId);
         const result = await window.captions.installLocalModel(modelId);
         if (!result.ok) {
-          setNotice(result.error.message);
+          notify(result.error.message, 'danger');
           return;
         }
         setLocalModels(result.data);
       }
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : 'Model setup could not complete. Please retry.');
+      notify(error instanceof Error ? error.message : 'Model setup could not complete. Please retry.', 'danger');
     } finally {
       setBusyModel(null);
     }
@@ -725,7 +745,7 @@ export function ControlApp() {
     });
     if (id !== operationId.current) return;
     if (!result.ok) {
-      setNotice(result.error.message);
+      notify(result.error.message, 'danger');
       if (result.error.code === 'credential_unlock_failed') {
         setCredentialIssue(true);
       }
@@ -803,7 +823,7 @@ export function ControlApp() {
     const result = await window.captions.chooseMeetingRecordsDirectory();
     setBusy(false);
     if (!result.ok) {
-      setNotice(result.error.message);
+      notify(result.error.message, 'danger');
       return;
     }
     if (result.data.settings) {
@@ -826,7 +846,7 @@ export function ControlApp() {
         : await window.captions.discardMeetingAudio(target);
     setBusy(false);
     if (!result.ok) {
-      setNotice(result.error.message);
+      notify(result.error.message, 'danger');
       return;
     }
     if (meetingReview?.sessionId === target) setMeetingReview(result.data);
@@ -950,10 +970,10 @@ export function ControlApp() {
       setCredential(result.data);
       setCredentialIssue(false);
       setKeyInput('');
-      setNotice('API key validated and stored in this computer’s secure storage.');
+      notify('API key validated and stored in this computer’s secure storage.', 'success');
     } else {
       setCredentialIssue(result.error.code === 'credential_unlock_failed');
-      setNotice(result.error.message);
+      notify(result.error.message, 'danger');
     }
     setBusy(false);
   };
@@ -979,7 +999,7 @@ export function ControlApp() {
     setBusy(true);
     const result = await window.captions.repairCredential();
     if (!result.ok) {
-      setNotice(result.error.message);
+      notify(result.error.message, 'danger');
       setBusy(false);
       return;
     }
@@ -993,10 +1013,10 @@ export function ControlApp() {
     setKeyInput('');
     if (result.data.relaunchRequired) {
       window.localStorage.setItem('captions.secureStorageRepaired', '1');
-      setNotice('Secure storage repaired. Restarting the app…');
+      notify('Secure storage repaired. Restarting the app…', 'success');
       return;
     }
-    setNotice('Secure storage repaired. Enter your API key to continue.');
+    notify('Secure storage repaired. Enter your API key to continue.', 'success');
     setBusy(false);
     window.requestAnimationFrame(() => apiKeyInput.current?.focus());
   };
@@ -1032,7 +1052,7 @@ export function ControlApp() {
     setBusy(false);
     setPendingReset(null);
     if (!result.ok) {
-      setNotice(result.error.message);
+      notify(result.error.message, 'danger');
       return;
     }
     const next = result.data as unknown as CaptionSettings;
@@ -1041,7 +1061,7 @@ export function ControlApp() {
     // repopulated or they would keep offering to save the terms that were just cleared.
     syncGlossaryEditors(next);
     refreshGlossaryTerms();
-    setNotice('All settings reset. Your API key and saved meetings are unchanged.');
+    notify('All settings reset. Your API key and saved meetings are unchanged.', 'success');
   };
 
   const updateDraft = (
@@ -1132,7 +1152,7 @@ export function ControlApp() {
     const result = await window.captions.importGlossary();
     setBusy(false);
     if (!result.ok) {
-      setNotice(result.error.message);
+      notify(result.error.message, 'danger');
       return;
     }
     if (result.data.canceled || !result.data.settings) return;
@@ -1156,7 +1176,7 @@ export function ControlApp() {
     const result = await window.captions.exportGlossary();
     setBusy(false);
     if (!result.ok) {
-      setNotice(result.error.message);
+      notify(result.error.message, 'danger');
       return;
     }
     if (!result.data.canceled) {
@@ -1420,13 +1440,22 @@ export function ControlApp() {
         ))}
       </nav>
 
-      {notice && (
-        <div className="notice" role="status">
-          <AlertTriangle size={16} strokeWidth={2.25} aria-hidden="true" />
-          <span>{notice}</span>
+      {notice.message && (
+        <div
+          className={`notice is-${notice.tone}`}
+          // A failure is announced assertively; the other two are polite, so a
+          // success confirmation does not interrupt whatever is being read.
+          role={notice.tone === 'danger' ? 'alert' : 'status'}
+        >
+          {notice.tone === 'success' ? (
+            <Check size={16} strokeWidth={2.5} aria-hidden="true" />
+          ) : (
+            <AlertTriangle size={16} strokeWidth={2.25} aria-hidden="true" />
+          )}
+          <span>{notice.message}</span>
           {/* A real icon rather than the × character, which rendered at whatever
               weight the system font happened to give it. */}
-          <button onClick={() => setNotice('')} aria-label="Dismiss">
+          <button onClick={() => notify('')} aria-label="Dismiss">
             <X size={18} strokeWidth={2.25} aria-hidden="true" />
           </button>
         </div>

@@ -22,6 +22,17 @@ const EXPANDED = { width: 312, height: 44 };
 
 /** How close to an edge a release has to be before it docks. */
 const SNAP_MARGIN = 28;
+/**
+ * How far a docked pill must be dragged before it lets go.
+ *
+ * Docking and undocking cannot share one threshold. A docked pill sits mostly
+ * past the edge, so its measured distance to that edge starts out negative;
+ * dragging it twenty pixels inward still leaves it inside a 28px band and it
+ * snapped straight back - which is exactly the reported "I drag it away from the
+ * border but it still sticks back". Undocking therefore needs a wider band than
+ * docking, so the two states have somewhere to rest.
+ */
+const UNDOCK_MARGIN = 96;
 /** How much of the pill stays on screen once docked. */
 const PEEK = 26;
 /** Gap from the work-area edge when floating rather than docked. */
@@ -70,8 +81,18 @@ function edgeDistances({ bounds, workArea }) {
  * EDGES order so the outcome is deterministic rather than dependent on object
  * key order.
  */
-function resolveDockEdge({ bounds, workArea, snapMargin = SNAP_MARGIN }) {
+function resolveDockEdge({
+  bounds,
+  workArea,
+  snapMargin = SNAP_MARGIN,
+  currentEdge = null,
+  undockMargin = UNDOCK_MARGIN,
+}) {
   const distances = edgeDistances({ bounds, workArea });
+  // Already docked: hold on until dragged clear of the wider band, and hold on
+  // to THIS edge rather than re-deciding, so sliding along an edge does not
+  // reassign it to a nearer perpendicular one.
+  if (currentEdge && distances[currentEdge] <= undockMargin) return currentEdge;
   let best = null;
   for (const edge of EDGES) {
     const distance = distances[edge];
@@ -100,18 +121,32 @@ function anchoredBounds({
   const maxX = workArea.x + workArea.width - size.width;
   const maxY = workArea.y + workArea.height - size.height;
 
+  // Growing keeps the pill's CENTRE, not its left edge.
+  //
+  // Anchoring the left edge made it unfurl to the right, which reads as the
+  // window sliding sideways rather than the pill opening. Holding the centre is
+  // what makes it look like it grew out of itself - and it also keeps Stop near
+  // where the cursor already is instead of throwing it further away.
+  const centredX = clamp(
+    Math.round(bounds.x + bounds.width / 2 - size.width / 2),
+    workArea.x,
+    Math.max(workArea.x, maxX),
+  );
+  const centredY = clamp(
+    Math.round(bounds.y + bounds.height / 2 - size.height / 2),
+    workArea.y,
+    Math.max(workArea.y, maxY),
+  );
+
   if (!edge) {
-    return {
-      x: Math.round(clamp(bounds.x, workArea.x, Math.max(workArea.x, maxX))),
-      y: Math.round(clamp(bounds.y, workArea.y, Math.max(workArea.y, maxY))),
-      ...size,
-    };
+    return { x: centredX, y: centredY, ...size };
   }
 
-  // Centre along the edge is kept from wherever the operator left it, so a HUD
-  // docked at the top-right stays at the right.
-  const keptX = clamp(bounds.x, workArea.x, Math.max(workArea.x, maxX));
-  const keptY = clamp(bounds.y, workArea.y, Math.max(workArea.y, maxY));
+  // Along a docked edge the position is the operator's choice, so only the axis
+  // parallel to that edge is re-centred; the perpendicular axis is dictated by
+  // the edge itself.
+  const keptX = centredX;
+  const keptY = centredY;
 
   if (edge === 'top') {
     return {
@@ -169,6 +204,7 @@ function pointerWithin(bounds, point, margin = 6) {
 
 module.exports = {
   pointerWithin,
+  UNDOCK_MARGIN,
   COLLAPSED,
   EXPANDED,
   SNAP_MARGIN,

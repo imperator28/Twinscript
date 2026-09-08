@@ -1074,6 +1074,19 @@ input[type="range"] { width: 100%; accent-color: var(--accent); }
 }
 .notice > svg { flex: 0 0 auto; }
 .notice > span { flex: 1; }
+/* Severity, so the colour says what the sentence would have to be read to learn.
+   Amber remains the default for anything merely worth knowing. */
+.notice.is-success {
+  border-color: var(--success-border);
+  background: var(--success-surface);
+  color: var(--success-text);
+}
+.notice.is-danger {
+  border-color: var(--danger-border);
+  background: var(--danger-surface);
+  color: var(--danger-text);
+}
+
 .notice > span { flex: 1; min-width: 0; }
 .notice button { display: grid; flex: 0 0 auto; place-items: center; width: 32px; height: 32px; margin-left: var(--space-2); border: 0; border-radius: var(--radius-pill); background: transparent; color: inherit; }
 .notice button:hover { background: color-mix(in srgb, currentColor 12%, transparent); }
@@ -1363,12 +1376,17 @@ input[type="range"] { width: 100%; accent-color: var(--accent); }
   white-space: nowrap;
 }
 .local-model-row__state svg { flex: 0 0 auto; }
-/* The chip shares a row with Verify and Remove, which are `--target` tall for the
-   touch minimum. At 26px it read as a different, smaller class of thing sitting
-   slightly above the line of the buttons. Matching their height lines all three
-   up on one baseline; the chip stays visually lighter through its fill and
-   weight rather than by being short. */
-.local-model-row__actions .local-model-row__state {
+/* The chip lines up with Verify and Remove, which are `--target` tall for the
+   touch minimum.
+   The previous attempt scoped this to `.local-model-row__actions
+   .local-model-row__state`, which never matched anything: the chip lives in
+   `.local-model-row__summary` and the buttons in `.local-model-row__actions`.
+   They only look like one row because the grid puts them side by side, so the
+   selector has to be on the chip itself.
+   `gap` is the second half of the report: the tick and the word were touching,
+   with only the icon's own bearing between them. */
+.local-model-row__state {
+  gap: var(--space-2);
   min-height: var(--target);
   padding: 0 var(--space-4);
 }
@@ -1761,6 +1779,10 @@ a:hover { text-decoration-color: currentColor; }
   *, *::before, *::after { scroll-behavior: auto !important; }
   /* The live dot keeps its colour and ring; only the pulse goes. */
   .session-hud__dot.is-live { animation: none; }
+  /* The reveal keeps its fade and loses the scale, per the policy above: the
+     fade tells the operator something arrived, the movement is the vestibular
+     part. */
+  .session-hud__stop { animation-name: surface-fade; }
   :root { --dur-enter: 120ms; --dur-exit: 100ms; }
   /* Same entrances, without the translate. A plain crossfade still tells the
      operator that something arrived; the vestibular part is the movement. */
@@ -1911,6 +1933,17 @@ a:hover { text-decoration-color: currentColor; }
   cursor: pointer;
   -webkit-app-region: no-drag;
   transition: background-color var(--dur-fast) var(--ease-out);
+}
+/* The window resize itself is a single step - Electron moves bounds, it does not
+   tween them - so the pill now grows from its centre (see session-hud-dock.js)
+   and the button fades up inside the space that opens. Without this the label
+   appeared fully formed the instant the window changed size, which read as a
+   flicker rather than as the pill opening. */
+.session-hud__stop {
+  animation: session-hud-reveal var(--dur-enter) var(--ease-out) backwards;
+}
+@keyframes session-hud-reveal {
+  from { opacity: 0; transform: scale(.92); }
 }
 .session-hud__stop:hover:not(:disabled) {
   background: color-mix(in srgb, var(--text-on-danger) 10%, var(--danger));

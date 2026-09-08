@@ -1,10 +1,12 @@
 #include "openvino_whisper_engine.h"
 
+#include <cctype>
 #include <chrono>
 #include <cstddef>
 #include <memory>
 #include <mutex>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <utility>
 
@@ -23,6 +25,50 @@ double elapsed_ms(Clock::time_point started) {
   return std::chrono::duration<double, std::milli>(Clock::now() - started).count();
 }
 
+// This product transcribes exactly two languages. Whisper detects all
+// ninety-nine.
+//
+// The generation config left `language` unset, so detection ran free - and
+// because a live session re-detects at every phrase boundary (see
+// audio_segmenter.h), one short phrase is all it takes to land somewhere else
+// entirely. English speech came back as Swedish: "Kan du hora mig?" for "can you
+// hear me". Downstream that reads as a successful transcript, so the translator
+// faithfully translated the Swedish and the operator saw fluent nonsense in the
+// original column with no indication anything had gone wrong.
+//
+// Detect, then constrain: keep the free detection, and when it lands outside
+// English or Chinese, decode the same audio once more with the language pinned.
+// Constraining up front instead would be worse - pinning English would wreck
+// Chinese speech and vice versa, and this app exists to caption both.
+constexpr std::string_view kEnglish = "en";
+constexpr std::string_view kChinese = "zh";
+
+/// Whisper reports languages as either "en" or "<|en|>" depending on the export.
+std::string normalize_language(std::string_view raw) {
+  std::string code;
+  for (const char character : raw) {
+    if (character == '<' || character == '>' || character == '|') continue;
+    code.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(character))));
+  }
+  // Regional variants ("zh-cn") collapse to the base language.
+  const auto dash = code.find_first_of("-_");
+  if (dash != std::string::npos) code.resize(dash);
+  return code;
+}
+
+bool is_supported_language(std::string_view code) {
+  return code == kEnglish || code == kChinese;
+}
+
+std::string first_language(const ov::genai::ASRDecodedResults& decoded) {
+  if (decoded.languages.empty()) return {};
+  return normalize_language(decoded.languages.front());
+}
+
+std::string first_text(const ov::genai::ASRDecodedResults& decoded) {
+  return decoded.texts.empty() ? std::string{} : decoded.texts.front();
+}
+
 }  // namespace
 
 class OpenVinoWhisperEngine::Impl {
@@ -34,6 +80,11 @@ class OpenVinoWhisperEngine::Impl {
     std::size_t last_decoded_samples{};
     UtteranceGate gate{make_local_whisper_utterance_gate()};
     std::vector<std::int16_t> pre_roll;
+    // The language this channel was last heard speaking, and therefore the one
+    // to fall back to when detection wanders off. Empty until the first
+    // supported result, so the very first phrase falls back to English rather
+    // than to whatever was misdetected.
+    std::string last_supported_language;
   };
 
   Impl(
@@ -70,13 +121,35 @@ class OpenVinoWhisperEngine::Impl {
     // to overflow the real-time audio queue. Sixty-four tokens is ample for a
     // twelve-second English or Chinese phrase and bounds worst-case decode time.
     config.max_new_tokens = 64;
-    const auto decoded = pipeline->generate(ov::genai::AudioInputs{audio}, config);
+    auto decoded = pipeline->generate(ov::genai::AudioInputs{audio}, config);
+
+    // Detect, then constrain. See kEnglish/kChinese above for why this is not
+    // simply pinned from the start.
+    std::string language = first_language(decoded);
+    bool constrained = false;
+    if (!is_supported_language(language)) {
+      const std::string fallback = state.last_supported_language.empty()
+          ? std::string{kEnglish}
+          : state.last_supported_language;
+      auto pinned = config;
+      pinned.language = "<|" + fallback + "|>";
+      // Exactly one retry. A second miss keeps the pinned result rather than
+      // looping: the audio queue is real-time and an unbounded retry would
+      // starve it.
+      decoded = pipeline->generate(ov::genai::AudioInputs{audio}, pinned);
+      language = fallback;
+      constrained = true;
+    }
+    if (is_supported_language(language)) state.last_supported_language = language;
+
     ++state.revision;
     return {
+        {"language", language},
+        {"languageConstrained", constrained},
         {"channel", channel},
         {"utteranceId", state.session + ":" + channel + ":" + std::to_string(state.sequence)},
         {"revision", state.revision},
-        {"text", decoded.texts.empty() ? std::string{} : decoded.texts.front()},
+        {"text", first_text(decoded)},
         {"final", final},
         {"capturedAt", captured_at},
         {"audioDurationMs", static_cast<double>(audio.size()) / 16.0},

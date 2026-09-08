@@ -1925,13 +1925,24 @@ a:hover { text-decoration-color: currentColor; }
 }
 .session-hud__stop:disabled { cursor: default; opacity: .72; }
 
-/* Docked: most of the pill is off-screen and only the near edge is grabbable,
-   so the visible sliver keeps a full rounded edge on the side facing in and
-   squares off against the screen edge it is tucked behind. */
-.session-hud.is-docked-top { border-top-color: transparent; border-radius: 0 0 var(--radius-pill) var(--radius-pill); }
-.session-hud.is-docked-bottom { border-bottom-color: transparent; border-radius: var(--radius-pill) var(--radius-pill) 0 0; }
-.session-hud.is-docked-left { border-left-color: transparent; border-radius: 0 var(--radius-pill) var(--radius-pill) 0; }
-.session-hud.is-docked-right { border-right-color: transparent; border-radius: var(--radius-pill) 0 0 var(--radius-pill); }
+/* Docked, only a sliver shows, and it must not look like a lozenge growing out
+   of the screen edge.
+   The pill radius is 999px, so on a 26px sliver the curve started immediately at
+   the edge and the two radii met the border with nothing straight between them -
+   which is what looked wrong in the report. A tab needs flat sides and one
+   modest curve on the exposed side, squared off where it meets the edge it is
+   tucked behind. */
+.session-hud.is-docked-top,
+.session-hud.is-docked-bottom,
+.session-hud.is-docked-left,
+.session-hud.is-docked-right { --hud-tab-radius: 12px; }
+.session-hud.is-docked-top { border-top-color: transparent; border-radius: 0 0 var(--hud-tab-radius) var(--hud-tab-radius); }
+.session-hud.is-docked-bottom { border-bottom-color: transparent; border-radius: var(--hud-tab-radius) var(--hud-tab-radius) 0 0; }
+.session-hud.is-docked-left { border-left-color: transparent; border-radius: 0 var(--hud-tab-radius) var(--hud-tab-radius) 0; }
+.session-hud.is-docked-right { border-right-color: transparent; border-radius: var(--hud-tab-radius) 0 0 var(--hud-tab-radius); }
+/* Expanding a docked pill brings it fully on screen, so it becomes a pill again
+   rather than staying a tab. */
+.session-hud.is-docked.is-expanded { border-radius: var(--radius-pill); border-color: var(--hud-border); }
 
 @keyframes session-hud-pulse {
   50% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--live) 12%, transparent); }

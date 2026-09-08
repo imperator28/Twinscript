@@ -38,6 +38,42 @@ export function SessionHud() {
   // The main process owns the window size, so the renderer must not ask for the
   // same state twice - each request is a real window resize.
   const lastRequested = useRef<boolean | null>(null);
+  const collapseTimer = useRef<number | null>(null);
+
+  /**
+   * Expand immediately, collapse only after a pause.
+   *
+   * Reported as being unable to stop a session from the pill, and this is why.
+   * Expanding resizes the window, which moves its edges out from under the
+   * cursor; Chromium then fires `pointerleave`, which collapsed it, which resized
+   * it back, which fired `pointerenter` again. Stop appeared and vanished faster
+   * than it could be clicked.
+   *
+   * The delay breaks that loop: a leave caused by the window moving is cancelled
+   * by the enter that immediately follows it, while a real departure still
+   * collapses a moment later.
+   */
+  const requestExpanded = (next: boolean) => {
+    if (collapseTimer.current !== null) {
+      window.clearTimeout(collapseTimer.current);
+      collapseTimer.current = null;
+    }
+    if (next) {
+      setExpanded(true);
+      return;
+    }
+    collapseTimer.current = window.setTimeout(() => {
+      collapseTimer.current = null;
+      setExpanded(false);
+    }, 420);
+  };
+
+  useEffect(
+    () => () => {
+      if (collapseTimer.current !== null) window.clearTimeout(collapseTimer.current);
+    },
+    [],
+  );
 
   // The stylesheet paints `--surface-sunken` on :root for the control window.
   // This window is transparent, so inheriting that would draw an opaque grey
@@ -134,8 +170,11 @@ export function SessionHud() {
         dockEdge ? ` is-docked is-docked-${dockEdge}` : ''
       }`}
       // Pointer, not mouse: this has to work for a pen or touch as well.
-      onPointerEnter={() => setExpanded(true)}
-      onPointerLeave={() => setExpanded(false)}
+      onPointerEnter={() => requestExpanded(true)}
+      onPointerLeave={() => requestExpanded(false)}
+      // A press anywhere in the pill means the operator is using it, so hold it
+      // open even if the window shifts under them mid-gesture.
+      onPointerDown={() => requestExpanded(true)}
     >
       {/* The whole pill drags, and the buttons opt out. `user-select: none` in
           the stylesheet is what stops a press turning into a text selection,
@@ -162,6 +201,10 @@ export function SessionHud() {
           type="button"
           className="session-hud__stop"
           disabled={stopping}
+          // Kept open while the pointer is on the button itself, so a resize
+          // cannot pull it out from under the click.
+          onPointerEnter={() => requestExpanded(true)}
+          onPointerDown={() => requestExpanded(true)}
           onClick={() => void stop()}
         >
           <Square size={11} strokeWidth={2.5} fill="currentColor" aria-hidden="true" />

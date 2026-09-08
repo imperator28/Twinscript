@@ -35,6 +35,13 @@ vi.mock('./audioCapture', () => ({
     inputs: [{ deviceId: 'mic-1', label: 'Test microphone' }],
     outputs: [],
   }),
+  // Startup uses the escalating variant so a fresh install is not left with an
+  // empty Microphone dropdown; the mock has to offer it or every test in this
+  // file fails on an undefined import rather than on anything it asserts.
+  enumerateAudioDevicesEnsuringAccess: vi.fn().mockResolvedValue({
+    inputs: [{ deviceId: 'mic-1', label: 'Test microphone' }],
+    outputs: [],
+  }),
 }));
 
 let statusListener: ((status: { state: string; message?: string }) => void) | undefined;
@@ -823,8 +830,14 @@ describe('meeting caption controls', () => {
     // what the advice should say. A dismissible thing needs a way back.
     // Something has to be outstanding, or the checklist is hidden because it is satisfied
     // rather than because it was dismissed - the test would pass either way.
-    const { enumerateAudioDevices } = await import('./audioCapture');
-    vi.mocked(enumerateAudioDevices).mockResolvedValueOnce({ inputs: [], outputs: [] });
+    // Startup calls the escalating variant, so that is the one to empty. Queuing
+    // it on `enumerateAudioDevices` left an unconsumed one-shot behind that later
+    // tests picked up, and their microphone test then failed instead of this one.
+    const { enumerateAudioDevicesEnsuringAccess } = await import('./audioCapture');
+    vi.mocked(enumerateAudioDevicesEnsuringAccess).mockResolvedValueOnce({
+      inputs: [],
+      outputs: [],
+    });
 
     window.localStorage.setItem('captions.readinessDismissed', '1');
     render(<ControlApp />);
@@ -876,8 +889,14 @@ describe('meeting caption controls', () => {
   it('counts hidden items while dismissed, so the card can say what is waiting', async () => {
     // `outstanding` has the dismissal applied and reads zero while hidden; the count has to
     // come from every unfinished step or the card cannot tell "nothing" from "hidden".
-    const { enumerateAudioDevices } = await import('./audioCapture');
-    vi.mocked(enumerateAudioDevices).mockResolvedValueOnce({ inputs: [], outputs: [] });
+    // Startup calls the escalating variant, so that is the one to empty. Queuing
+    // it on `enumerateAudioDevices` left an unconsumed one-shot behind that later
+    // tests picked up, and their microphone test then failed instead of this one.
+    const { enumerateAudioDevicesEnsuringAccess } = await import('./audioCapture');
+    vi.mocked(enumerateAudioDevicesEnsuringAccess).mockResolvedValueOnce({
+      inputs: [],
+      outputs: [],
+    });
     window.localStorage.setItem('captions.readinessDismissed', '1');
 
     render(<ControlApp />);

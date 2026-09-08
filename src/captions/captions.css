@@ -1499,6 +1499,20 @@ a:hover { text-decoration-color: currentColor; }
    Invisible until the pointer enters the stage, so an unattended window capture
    in OBS records the picture only. Never mounted in the offscreen output
    window, whose pixels are the camera feed. */
+/* Moving this window was close to impossible, for three separate reasons.
+   All three are fixed here.
+
+   1. The drag handle is a text label, and nothing suppressed selection - so a
+      press near the top started selecting "Camera stage - preview" instead of
+      moving the window. Chromium gives text selection priority over an
+      app-region drag, so the drag never began.
+   2. Only the label carried the drag region. The rest of the bar - most of the
+      width the operator aims at - was inert.
+   3. The bar was `opacity: 0` until `.camera-stage:hover`. Dragging moves the
+      window with the cursor, the pointer leaves the old hover area mid-gesture,
+      and the bar vanished under the hand that was using it. The strip now stays
+      faintly visible so there is always something to grab, and it does not
+      depend on hover to keep working. */
 .camera-stage__chrome {
   position: absolute;
   top: 0; left: 0; right: 0;
@@ -1510,10 +1524,20 @@ a:hover { text-decoration-color: currentColor; }
   background: linear-gradient(180deg, rgba(5, 7, 10, .92), rgba(5, 7, 10, 0));
   color: #f4f6f8;
   font-size: var(--size-sm);
-  opacity: 0;
+  /* The whole strip drags; individual controls opt out below. */
+  -webkit-app-region: drag;
+  cursor: move;
+  /* The fix for the selected-text screenshot. Applies to the label and to
+     anything else that lands in this bar. */
+  user-select: none;
+  -webkit-user-select: none;
+  /* Faint rather than absent, so the handle survives its own drag. An
+     unattended OBS capture still shows next to nothing at this opacity. */
+  opacity: .18;
   transition: opacity var(--dur-fast) var(--ease-out);
 }
 .camera-stage:hover .camera-stage__chrome,
+.camera-stage__chrome:hover,
 .camera-stage__chrome:focus-within { opacity: 1; }
 .camera-stage__chrome-drag {
   flex: 1;
@@ -1521,6 +1545,10 @@ a:hover { text-decoration-color: currentColor; }
   cursor: move;
   letter-spacing: .04em;
   opacity: .85;
+  /* Belt and braces: this element is the one that was visibly selecting. */
+  user-select: none;
+  -webkit-user-select: none;
+  pointer-events: none;
 }
 .camera-stage__chrome button {
   -webkit-app-region: no-drag;

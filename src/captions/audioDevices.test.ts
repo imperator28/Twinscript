@@ -1,5 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { enumerateAudioDevices } from './audioCapture';
+import {
+  enumerateAudioDevices,
+  enumerateAudioDevicesEnsuringAccess,
+} from './audioCapture';
 
 /**
  * Device enumeration, guarded because getting it wrong is invisible.
@@ -103,5 +106,71 @@ describe('enumerateAudioDevices', () => {
     await enumerateAudioDevices(true);
     expect(getUserMedia).toHaveBeenCalledOnce();
     expect(navigator.mediaDevices.enumerateDevices).toHaveBeenCalledTimes(3);
+  });
+});
+
+describe('enumerateAudioDevicesEnsuringAccess', () => {
+  it('drops the empty placeholder Chromium returns before access is granted', async () => {
+    // This is what an ungranted enumeration looks like. Showing it as
+    // "Microphone 1" would offer the operator a device that cannot be selected.
+    withDevices([
+      { kind: 'audioinput', deviceId: '', groupId: '', label: '' },
+    ]);
+    const { inputs } = await enumerateAudioDevices();
+    expect(inputs).toEqual([]);
+  });
+
+  it('asks for access when the first pass finds no microphones', async () => {
+    // The reported bug: a fresh install listed nothing, and only a text button
+    // buried in the readiness card would populate it.
+    let granted = false;
+    const enumerateDevices = vi.fn().mockImplementation(() =>
+      Promise.resolve(
+        granted
+          ? [{ kind: 'audioinput', deviceId: 'array', groupId: 'g', label: 'Microphone Array' }]
+          : [{ kind: 'audioinput', deviceId: '', groupId: '', label: '' }],
+      ),
+    );
+    const getUserMedia = vi.fn().mockImplementation(() => {
+      granted = true;
+      return Promise.resolve({ getTracks: () => [{ stop: vi.fn() }] });
+    });
+    Object.defineProperty(globalThis, 'navigator', {
+      configurable: true,
+      value: { mediaDevices: { enumerateDevices, getUserMedia } },
+    });
+
+    const { inputs } = await enumerateAudioDevicesEnsuringAccess();
+    expect(getUserMedia).toHaveBeenCalledOnce();
+    expect(inputs.map((d) => d.label)).toEqual(['Microphone Array']);
+  });
+
+  it('does not prompt when microphones are already visible', async () => {
+    // A machine that has granted access must never see a second prompt.
+    const { getUserMedia } = withDevices([
+      { kind: 'audioinput', deviceId: 'array', groupId: 'g', label: 'Microphone Array' },
+    ]);
+    const { inputs } = await enumerateAudioDevicesEnsuringAccess();
+    expect(getUserMedia).not.toHaveBeenCalled();
+    expect(inputs).toHaveLength(1);
+  });
+
+  it('returns an empty list rather than throwing when access is refused', async () => {
+    // A refusal is an answer. The readiness checklist explains it; a rejected
+    // promise here would take the whole startup path down with it.
+    const enumerateDevices = vi.fn().mockResolvedValue([]);
+    Object.defineProperty(globalThis, 'navigator', {
+      configurable: true,
+      value: {
+        mediaDevices: {
+          enumerateDevices,
+          getUserMedia: vi.fn().mockRejectedValue(new Error('NotAllowedError')),
+        },
+      },
+    });
+    await expect(enumerateAudioDevicesEnsuringAccess()).resolves.toEqual({
+      inputs: [],
+      outputs: [],
+    });
   });
 });

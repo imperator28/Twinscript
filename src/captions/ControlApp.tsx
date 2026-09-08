@@ -25,6 +25,7 @@ import {
   AudioCaptureController,
   MicrophonePreviewController,
   enumerateAudioDevices,
+  enumerateAudioDevicesEnsuringAccess,
   type AudioDeviceOption,
 } from './audioCapture';
 import { type ChannelHealth, deriveChannelHealth } from './captureHealth';
@@ -416,7 +417,7 @@ export function ControlApp() {
       window.captions.getGlossaryConfigurations(),
       window.captions.getSessionStatus(),
       window.captions.listPendingMeetingRecords(),
-      enumerateAudioDevices().catch(() => ({ inputs: [], outputs: [] })),
+      enumerateAudioDevicesEnsuringAccess(),
     ]).then(([settingsResult, glossaryResult, sessionResult, pendingResult, deviceResult]) => {
       const loadedSettings = settingsResult.ok
         ? settingsResult.data as unknown as CaptionSettings

@@ -68,6 +68,10 @@ export async function enumerateAudioDevices(requestPermission = false): Promise<
     return devices
       .filter((device) => device.kind === kind)
       .filter((device) => !['default', 'communications'].includes(device.deviceId))
+      // Chromium represents "access not granted yet" as an entry with an empty
+      // id and label. It cannot be selected and must not occupy the list as
+      // though it were a real microphone.
+      .filter((device) => Boolean(device.deviceId))
       .filter((device) => {
         // Keyed on deviceId, which is the only per-endpoint identifier.
         //
@@ -98,6 +102,34 @@ export async function enumerateAudioDevices(requestPermission = false): Promise<
     inputs: unique('audioinput'),
     outputs: unique('audiooutput'),
   };
+}
+
+/**
+ * Enumerate, and ask for access if the browser is still hiding the devices.
+ *
+ * `enumerateDevices()` does not reveal microphones until access has been granted:
+ * before that it returns either nothing or a placeholder with an empty id and
+ * label. The control window called the plain version on startup, so on a fresh
+ * install - which is every new packaged build - the Microphone dropdown came up
+ * empty and stayed empty. The only thing that populated it was a text button in
+ * the readiness card, which is easy to miss and looks like it did nothing when a
+ * permission prompt appears and the list still reads empty.
+ *
+ * One escalation, only when the cheap attempt found nothing, so a machine that
+ * has already granted access is never prompted again.
+ */
+export async function enumerateAudioDevicesEnsuringAccess(): Promise<{
+  inputs: AudioDeviceOption[];
+  outputs: AudioDeviceOption[];
+}> {
+  const listed = await enumerateAudioDevices().catch(() => ({
+    inputs: [] as AudioDeviceOption[],
+    outputs: [] as AudioDeviceOption[],
+  }));
+  if (listed.inputs.length > 0) return listed;
+  // A denial here is a legitimate answer, not an error: the caller still gets an
+  // empty list and the readiness checklist explains what to do about it.
+  return enumerateAudioDevices(true).catch(() => listed);
 }
 
 export interface CapturePreviewResult {

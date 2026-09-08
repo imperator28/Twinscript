@@ -1061,24 +1061,16 @@ input[type="range"] { width: 100%; accent-color: var(--accent); }
   background: var(--warning-surface);
   color: var(--warning-text);
   font-size: var(--size-sm);
-  box-shadow: 0 10px 30px -12px rgba(18, 22, 28, .45);
+  /* Two layers, both following the pill's own radius: a tight one that seats it
+     against the page and a wide diffuse one that reads as the gradient beneath.
+     The previous attempt drew a separate gradient element under the bubble, which
+     was a rectangle exactly the width of the pill - so it stopped dead at the
+     border on both sides instead of falling away from a rounded shape. A shadow
+     is the right tool: it is clipped by nothing and curves with the element. */
+  box-shadow:
+    0 2px 6px -2px rgba(18, 22, 28, .18),
+    0 18px 40px -14px rgba(18, 22, 28, .40);
   transform: translateX(-50%);
-}
-/* The gradient the report asked for: a short fade under the pill so content
-   scrolling beneath it passes out of sight rather than colliding with its edge. */
-.notice::after {
-  content: '';
-  position: absolute;
-  top: 100%;
-  right: 0;
-  left: 0;
-  height: 18px;
-  background: linear-gradient(
-    180deg,
-    color-mix(in srgb, var(--surface-sunken) 55%, transparent),
-    transparent
-  );
-  pointer-events: none;
 }
 .notice > svg { flex: 0 0 auto; }
 .notice > span { flex: 1; }

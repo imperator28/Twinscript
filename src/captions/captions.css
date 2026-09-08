@@ -1965,9 +1965,53 @@ a:hover { text-decoration-color: currentColor; }
 .session-hud.is-docked-bottom { border-bottom-color: transparent; border-radius: var(--hud-tab-radius) var(--hud-tab-radius) 0 0; }
 .session-hud.is-docked-left { border-left-color: transparent; border-radius: 0 var(--hud-tab-radius) var(--hud-tab-radius) 0; }
 .session-hud.is-docked-right { border-right-color: transparent; border-radius: var(--hud-tab-radius) 0 0 var(--hud-tab-radius); }
+/* Docked to a horizontal edge, the pill becomes a tab and its contents have to
+   be laid out as one.
+   Only the peek is on screen - 26px of a 36px pill - so the reading has to sit
+   inside that band rather than in the pill's own centre, and the grip has to
+   turn ninety degrees: a vertical bar beside the timer reads as a divider, while
+   a short horizontal bar along the exposed edge reads as something to pull. It
+   also stops the timer being pushed off-centre by a handle that only occupies
+   one side. */
+.session-hud.is-docked-top,
+.session-hud.is-docked-bottom {
+  justify-content: center;
+  padding: 0 var(--space-3);
+}
+.session-hud.is-docked-top { align-items: flex-end; padding-bottom: 9px; }
+.session-hud.is-docked-bottom { align-items: flex-start; padding-top: 9px; }
+.session-hud.is-docked-top .session-hud__status,
+.session-hud.is-docked-bottom .session-hud__status {
+  flex: 0 1 auto;
+  justify-content: center;
+}
+.session-hud.is-docked-top .session-hud__grip,
+.session-hud.is-docked-bottom .session-hud__grip {
+  position: absolute;
+  left: 50%;
+  width: 22px;
+  height: 3px;
+  transform: translateX(-50%);
+}
+.session-hud.is-docked-top .session-hud__grip { bottom: 3px; }
+.session-hud.is-docked-bottom .session-hud__grip { top: 3px; }
+
 /* Expanding a docked pill brings it fully on screen, so it becomes a pill again
-   rather than staying a tab. */
-.session-hud.is-docked.is-expanded { border-radius: var(--radius-pill); border-color: var(--hud-border); }
+   rather than staying a tab - which means undoing the tab layout above. */
+.session-hud.is-docked.is-expanded {
+  align-items: center;
+  justify-content: flex-start;
+  padding: 0 6px 0 10px;
+  border-radius: var(--radius-pill);
+  border-color: var(--hud-border);
+}
+.session-hud.is-docked.is-expanded .session-hud__status { flex: 1; justify-content: flex-start; }
+.session-hud.is-docked.is-expanded .session-hud__grip {
+  position: static;
+  width: 3px;
+  height: 14px;
+  transform: none;
+}
 
 @keyframes session-hud-pulse {
   50% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--live) 12%, transparent); }

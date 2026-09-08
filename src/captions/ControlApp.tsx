@@ -769,10 +769,11 @@ export function ControlApp() {
       const mainStop = await stopMainSessionWithTimeout();
       if (id !== operationId.current) return;
       const message = error instanceof Error ? error.message : 'Audio capture could not start';
-      setNotice(
+      notify(
         mainStop.kind === 'timeout'
           ? `${message} Twinscript is still finishing the interrupted session in the background.`
           : message,
+        'danger',
       );
       setStatus({ state: 'ready' });
       setCapture({ microphone: false, system: false });
@@ -794,15 +795,27 @@ export function ControlApp() {
     try {
       await audio.current.stop();
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : 'Audio capture could not stop cleanly');
+      notify(
+        error instanceof Error ? error.message : 'Audio capture could not stop cleanly',
+        'danger',
+      );
     }
     const mainStop = await stopMainSessionWithTimeout();
     if (mainStop.kind === 'timeout') {
-      setNotice('Twinscript is still finishing the session in the background. You can close this window if you need to leave now.');
+      // Amber: nothing failed, but it is not finished either.
+      notify(
+        'Twinscript is still finishing the session in the background. You can close this window if you need to leave now.',
+        'warning',
+      );
     } else if (mainStop.kind === 'error') {
-      setNotice(mainStop.error instanceof Error ? mainStop.error.message : 'The session could not stop cleanly');
+      notify(
+        mainStop.error instanceof Error
+          ? mainStop.error.message
+          : 'The session could not stop cleanly',
+        'danger',
+      );
     } else if (!mainStop.result.ok) {
-      setNotice(mainStop.result.error.message);
+      notify(mainStop.result.error.message, 'danger');
     } else {
       const next = mainStop.result.data.meetingRecord as MeetingRecordReview | undefined;
       if (next?.recording) {
@@ -913,17 +926,20 @@ export function ControlApp() {
       setPreviewSystemReady(preview.system);
       // The meeting channel is metered too, so the test now covers the capture a
       // session actually depends on rather than half of it.
-      setNotice(
+      notify(
         preview.system
           ? 'Both channels are live. Speak for the microphone meter, and play meeting audio for the meeting meter.'
           : preview.warning ||
               'Microphone is active. System audio could not be captured.',
+        // Both channels up is the good outcome; one channel is a real caveat.
+        preview.system ? 'success' : 'warning',
       );
     } catch (error) {
-      setNotice(
+      notify(
         error instanceof Error
           ? error.message
           : 'Microphone access could not be started.',
+        'danger',
       );
     } finally {
       setBusy(false);
@@ -948,10 +964,11 @@ export function ControlApp() {
       setPreviewLevel(0);
       setPreviewSystemLevel(0);
       setPreviewSystemReady(false);
-      setNotice(
+      notify(
         error instanceof Error
           ? error.message
           : 'The selected microphone could not be started.',
+        'danger',
       );
     }
   };
@@ -961,7 +978,12 @@ export function ControlApp() {
     setBusy(true);
     const validated = await window.captions.validateCredential(keyInput.trim());
     if (!validated.ok || !validated.data.valid) {
-      setNotice(validated.ok ? validated.data.error || 'The API key is not valid' : validated.error.message);
+      notify(
+        validated.ok
+          ? validated.data.error || 'The API key is not valid'
+          : validated.error.message,
+        'danger',
+      );
       setBusy(false);
       return;
     }
@@ -985,12 +1007,13 @@ export function ControlApp() {
     const unlockFailed =
       !result.ok && result.error.code === 'credential_unlock_failed';
     setCredentialIssue(unlockFailed);
-    setNotice(
+    notify(
       result.ok && result.data.valid
         ? 'OpenAI API connection succeeded. The saved key can access GPT Live Transcribe.'
         : result.ok
           ? result.data.error || 'OpenAI API connection failed.'
           : result.error.message,
+      result.ok && result.data.valid ? 'success' : 'danger',
     );
     setBusy(false);
   };
@@ -1105,8 +1128,10 @@ export function ControlApp() {
     if (incomplete > 0) {
       // Refused rather than silently dropped: a row with one side filled is unfinished
       // work, and saving around it would lose what was typed with no explanation.
-      setNotice(
+      // Amber: the operator has something to correct, nothing has broken.
+      notify(
         `${incomplete} row${incomplete === 1 ? '' : 's'} need both languages, or "Keep in English" ticked.`,
+        'warning',
       );
       return;
     }
@@ -1139,10 +1164,11 @@ export function ControlApp() {
     if (!next) return;
     syncGlossaryEditors(next);
     refreshGlossaryTerms();
-    setNotice(
+    notify(
       customGlossaryConfiguration || glossaryContextNotes.length
         ? 'Glossary saved. It applies to the next session.'
         : 'Your glossary entries were cleared.',
+      'success',
     );
   };
 
@@ -1167,7 +1193,10 @@ export function ControlApp() {
         ? `${result.data.rejectedRows.length} invalid row${result.data.rejectedRows.length === 1 ? '' : 's'} skipped`
         : '',
     ].filter(Boolean);
-    setNotice(`Glossary imported${details.length ? ` · ${details.join(' · ')}` : ''}.`);
+    notify(
+      `Glossary imported${details.length ? ` · ${details.join(' · ')}` : ''}.`,
+      'success',
+    );
   };
 
   const exportGlossary = async () => {
@@ -1180,7 +1209,7 @@ export function ControlApp() {
       return;
     }
     if (!result.data.canceled) {
-      setNotice('Portable glossary configuration saved.');
+      notify('Portable glossary configuration saved.', 'success');
     }
   };
 
@@ -2055,7 +2084,11 @@ export function ControlApp() {
                     // say what changed and stay put, rather than sending the operator to
                     // look at nothing.
                     if (checklistHasItems) setTab('session');
-                    else setNotice('Checklist restored. It will appear when something needs attention.');
+                    else
+                      notify(
+                        'Checklist restored. It will appear when something needs attention.',
+                        'success',
+                      );
                   }}
                 >
                   <ListChecks size={15} strokeWidth={2.25} aria-hidden="true" />
@@ -2084,10 +2117,11 @@ export function ControlApp() {
                       setAdvisoriesDismissed(false);
                       setTheme('system');
                       setPendingReset(null);
-                      setNotice(
+                      notify(
                         cleared.length
                           ? 'Appearance reset. Your key, glossary and meetings are unchanged.'
                           : 'Nothing to reset: appearance was already at its defaults.',
+                        'success',
                       );
                     }}
                   >

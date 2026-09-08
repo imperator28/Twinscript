@@ -23,12 +23,12 @@ switch behavior, and the 60-minute soak still require direct observation.
 - Release: OBS Studio 32.1.2 x64 from the official
   `obsproject/obs-studio` GitHub release.
 - Installer:
-  `C:\Users\jqian\AppData\Local\Temp\OBS-Studio-32.1.2-Windows-x64-Installer.exe`
+  `C:\Users\<user>\AppData\Local\Temp\OBS-Studio-32.1.2-Windows-x64-Installer.exe`
 - SHA-256:
   `94D180C1FC481CCC307B95513F795D088D63AC4F61AD3253C2AC0D94D0844110`
 - Installer Authenticode status: valid; signer `OBS Project, LLC`.
 - The verified installer payload was extracted to
-  `C:\Users\jqian\AppData\Local\Temp\obs-portable-32.1.2`.
+  `C:\Users\<user>\AppData\Local\Temp\obs-portable-32.1.2`.
 - Portable `obs64.exe --portable --version` reported `OBS Studio - 32.1.2`.
 - OBS WebSocket 5.7.3 is enabled on localhost with authentication retained.
 - The verified installer was approved and installed system-wide. The installed

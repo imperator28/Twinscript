@@ -7,7 +7,7 @@ Windows edition/version/build: Windows 11 Enterprise, build 26200
 Architecture:                  x64
 Toolchain:                     MSVC 17.14.37411.7 (VS 2022 Build Tools),
                                Windows SDK 10.0.26100.0, CMake 4.3.4
-Tester:                        jqian
+Tester:                        maintainer
 Date/timezone:                 2026-07-31, America/Los_Angeles
 ```
 

@@ -101,7 +101,7 @@ Expected: zero failures.
 - [x] **Step 2: Rebuild the OpenVINO GenAI sidecar**
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-local-inference-host.ps1 -Configuration Release -OpenVinoRoot "C:\Users\jqian\AppData\Local\Temp\twinscript-openvino-genai-2026.3-rebuild\expanded\openvino_genai_windows_2026.3.0.0_x86_64" -OutputDirectory artifacts/local-inference-host -LlamaCpuRoot artifacts/local-inference-host/llama/cpu -LlamaCudaRoot artifacts/local-inference-host/llama/cuda
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-local-inference-host.ps1 -Configuration Release -OpenVinoRoot "C:\Users\<user>\AppData\Local\Temp\twinscript-openvino-genai-2026.3-rebuild\expanded\openvino_genai_windows_2026.3.0.0_x86_64" -OutputDirectory artifacts/local-inference-host -LlamaCpuRoot artifacts/local-inference-host/llama/cpu -LlamaCudaRoot artifacts/local-inference-host/llama/cuda
 ```
 
 Expected: the Release native host and Whisper smoke target compile and native tests pass.

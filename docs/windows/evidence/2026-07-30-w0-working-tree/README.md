@@ -13,7 +13,7 @@ Meeting client and version:    not exercised — W1 item
 OBS version:                   n/a
 OpenAI model/profile:          none; no key used, no API call made
 Glossary configuration:        default built-in
-Tester:                        jqian
+Tester:                        maintainer
 Date/time/timezone:            2026-07-30, America/Los_Angeles
 Node / npm:                    v24.14.0 / 11.9.0
 ```

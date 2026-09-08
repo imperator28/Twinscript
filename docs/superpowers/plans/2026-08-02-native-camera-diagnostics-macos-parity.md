@@ -41,10 +41,10 @@ test('parses a known stage result and strips unsafe paths', () => {
     stage: 'prepare-acl',
     code: 'icacls_failed',
     nativeCode: 5,
-    detail: 'C:\\Users\\jqian\\secret failed',
+    detail: 'C:\\Users\\tester\\secret failed',
   }));
   assert.equal(result.stage, 'prepare-acl');
-  assert.equal(result.detail.includes('jqian'), false);
+  assert.equal(result.detail.includes('tester'), false);
 });
 ```
 

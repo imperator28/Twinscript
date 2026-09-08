@@ -36,10 +36,10 @@ function sampleMeta(overrides = {}) {
 }
 
 test('resolves the documented default records directory', () => {
-  const app = { getPath: (name) => (name === 'documents' ? '/Users/jqian/Documents' : '') };
+  const app = { getPath: (name) => (name === 'documents' ? '/Users/tester/Documents' : '') };
   assert.equal(
     resolveDefaultRecordsDirectory(app),
-    path.join('/Users/jqian/Documents', 'Twinscript'),
+    path.join('/Users/tester/Documents', 'Twinscript'),
   );
 });
 

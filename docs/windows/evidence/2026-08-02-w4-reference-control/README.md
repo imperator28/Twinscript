@@ -253,7 +253,7 @@ secure desktop and never became approvable. Diagnosis:
 
 | Fact | Value |
 | --- | --- |
-| Account | `SIMPLEHUMAN\jqian`, **is** a member of `BUILTIN\Administrators` (AzureAD) |
+| Account | `<DOMAIN>\<tester>`, **is** a member of `BUILTIN\Administrators` (domain-joined account) |
 | Token | Administrators present but **"Group used for deny only"** — normal split-token Admin Approval Mode |
 | `EnableLUA` | `1` |
 | `ConsentPromptBehaviorAdmin` | `5` (consent prompt for non-Windows binaries) |

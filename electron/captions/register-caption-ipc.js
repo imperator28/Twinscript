@@ -180,6 +180,11 @@ function registerCaptionIpc({
     }),
   );
   handle('captions:local-model-status', localModelStatus);
+  handle('captions:local-runtime-action', async ({ operation, runtimeId } = {}) => {
+    if (!localModelService?.runtimeAction) throw new Error('Local runtime controls are unavailable.');
+    await localModelService.runtimeAction(operation, runtimeId);
+    return localModelStatus();
+  });
   handle('captions:local-model-install', localModelAction('install'));
   handle('captions:local-model-verify', localModelAction('verify'));
   handle('captions:local-model-repair', localModelAction('repair'));

@@ -1,0 +1,172 @@
+{
+  "schemaVersion": 1,
+  "runtimeVersion": "openvino-genai-2026.3-llama-b9940",
+  "models": [
+    {
+      "id": "whisper-small",
+      "version": "openvino-int8-973afd24965f72e3",
+      "displayName": "Whisper Small",
+      "purpose": "Speech recognition",
+      "expectedDevice": "NPU",
+      "license": "MIT",
+      "source": "openai/whisper-small OpenVINO INT8 export",
+      "launchPath": ".",
+      "unpackedSize": 256829994,
+      "files": [
+        {
+          "path": "added_tokens.json",
+          "size": 36213,
+          "sha256": "8a5856a00b438f6fc40d2c6d9d93fea54f2c169bdc817a58d1feddb9ac96302e",
+          "url": "https://github.com/imperator28/Twinscript/releases/download/windows-local-beta/whisper-small-added_tokens.json"
+        },
+        {
+          "path": "config.json",
+          "size": 1386,
+          "sha256": "bd8f70f26f7f3e56550dbc55528b6bfb921c0d035ae2d85f194e18646c6cba0f",
+          "url": "https://github.com/imperator28/Twinscript/releases/download/windows-local-beta/whisper-small-config.json"
+        },
+        {
+          "path": "generation_config.json",
+          "size": 4103,
+          "sha256": "a78273fc4112d93d22facdb6c5c4a7c1b48428fb594a93394dc3df0052c7f0fd",
+          "url": "https://github.com/imperator28/Twinscript/releases/download/windows-local-beta/whisper-small-generation_config.json"
+        },
+        {
+          "path": "merges.txt",
+          "size": 493869,
+          "sha256": "2df2990a395e35e8dfbc7511e08c12d56018d8d04691e0133e5d63b21e154dc6",
+          "url": "https://github.com/imperator28/Twinscript/releases/download/windows-local-beta/whisper-small-merges.txt"
+        },
+        {
+          "path": "normalizer.json",
+          "size": 54408,
+          "sha256": "6c40cc36b4bb9c5aa8be0ff9023ea4e78a3ab718b3490a1d9cd3cb7ec56f130f",
+          "url": "https://github.com/imperator28/Twinscript/releases/download/windows-local-beta/whisper-small-normalizer.json"
+        },
+        {
+          "path": "openvino_config.json",
+          "size": 740,
+          "sha256": "9a3adb538cae22883cf304e76c1e93f4f445d0e20d7374f606706c6937ead9a3",
+          "url": "https://github.com/imperator28/Twinscript/releases/download/windows-local-beta/whisper-small-openvino_config.json"
+        },
+        {
+          "path": "openvino_decoder_model.bin",
+          "size": 154571955,
+          "sha256": "26d7d2f3d7c425825718456f5c8c4aca36a461ce0f3d69fc1eef947454c5c61e",
+          "url": "https://github.com/imperator28/Twinscript/releases/download/windows-local-beta/whisper-small-openvino_decoder_model.bin"
+        },
+        {
+          "path": "openvino_decoder_model.xml",
+          "size": 1130116,
+          "sha256": "8ee3821ccb91a400e54428b656c4a176a6cf255f9942c324e911133d2534db15",
+          "url": "https://github.com/imperator28/Twinscript/releases/download/windows-local-beta/whisper-small-openvino_decoder_model.xml"
+        },
+        {
+          "path": "openvino_detokenizer.bin",
+          "size": 736181,
+          "sha256": "2542d1fe6c4c5d838e7b7c61b24996b94ae0cb54e64ff6dbaab2b9dd5ddd7ca0",
+          "url": "https://github.com/imperator28/Twinscript/releases/download/windows-local-beta/whisper-small-openvino_detokenizer.bin"
+        },
+        {
+          "path": "openvino_detokenizer.xml",
+          "size": 10057,
+          "sha256": "a44039fcd43859d558a373ea40b13134b2ab89ea8a4203ffb3d6b9ba33e9e3d6",
+          "url": "https://github.com/imperator28/Twinscript/releases/download/windows-local-beta/whisper-small-openvino_detokenizer.xml"
+        },
+        {
+          "path": "openvino_encoder_model.bin",
+          "size": 92204656,
+          "sha256": "cb4ce5067a24d0edf1f29ce4ed7162958be9c5efa7f4cc357b23aaac224d736e",
+          "url": "https://github.com/imperator28/Twinscript/releases/download/windows-local-beta/whisper-small-openvino_encoder_model.bin"
+        },
+        {
+          "path": "openvino_encoder_model.xml",
+          "size": 595009,
+          "sha256": "b8fcf433274db47c7c1bfb19c249521251e0a64206abc8a80b190167eaa4c15c",
+          "url": "https://github.com/imperator28/Twinscript/releases/download/windows-local-beta/whisper-small-openvino_encoder_model.xml"
+        },
+        {
+          "path": "openvino_tokenizer.bin",
+          "size": 1898933,
+          "sha256": "846f3c65f7a71f120fce7aaaf41b342f0767eb13e3c4e7c2a54f1d49b5c38fda",
+          "url": "https://github.com/imperator28/Twinscript/releases/download/windows-local-beta/whisper-small-openvino_tokenizer.bin"
+        },
+        {
+          "path": "openvino_tokenizer.xml",
+          "size": 27917,
+          "sha256": "d9dc0009b4c7563ba0b8b2b3589349acda898d8d94fafeed3f4dbc50f199fd3b",
+          "url": "https://github.com/imperator28/Twinscript/releases/download/windows-local-beta/whisper-small-openvino_tokenizer.xml"
+        },
+        {
+          "path": "preprocessor_config.json",
+          "size": 371,
+          "sha256": "e4449dfed25a2b4c054b6103753daebad3cfab42c1ac0421b3e5c621a4de22e1",
+          "url": "https://github.com/imperator28/Twinscript/releases/download/windows-local-beta/whisper-small-preprocessor_config.json"
+        },
+        {
+          "path": "special_tokens_map.json",
+          "size": 2333,
+          "sha256": "aa84bd013194e2bf2450397e49e656d8b8d9e1f971c0f1702409870b2cf14106",
+          "url": "https://github.com/imperator28/Twinscript/releases/download/windows-local-beta/whisper-small-special_tokens_map.json"
+        },
+        {
+          "path": "tokenizer.json",
+          "size": 3930494,
+          "sha256": "7b469ff15eb7816315aa45eec391f5943d639b9d73d110f5c003df5192fd54e3",
+          "url": "https://github.com/imperator28/Twinscript/releases/download/windows-local-beta/whisper-small-tokenizer.json"
+        },
+        {
+          "path": "tokenizer_config.json",
+          "size": 295703,
+          "sha256": "f46e9819a8910572da1b528afde146a56c63068e1a130ffc66f7b5315093b0e1",
+          "url": "https://github.com/imperator28/Twinscript/releases/download/windows-local-beta/whisper-small-tokenizer_config.json"
+        },
+        {
+          "path": "vocab.json",
+          "size": 835550,
+          "sha256": "8f680bba319e01a653d2e8a5dbc17a9157179e0576e6ce74ce0c06356c6e24f9",
+          "url": "https://github.com/imperator28/Twinscript/releases/download/windows-local-beta/whisper-small-vocab.json"
+        }
+      ]
+    },
+    {
+      "id": "hy-mt2-1.8b",
+      "version": "q4-k-m-1cd5208700acedef",
+      "displayName": "HY-MT2 1.8B",
+      "purpose": "English and Chinese translation",
+      "expectedDevice": "CPU",
+      "license": "Apache-2.0",
+      "source": "tencent/Hy-MT2-1.8B-GGUF Q4_K_M",
+      "launchPath": "Hy-MT2-1.8B-Q4_K_M.gguf",
+      "unpackedSize": 1133080448,
+      "files": [
+        {
+          "path": "Hy-MT2-1.8B-Q4_K_M.gguf",
+          "size": 1133080448,
+          "sha256": "dc5f44fcf1fa496ee7ad725982c0c8c553a4de00259b53af84c4b89fb0c06699",
+          "url": "https://github.com/imperator28/Twinscript/releases/download/windows-local-beta/hy-mt2-1.8b-Hy-MT2-1.8B-Q4_K_M.gguf"
+        }
+      ]
+    }
+  ],
+  "runtimes": [
+    {
+      "id": "openvino-cpu",
+      "family": "cpu",
+      "revision": "b9940",
+      "size": 74856771,
+      "unpackedSize": 210906598,
+      "sha256": "2615d53bcbf9fac19b1a718c7b494f4a6e03ab49b1497deb4bfe43ac5822e146",
+      "url": "https://github.com/imperator28/Twinscript/releases/download/windows-local-beta/twinscript-runtime-openvino-cpu-b9940.zip"
+    },
+    {
+      "id": "cuda",
+      "family": "cuda",
+      "revision": "b9940",
+      "size": 670033772,
+      "unpackedSize": 1196451408,
+      "sha256": "d32599cf785c9cd6a1e61338649a9a02f0d13a87864fd77b976fddf317a1f31f",
+      "url": "https://github.com/imperator28/Twinscript/releases/download/windows-local-beta/twinscript-runtime-cuda-b9940.zip"
+    }
+  ]
+}

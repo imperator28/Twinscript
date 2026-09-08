@@ -47,6 +47,7 @@ contextBridge.exposeInMainWorld('captions', {
   getSettings: () => invoke('captions:settings-get'),
   getLocalInferenceStatus: () => invoke('captions:local-inference-status'),
   getLocalModelStatus: () => invoke('captions:local-model-status'),
+  localRuntimeAction: (operation, runtimeId) => invoke('captions:local-runtime-action', { operation, runtimeId }),
   installLocalModel: (modelId) =>
     invoke('captions:local-model-install', { modelId }),
   verifyLocalModel: (modelId) =>

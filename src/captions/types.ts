@@ -354,6 +354,13 @@ export interface LocalModelStatus {
   runtime: {
     ready: boolean;
     requestedDevice: 'NPU' | 'GPU' | 'CPU';
+    supported?: boolean;
+    cudaAvailable?: boolean;
+    bundles?: Record<string, {
+      id: string; revision: string; family: string; ready: boolean;
+      phase: string; downloadedBytes?: number; totalBytes?: number;
+      error?: { code: string; message: string } | null;
+    }>;
   };
   models: Record<LocalModelId, LocalModelState>;
   actionLocks: {

@@ -76,13 +76,13 @@ function verifyRuntimeManifest(executablePath, fsImpl = fs) {
     );
     if (manifest.schemaVersion !== 2 || !Array.isArray(manifest.files)) return false;
     const families = manifest.runtimeFamilies;
-    if (!families?.cpu || !families?.cuda || families.cpu.revision !== families.cuda.revision) return false;
+    if (!families?.cpu || (families.cuda && families.cpu.revision !== families.cuda.revision)) return false;
     const expectedEntryPoints = {
       cpu: 'llama/cpu/llama-server.exe',
       cuda: 'llama/cuda/llama-server.exe',
     };
     const inventoryPaths = new Set(manifest.files.map(entry => entry?.path));
-    for (const familyName of ['cpu', 'cuda']) {
+    for (const familyName of families.cuda ? ['cpu', 'cuda'] : ['cpu']) {
       const family = families[familyName];
       if (family.entryPoint !== expectedEntryPoints[familyName] ||
           !Array.isArray(family.files) || !family.files.includes(family.entryPoint)) return false;
@@ -91,12 +91,15 @@ function verifyRuntimeManifest(executablePath, fsImpl = fs) {
     }
     let containsHost = false;
     for (const entry of manifest.files) {
-      if (!entry || typeof entry.path !== 'string' || !Number.isSafeInteger(entry.size)) return false;
+      if (!entry || typeof entry.path !== 'string' || !Number.isSafeInteger(entry.size) || entry.size < 0) return false;
+      if (entry.path.includes('\\') || /[:*?"<>|\x00-\x1f]/.test(entry.path)
+          || entry.path.split('/').some(part => !part || part === '.' || part === '..')) return false;
       if (!/^[a-f0-9]{64}$/i.test(entry.sha256 || '')) return false;
       const candidate = path.resolve(root, ...entry.path.split('/'));
       const relative = path.relative(root, candidate);
       if (relative.startsWith('..') || path.isAbsolute(relative)) return false;
-      if (fsImpl.statSync(candidate).size !== entry.size) return false;
+      const stat = fsImpl.statSync(candidate);
+      if ((typeof stat.isFile === 'function' && !stat.isFile()) || stat.size !== entry.size) return false;
       const digest = crypto.createHash('sha256').update(fsImpl.readFileSync(candidate)).digest('hex');
       if (digest.toLowerCase() !== entry.sha256.toLowerCase()) return false;
       if (path.resolve(candidate) === path.resolve(executablePath)) containsHost = true;
@@ -129,7 +132,7 @@ class LocalInferenceSupervisor extends EventEmitter {
     super();
     this.spawnImpl = spawn;
     this.isPackaged = isPackaged;
-    this.executablePath = executablePath || resolveLocalInferenceExecutable({
+    this.executablePath = executablePath !== undefined ? executablePath : resolveLocalInferenceExecutable({
       isPackaged,
       resourcesPath,
       appPath,
@@ -194,6 +197,29 @@ class LocalInferenceSupervisor extends EventEmitter {
     if (message?.generation !== this.generation) return false;
     this.emit('message', message);
     return true;
+  }
+
+  async refreshRuntimePaths(paths) {
+    await this.suspendRuntime();
+    this.translationRuntime?.off?.('status', this.onTranslationStatus);
+    const replacement = new LocalInferenceSupervisor({ ...paths, isPackaged: this.isPackaged, cudaEnabled: this.cudaEnabled });
+    replacement.translationRuntime?.off?.('status', replacement.onTranslationStatus);
+    this.executablePath = paths.executablePath;
+    this.llamaCpuBinaryPath = paths.llamaCpuBinaryPath;
+    this.llamaCudaBinaryPath = paths.llamaCudaBinaryPath;
+    this.whisperModelPath = paths.whisperModelPath;
+    this.hyMt2ModelPath = paths.hyMt2ModelPath;
+    this.cachePath = paths.cachePath;
+    this.translationRuntime = replacement.translationRuntime;
+    this.translationRuntime?.on?.('status', this.onTranslationStatus);
+    this.runtimeIntegrity = null;
+    this.lastModels.clear();
+    this.shuttingDown = false;
+  }
+
+  async suspendRuntime() {
+    this.shuttingDown = true;
+    await this.disposeProcess();
   }
 
   createTransport(child, processGeneration = this.generation) {

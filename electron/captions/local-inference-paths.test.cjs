@@ -16,6 +16,7 @@ function catalog() {
 test('development paths use staged runtime and validated local model artifacts', () => {
   const paths = resolveLocalInferencePaths({
     isPackaged: false,
+    platform: 'win32',
     resourcesPath: 'unused',
     appPath: 'C:\\repo',
     userDataPath: 'C:\\user',
@@ -36,6 +37,7 @@ test('development paths use staged runtime and validated local model artifacts',
 test('packaged paths keep runtime in resources and downloaded weights in user data', () => {
   const paths = resolveLocalInferencePaths({
     isPackaged: true,
+    platform: 'win32', verifyRuntime: () => true,
     resourcesPath: 'C:\\Program Files\\Twinscript\\resources',
     appPath: 'unused',
     userDataPath: 'C:\\Users\\me\\AppData\\Roaming\\Twinscript',
@@ -51,6 +53,7 @@ test('packaged paths keep runtime in resources and downloaded weights in user da
 test('runtime paths remain defined while catalog-dependent model paths fail closed', () => {
   const paths = resolveLocalInferencePaths({
     isPackaged: true,
+    platform: 'win32', verifyRuntime: () => true,
     resourcesPath: 'C:\\Program Files\\Twinscript\\resources',
     appPath: 'unused',
     userDataPath: 'C:\\Users\\me\\AppData\\Roaming\\Twinscript',
@@ -62,4 +65,19 @@ test('runtime paths remain defined while catalog-dependent model paths fail clos
   assert.match(paths.llamaCudaBinaryPath, /local-inference-host\\llama\\cuda\\llama-server\.exe$/);
   assert.equal(paths.whisperModelPath, null);
   assert.equal(paths.hyMt2ModelPath, null);
+});
+
+test('missing runtime returns null and an unsupported platform never selects Windows binaries', () => {
+  const options = { isPackaged: true, resourcesPath: 'C:\\app', appPath: 'C:\\repo', userDataPath: 'C:\\user', verifyRuntime: () => false };
+  assert.equal(resolveLocalInferencePaths({ ...options, platform: 'win32' }).runtimeRoot, null);
+  assert.equal(resolveLocalInferencePaths({ ...options, platform: 'darwin', verifyRuntime: () => true }).runtimeRoot, null);
+});
+
+test('installed revisions are sorted numerically and invalid newest revisions are skipped', () => {
+  const options = {
+    isPackaged: true, platform: 'win32', resourcesPath: 'C:\\app', appPath: 'C:\\repo', userDataPath: 'C:\\user',
+    fsImpl: { readdirSync: () => ['b9', 'b11', 'b10', '.staging'].map(name => ({ name, isDirectory: () => true })) },
+    verifyRuntime: executable => executable.includes('b10'),
+  };
+  assert.match(resolveLocalInferencePaths(options).runtimeRoot, /b10$/);
 });

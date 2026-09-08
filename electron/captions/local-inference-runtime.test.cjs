@@ -7,6 +7,19 @@ const {
   defaultHyMt2CudaEnabled,
 } = require('./local-inference-runtime');
 
+test('runtime install refresh preserves supervisor status listeners', async () => {
+  const { LocalInferenceSupervisor } = require('./local-inference-supervisor');
+  const supervisor = new LocalInferenceSupervisor({ executablePath: null });
+  let received = 0;
+  supervisor.on('model-status', () => received++);
+  await supervisor.refreshRuntimePaths({ executablePath: null, llamaCpuBinaryPath: null, llamaCudaBinaryPath: null });
+  supervisor.emit('model-status', {});
+  assert.equal(received, 1);
+  assert.equal(supervisor.executablePath, null);
+  assert.equal(supervisor.readiness().runtimeReady, false);
+  await supervisor.dispose();
+});
+
 test('Windows enables HY-MT2 CUDA automatically unless the kill switch is set', () => {
   assert.equal(defaultHyMt2CudaEnabled({ platform: 'win32', env: {} }), true);
   assert.equal(defaultHyMt2CudaEnabled({

@@ -55,6 +55,27 @@ function validateManifest(manifest) {
     throw invalidManifest('Unsupported local model manifest');
   }
   const ids = new Set();
+  if (manifest.runtimes !== undefined) {
+    if (!Array.isArray(manifest.runtimes)) throw invalidManifest('Runtime catalog must be an array');
+    const runtimeIds = new Set();
+    for (const runtime of manifest.runtimes) {
+      if (!runtime || !['openvino-cpu', 'cuda'].includes(runtime.id)
+          || runtime.family !== (runtime.id === 'cuda' ? 'cuda' : 'cpu')
+          || runtimeIds.has(runtime.id) || !isSafeVersionSegment(runtime.revision)
+          || !isHttpsUrlWithHostname(runtime.url)
+          || !Number.isSafeInteger(runtime.size) || runtime.size <= 0
+          || !Number.isSafeInteger(runtime.unpackedSize) || runtime.unpackedSize <= 0
+          || !/^[a-f0-9]{64}$/.test(runtime.sha256 || '')) {
+        throw invalidManifest('Invalid runtime archive entry');
+      }
+      const url = new URL(runtime.url);
+      if (url.username || url.password || url.hash) throw invalidManifest('Invalid runtime URL');
+      runtimeIds.add(runtime.id);
+    }
+    const cpu = manifest.runtimes.find(r => r.family === 'cpu');
+    const cuda = manifest.runtimes.find(r => r.family === 'cuda');
+    if (cuda && (!cpu || cuda.revision !== cpu.revision)) throw invalidManifest('CPU and CUDA runtime revisions must match');
+  }
   for (const model of manifest.models) {
     if (
       !model?.id || !isSafeVersionSegment(model.version) || !Array.isArray(model.files) || !model.files.length ||

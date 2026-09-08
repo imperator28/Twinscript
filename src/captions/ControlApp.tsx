@@ -683,6 +683,11 @@ export function ControlApp() {
     const missing = missingLocalModels(requiredLocalModels(settings), localModels);
     setNotice('');
     try {
+      if (localModels?.runtime.bundles?.['openvino-cpu'] && !localModels.runtime.ready && !localModels.runtime.bundles['openvino-cpu'].ready) {
+        const runtime = await window.captions.localRuntimeAction('install', 'openvino-cpu');
+        if (!runtime.ok) { notify(runtime.error.message, 'danger'); return; }
+        setLocalModels(runtime.data);
+      }
       for (const modelId of missing) {
         setBusyModel(modelId);
         const result = await window.captions.installLocalModel(modelId);
@@ -697,6 +702,17 @@ export function ControlApp() {
     } finally {
       setBusyModel(null);
     }
+  };
+
+  const handleRuntimeAction = async (action: 'install' | 'verify' | 'remove' | 'cancel', id: string) => {
+    if (action === 'remove' && !window.confirm(id === 'cuda'
+      ? 'Remove NVIDIA acceleration? CPU processing and model files will be kept.'
+      : 'Remove the local processing engine and its acceleration pack? Model files will be kept, but local sessions will be unavailable until reinstalled.')) return;
+    try {
+      const result = await window.captions.localRuntimeAction(action, id);
+      if (result.ok) setLocalModels(result.data);
+      else notify(result.error.message, 'danger');
+    } catch (error) { notify(error instanceof Error ? error.message : 'Runtime operation failed.', 'danger'); }
   };
 
   const focusLocalModel = (modelId: LocalModelId) => {
@@ -2399,6 +2415,7 @@ export function ControlApp() {
           </article>
 
           <LocalModelInstallCard
+            onRuntimeAction={(action, id) => void handleRuntimeAction(action, id)}
             status={localModels}
             requiredModels={requiredLocalModels(settings)}
             onInstallMissing={() => void installMissingLocalModels()}

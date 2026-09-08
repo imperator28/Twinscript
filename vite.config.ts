@@ -131,6 +131,8 @@ export default defineConfig(({ command, mode }) => {
             'captions/local-inference-supervisor': 'electron/captions/local-inference-supervisor.js',
             'captions/local-model-admission': 'electron/captions/local-model-admission.js',
             'captions/local-model-manager': 'electron/captions/local-model-manager.js',
+            'captions/local-runtime-manager': 'electron/captions/local-runtime-manager.js',
+            'captions/nvidia-hardware': 'electron/captions/nvidia-hardware.js',
             'captions/local-model-manifest': 'electron/captions/local-model-manifest.js',
             'captions/local-model-development-catalog': 'electron/captions/local-model-development-catalog.js',
             'captions/local-model-manifest-loader': 'electron/captions/local-model-manifest-loader.js',

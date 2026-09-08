@@ -22,6 +22,7 @@ export interface LocalModelInstallCardProps {
   onAction: (action: LocalModelAction, modelId: LocalModelId) => void;
   requiredModels?: LocalModelId[];
   onInstallMissing?: () => void;
+  onRuntimeAction?: (action: 'install' | 'verify' | 'remove' | 'cancel', id: string) => void;
 }
 
 const modelCopy: Record<LocalModelId, Pick<LocalModelState, 'displayName' | 'purpose' | 'expectedDevice'>> = {
@@ -155,14 +156,18 @@ const actionsFor = (model: LocalModelState, catalogAvailable: boolean, localAdop
   }
 };
 
-export function LocalModelInstallCard({ status, busyModel = null, rowRefs, onAction, requiredModels = [], onInstallMissing }: LocalModelInstallCardProps) {
+export function LocalModelInstallCard({ status, busyModel = null, rowRefs, onAction, requiredModels = [], onInstallMissing, onRuntimeAction }: LocalModelInstallCardProps) {
   const catalogAvailable = status?.catalog.available ?? false;
   const localAdoptionAvailable = status?.catalog.localAdoptionAvailable === true;
   const readyCount = modelIds.filter((id) => status?.models[id].ready).length;
   const meetingLocked = status?.actionLocks.meetingActive ?? false;
   const catalogMessage = status?.catalog.error?.message ?? (status ? null : 'Checking whether local models are available.');
   const missing = missingLocalModels(requiredModels, status);
-  const setupBusy = busyModel !== null || requiredModels.some((id) => ['downloading', 'verifying'].includes(status?.models[id]?.phase ?? ''));
+  const runtimeBundles = Object.values(status?.runtime.bundles || {});
+  const runtimeMissing = Boolean(status?.runtime.bundles?.['openvino-cpu'] && !status.runtime.ready && !status.runtime.bundles['openvino-cpu'].ready);
+  const runtimeBusy = runtimeBundles.some(bundle => !['ready', 'not-installed', 'failed'].includes(bundle.phase));
+  const unsupported = status?.runtime.supported === false;
+  const setupBusy = runtimeBusy || busyModel !== null || requiredModels.some((id) => ['downloading', 'verifying'].includes(status?.models[id]?.phase ?? ''));
 
   return (
     <article className="card local-model-card" aria-labelledby="local-models-heading">
@@ -186,14 +191,14 @@ export function LocalModelInstallCard({ status, busyModel = null, rowRefs, onAct
       )}
       {onInstallMissing && requiredModels.length > 0 && (
         <div className="local-model-card__setup">
-          <p>{missing.length === 0
+          <p>{runtimeMissing ? 'Your selected pipeline needs the local processing engine. Existing models are kept.' : missing.length === 0
             ? 'The models for your selected pipeline are installed.'
             : `Your selected pipeline needs ${missing.map((id) => modelCopy[id].displayName).join(' and ')}. Installed models are kept.`}</p>
-          {missing.length > 0 && (
+          {(missing.length > 0 || runtimeMissing) && (
             <button type="button" className="button button--primary"
-              disabled={setupBusy || !status || mutationIsLocked(status, 'install') || localAdoptionAvailable}
+              disabled={unsupported || setupBusy || !status || mutationIsLocked(status, 'install') || localAdoptionAvailable}
               onClick={onInstallMissing}>
-              {setupBusy ? 'Setting up models…' : `Install missing ${missing.length === 1 ? 'model' : 'models'}`}
+              {setupBusy ? 'Setting up models…' : runtimeMissing ? 'Set up local processing' : `Install missing ${missing.length === 1 ? 'model' : 'models'}`}
             </button>
           )}
           {localAdoptionAvailable && missing.length > 0 && <p>This build supports local files only. A download-enabled release is required for automatic setup.</p>}
@@ -206,6 +211,25 @@ export function LocalModelInstallCard({ status, busyModel = null, rowRefs, onAct
       )}
 
       <div className="local-model-card__models">
+        {unsupported && <p role="status">Local processing is not supported on this platform yet. Choose cloud models to start a session.</p>}
+        {!unsupported && runtimeBundles.filter(bundle => bundle.id !== 'cuda' || status?.runtime.cudaAvailable || bundle.ready).map(bundle => {
+          const title = bundle.id === 'cuda' ? 'NVIDIA acceleration (optional)' : 'Local processing engine';
+          const active = !['ready', 'not-installed', 'failed'].includes(bundle.phase);
+          return <section className="local-model-row" key={bundle.id} aria-label={title}>
+            <div className="local-model-row__summary"><div><h3>{title}</h3><p>{bundle.id === 'cuda' ? 'Translation acceleration; CPU fallback remains available.' : 'Required for local models. CPU processing and Intel NPU support.'}</p></div>
+              <span className="local-model-row__state">{bundle.ready ? 'Ready' : bundle.phase.split('-').join(' ')}</span></div>
+            {active && <progress aria-label={`${title} download`} max={bundle.totalBytes || 1} value={bundle.downloadedBytes || 0} />}
+            {bundle.error && <p role="alert">{bundle.error.message} Please retry, or check your connection and download availability.</p>}
+            <div className="local-model-row__actions">
+              {active ? <button className="button button--secondary" onClick={() => onRuntimeAction?.('cancel', bundle.id)}>Cancel download</button> : <>
+                <button className="button button--secondary" disabled={meetingLocked || setupBusy || !onRuntimeAction}
+                  onClick={() => onRuntimeAction?.(bundle.ready ? 'verify' : 'install', bundle.id)}>{bundle.ready ? 'Verify engine' : bundle.phase === 'failed' ? 'Retry download' : 'Install engine'}</button>
+                {bundle.ready && <button className="button button--secondary" disabled={meetingLocked || setupBusy || !onRuntimeAction}
+                  onClick={() => onRuntimeAction?.('remove', bundle.id)}>Remove engine</button>}
+              </>}
+            </div>
+          </section>;
+        })}
         {modelIds.map((id) => {
           const model = status?.models[id] ?? unavailableModel(id);
           const displayName = model.displayName || modelCopy[id].displayName;

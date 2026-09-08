@@ -37,7 +37,8 @@ interface CaptionsAPI {
   requestMicrophoneAccess(): Promise<Result<{ granted: boolean; status: string }>>;
   getSettings(): Promise<Result<Record<string, unknown>>>;
   getLocalInferenceStatus(): Promise<Result<import('./captions/types').LocalInferenceStatus>>;
-  getLocalModelStatus(): Promise<Result<import('./captions/types').LocalModelStatus>>;
+    getLocalModelStatus(): Promise<Result<import('./captions/types').LocalModelStatus>>;
+    localRuntimeAction(operation: 'install' | 'verify' | 'remove' | 'cancel', runtimeId: string): Promise<Result<import('./captions/types').LocalModelStatus>>;
   installLocalModel(
     modelId: import('./captions/types').LocalModelId,
   ): Promise<Result<import('./captions/types').LocalModelStatus>>;

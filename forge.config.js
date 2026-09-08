@@ -6,11 +6,8 @@ const {
   resolveMacSigningIdentity,
 } = require('./scripts/macos-local-signing.cjs');
 const {
-  assertRuntimeLayout,
-} = require('./scripts/local-inference-runtime-layout.cjs');
-const {
-  stageBetaLocalModelCatalog,
-} = require('./scripts/beta-local-model-catalog.cjs');
+  assertReleaseCatalog,
+} = require('./scripts/release-local-model-catalog.cjs');
 
 const macSigningIdentity = resolveMacSigningIdentity();
 
@@ -76,14 +73,9 @@ function stageNativeCameraResources(buildPath, platform) {
 
 function validatePackagedLocalInference(packageRoot, platform) {
   if (platform !== 'win32') return;
-  stageBetaLocalModelCatalog({ appPath: __dirname, packageRoot });
-  const runtimeRoot = path.resolve(packageRoot, 'resources', 'local-inference-host');
-  try {
-    assertRuntimeLayout(runtimeRoot);
-  } catch (error) {
-    throw new Error(
-      `Invalid packaged local-inference runtime: ${error instanceof Error ? error.message : String(error)}`,
-    );
+  assertReleaseCatalog(path.resolve(packageRoot, 'resources', 'resources', 'local-models'));
+  if (fs.existsSync(path.resolve(packageRoot, 'resources', 'local-inference-host'))) {
+    throw new Error('Local inference runtimes must be downloaded separately, not bundled in the installer.');
   }
 }
 
@@ -118,10 +110,7 @@ module.exports = {
     extraResource: [
       'assets',
       'resources',
-      // Local inference is a selectable production pipeline. Packaging must
-      // fail if its verified runtime was not staged; silently omitting it would
-      // produce a Settings option that can never start.
-      ...(process.platform === 'win32' ? ['artifacts/local-inference-host'] : []),
+      // CPU/NPU and optional CUDA runtimes are verified, on-demand downloads.
     ],
     // Electron Packager copies extraResource after its ordinary afterCopy hook.
     // Validate at the first hook where the packaged runtime actually exists.

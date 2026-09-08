@@ -107,6 +107,9 @@ class LocalModelService extends EventEmitter {
     supervisor = null,
     admissionGate = null,
     isMeetingActive = null,
+    runtimeManager = null,
+    refreshRuntime = null,
+    runtimeSupported = process.platform === 'win32',
   } = {}) {
     super();
     this.catalog = catalog || {
@@ -120,6 +123,10 @@ class LocalModelService extends EventEmitter {
     this.supervisor = supervisor;
     this.admissionGate = admissionGate;
     this.isMeetingActive = isMeetingActive;
+    this.runtimeManager = runtimeManager;
+    this.refreshRuntime = refreshRuntime;
+    this.runtimeSupported = runtimeSupported;
+    this.cudaAvailable = false;
   }
 
   modelReady(modelId) {
@@ -187,6 +194,9 @@ class LocalModelService extends EventEmitter {
         },
         runtime: {
           ready: Boolean(readiness.runtimeReady),
+          supported: this.runtimeSupported,
+          cudaAvailable: this.cudaAvailable,
+          bundles: this.runtimeManager?.status?.() || {},
           requestedDevice: safeExpectedDevice(readiness.requestedDevice) || 'NPU',
         },
         models: Object.fromEntries(ALLOWED_MODEL_IDS.map((modelId) => [
@@ -206,6 +216,9 @@ class LocalModelService extends EventEmitter {
       },
       runtime: {
         ready: Boolean(readiness.runtimeReady),
+        supported: this.runtimeSupported,
+        cudaAvailable: this.cudaAvailable,
+        bundles: this.runtimeManager?.status?.() || {},
         requestedDevice: safeExpectedDevice(readiness.requestedDevice) || 'NPU',
       },
       models: Object.fromEntries(this.catalog.manifest.models.map((model) => [
@@ -222,6 +235,25 @@ class LocalModelService extends EventEmitter {
 
   install(modelId) {
     return this.run('download', modelId);
+  }
+
+  async runtimeAction(operation, runtimeId) {
+    if (!this.runtimeSupported || !this.runtimeManager) throw serviceError('local_runtime_unavailable', 'Local runtime installation is unavailable on this platform or in this build.');
+    if (!['install', 'verify', 'remove', 'cancel'].includes(operation)) throw serviceError('local_runtime_unknown', 'Unknown runtime action.');
+    if (runtimeId === 'cuda' && operation === 'install' && !this.cudaAvailable) throw serviceError('local_runtime_device_unavailable', 'A compatible NVIDIA device has not been detected.');
+    if (operation === 'cancel') return this.runtimeManager.cancel(runtimeId);
+    const execute = async () => {
+      if (this.isMeetingActive?.() || this.sessionManager?.isActive?.()) throw serviceError('meeting_active', 'End the meeting before changing local runtimes.');
+      try {
+        if (this.supervisor?.suspendRuntime) await this.supervisor.suspendRuntime();
+        else await this.supervisor?.dispose?.();
+        return await this.runtimeManager[operation](runtimeId);
+      } finally {
+        await this.refreshRuntime?.();
+        this.publishStatus();
+      }
+    };
+    return this.admissionGate ? this.admissionGate.runMutation(execute) : execute();
   }
 
   adopt(modelId) {

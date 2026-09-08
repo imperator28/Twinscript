@@ -32,6 +32,32 @@ Taken from the 2026-09-07 build on this machine, not from memory.
 
 Expected sizes after this plan: installer ~130 MB, CPU/NPU runtime bundle ~230 MB, CUDA pack ~1.1 GB.
 
+## Measured result
+
+From the 2026-09-08 build at `ea4f77bd`, measured the same way.
+
+| Item | Before | After |
+| --- | ---: | ---: |
+| `Twinscript-0.1.0 Setup.exe` | 866 MB | **133 MB** |
+| `resources/` in the packaged app | 1,411 MB | **70 MB** |
+| — `resources/local-inference-host` | 1,342 MB | **absent** |
+
+The runtime now ships as two archives fetched on demand:
+
+| Archive | Download | Unpacked |
+| --- | ---: | ---: |
+| `twinscript-runtime-openvino-cpu-b9940.zip` (required) | 71 MB | 201 MB |
+| `twinscript-runtime-cuda-b9940.zip` (optional) | 639 MB | 1,141 MB |
+
+The estimate held: predicted ~130 MB, measured 133 MB. The CPU/NPU archive came
+in well under the ~230 MB estimate because that figure was the unpacked tree;
+compressed it is 71 MB, so the required download is smaller than planned.
+
+Verified on the packaged app, not inferred: `local-inference-host` is absent, the
+signed catalog is present and verifies with 2 models and 2 runtimes on the same
+`packaged` path the app uses at runtime, and no private key or `.key` file is
+anywhere in the package.
+
 ## Two blockers that make a release fail today
 
 Both are verified, and both are the failure the goal names.
@@ -42,7 +68,44 @@ Both are verified, and both are the failure the goal names.
 
 2. **The manifest trio is uncommitted.** `resources/local-models/model-manifest.json`, `model-manifest.sig` and `model-manifest-public.pem` exist only on this machine. `loadLocalModelCatalog` requires all three when packaged; without them it returns `{ available: false, error: { code: 'local_catalog_unavailable' } }` and the UI says "Local model downloads are unavailable in this build." Unpackaged it silently falls back to `developmentLocalModelCatalog`, which is why local development never notices. A release built from a clean clone or CI therefore ships with local downloads disabled, and no test fails.
 
-## Decision required before Task 1
+## Blocker status
+
+- **Blocker 2 is resolved.** The trio is committed at `ea4f77bd`, and
+  `scripts/local-model-release-assets.test.cjs` now fails the build if it is
+  missing, unsigned, carries a non-HTTPS URL, offers no CPU runtime, or has
+  private signing material beside it. The regenerated catalog also advertises
+  both runtime archives; the version committed first advertised none, which
+  would have left the engine button with nothing to fetch.
+- **Blocker 1 is open, and is the last thing standing between this and a
+  release.** The `windows-local-beta` release still does not exist: an attempt
+  to create it with its assets failed on shell glob expansion, and `gh` rolls
+  the release back when its asset upload fails, so no tag and no release remain.
+  The repository is also still `PRIVATE`, so uploading the assets is necessary
+  but not sufficient — anonymous download only starts working when the
+  repository is public.
+
+`scripts/verify-release-assets.cjs` is the gate for this and currently reports
+22 of 22 unavailable. It checks anonymously on purpose: an authenticated check
+would pass against a private release and then 404 for every real user, which is
+exactly the failure being guarded.
+
+## Hosting decision: make this repository public
+
+**Chosen.** The assets are hosted on this repository's own releases, and the
+manifest committed at `ea4f77bd` is signed against
+`https://github.com/imperator28/Twinscript/releases/download/windows-local-beta/`.
+Changing host now means regenerating and re-signing the catalog, so this is
+settled rather than open.
+
+The rejected alternatives, recorded so the choice is not revisited by accident:
+
+- A dedicated public asset repository (`imperator28/twinscript-runtimes`) would
+  have kept the source private, at the cost of a second repository and release
+  step. Not needed once the source is public anyway.
+- Object storage or a CDN gives the most control over bandwidth and retention,
+  and costs setup and a bill.
+
+The original framing of that decision follows, for the reasoning:
 
 **Where the assets are hosted.** The app fetches anonymously over HTTPS and must keep doing so; adding a token to a shipped client is not an option. Three routes:
 
@@ -89,10 +152,10 @@ Everything below is written so only the `baseUrl` handed to `scripts/prepare-loc
 
 The release-blocking half of blocker 2, fixed first because it is cheap and it currently hides itself.
 
-- [ ] Decide and record whether the trio is committed or generated at package time. Recommended: **commit** `model-manifest.json`, `model-manifest.sig` and `model-manifest-public.pem`. They are public verification artifacts, not secrets, and committing them makes a clean-clone build behave like this machine.
-- [ ] Add `scripts/local-model-release-assets.test.cjs`: the three files exist under `resources/local-models/`, the JSON parses, `loadManifest` accepts it against the committed public key with `packaged: true`, and every `files[].url` is HTTPS with a hostname.
-- [ ] Add a packaging assertion to `forge.config.js` (`packageAfterCopy`, beside `stageNativeCameraResources`) that throws if any of the three is absent from the copied resources. A missing manifest must fail the build, not the user's first click.
-- [ ] Extend `scripts/forge-local-inference-packaging.test.cjs` to assert that assertion exists and fires.
+- [x] Decide and record whether the trio is committed or generated at package time. Recommended: **commit** `model-manifest.json`, `model-manifest.sig` and `model-manifest-public.pem`. They are public verification artifacts, not secrets, and committing them makes a clean-clone build behave like this machine.
+- [x] Add `scripts/local-model-release-assets.test.cjs`: the three files exist under `resources/local-models/`, the JSON parses, `loadManifest` accepts it against the committed public key with `packaged: true`, and every `files[].url` is HTTPS with a hostname.
+- [x] Add a packaging assertion to `forge.config.js` (`packageAfterCopy`, beside `stageNativeCameraResources`) that throws if any of the three is absent from the copied resources. A missing manifest must fail the build, not the user's first click.
+- [x] Extend `scripts/forge-local-inference-packaging.test.cjs` to assert that assertion exists and fires.
 
 **Verification:** `npm run test:captions`. Then temporarily rename `model-manifest.sig`, confirm `npm run package` fails with a message naming the file, and restore it.
 
@@ -130,17 +193,17 @@ The release-blocking half of blocker 2, fixed first because it is cheap and it c
 Blocked on the hosting decision above.
 
 - [ ] Extend `scripts/build-local-inference-host.ps1` to emit `twinscript-runtime-openvino-cpu-<revision>.zip` and `twinscript-runtime-cuda-<revision>.zip` from the already-staged tree, printing each archive's SHA-256.
-- [ ] Extend `scripts/prepare-local-model-release.cjs` to add the two archives to the signed catalog with the chosen `baseUrl`, keeping its existing refusal of non-HTTPS, credentialed, query-bearing or fragment-bearing URLs.
-- [ ] Write `scripts/verify-release-assets.cjs`: read a manifest, HEAD every `files[].url` and every runtime archive URL **anonymously**, and exit non-zero on anything other than 200. Report the first failing URL and its status.
+- [x] Extend `scripts/prepare-local-model-release.cjs` to add the two archives to the signed catalog with the chosen `baseUrl`, keeping its existing refusal of non-HTTPS, credentialed, query-bearing or fragment-bearing URLs.
+- [x] Write `scripts/verify-release-assets.cjs`: read a manifest, HEAD every `files[].url` and every runtime archive URL **anonymously**, and exit non-zero on anything other than 200. Report the first failing URL and its status.
 - [ ] Publish the release and run the checker against the shipped manifest.
 
 **Verification:** `node scripts/verify-release-assets.cjs resources/local-models/model-manifest.json` exits 0. Repeat from a machine or shell with no GitHub credentials — a token in the environment would mask exactly the failure this guards.
 
 ### Task 6: Remove the runtime from the installer
 
-- [ ] Drop `local-inference-host` from the staged resources in `forge.config.js`, leaving `assets`, `resources` and the native camera.
-- [ ] Update `scripts/forge-local-inference-packaging.test.cjs`: the package must contain the manifest trio and must **not** contain `local-inference-host`.
-- [ ] `npm run make`, then record the installer size and confirm `resources/local-inference-host` is absent.
+- [x] Drop `local-inference-host` from the staged resources in `forge.config.js`, leaving `assets`, `resources` and the native camera.
+- [x] Update `scripts/forge-local-inference-packaging.test.cjs`: the package must contain the manifest trio and must **not** contain `local-inference-host`.
+- [x] `npm run make`, then record the installer size and confirm `resources/local-inference-host` is absent.
 
 **Verification:** installer measurably smaller (expected ~130 MB), `npm run smoke:packaged` passes, and the cloud pipeline runs end to end in the packaged app with no runtime installed.
 

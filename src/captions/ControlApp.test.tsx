@@ -2315,66 +2315,99 @@ describe('meeting caption controls', () => {
     expect(screen.getByRole('button', { name: 'Whisper local transcription' })).toHaveAttribute('aria-pressed', 'true');
   });
 
-  it('offers per-row glossary actions on the terms it can actually change', async () => {
-    // Built-in terms are shipped data: the model shadows them with a custom row
-    // rather than deleting them, so Remove is only honest for the operator's own
-    // entries. A built-in gets Override, which seeds an editable copy.
+  it('offers an edit control on every row, and remove only where it can act', async () => {
     render(<ControlApp />);
     await screen.findByRole('button', { name: /Start session/i });
     fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
 
     const customRow = (await screen.findByText('boss')).closest('li');
-    expect(customRow).not.toBeNull();
     expect(
-      within(customRow as HTMLElement).getByRole('button', { name: 'Edit' }),
+      within(customRow as HTMLElement).getByRole('button', { name: 'Edit boss' }),
     ).toBeInTheDocument();
     expect(
-      within(customRow as HTMLElement).getByRole('button', { name: 'Remove' }),
+      within(customRow as HTMLElement).getByRole('button', { name: 'Remove boss' }),
     ).toBeInTheDocument();
 
-    // A built-in is shipped data. Override seeds an editable copy that shadows
-    // it; Remove would be a button that cannot do what it says.
+    // A built-in has nothing of the operator's to delete until they edit it, and
+    // the model cannot remove shipped data - so no remove control is offered
+    // rather than one that would fail.
     const builtinRow = screen.getByText('wall thickness').closest('li');
     expect(
-      within(builtinRow as HTMLElement).getByRole('button', { name: 'Override' }),
+      within(builtinRow as HTMLElement).getByRole('button', { name: 'Edit wall thickness' }),
     ).toBeInTheDocument();
     expect(
-      within(builtinRow as HTMLElement).queryByRole('button', { name: 'Remove' }),
+      within(builtinRow as HTMLElement).queryByRole('button', { name: /^Remove/ }),
     ).toBeNull();
   });
 
-  it('opens the editor focused on the row picked from the list', async () => {
-    // Reaching a collapsed editor and having to hunt for the term just clicked
-    // is the failure this avoids.
+  it('turns the row itself into fields rather than sending the operator elsewhere', async () => {
+    // The first attempt opened the section below and scrolled to a matching row,
+    // which moved the operator away from what they were reading and left focus
+    // somewhere they could not scroll out of.
     render(<ControlApp />);
     await screen.findByRole('button', { name: /Start session/i });
     fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
 
-    const customRow = (await screen.findByText('boss')).closest('li');
-    fireEvent.click(
-      within(customRow as HTMLElement).getByRole('button', { name: 'Edit' }),
-    );
+    const row = (await screen.findByText('boss')).closest('li') as HTMLElement;
+    fireEvent.click(within(row).getByRole('button', { name: 'Edit boss' }));
 
+    // The line is now editable, in place.
+    expect(within(row).getByLabelText('English term for boss')).toHaveValue('boss');
+    expect(within(row).getByLabelText('Chinese term for boss')).toHaveValue('凸台');
+    // And the disclosure below was not opened.
     const editor = document.querySelector('details.glossary-advanced');
-    expect((editor as HTMLDetailsElement).open).toBe(true);
+    expect((editor as HTMLDetailsElement).open).toBe(false);
   });
 
-  it('removing a row saves the glossary without it', async () => {
+  it('saves an inline edit, and refuses half a pair', async () => {
     render(<ControlApp />);
     await screen.findByRole('button', { name: /Start session/i });
     fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
 
-    const customRow = (await screen.findByText('boss')).closest('li');
-    fireEvent.click(
-      within(customRow as HTMLElement).getByRole('button', { name: 'Remove' }),
-    );
+    const row = (await screen.findByText('boss')).closest('li') as HTMLElement;
+    fireEvent.click(within(row).getByRole('button', { name: 'Edit boss' }));
 
-    // Asserted on the saved payload rather than a shape, because clearing the
-    // last custom term legitimately produces `null` rather than an empty list -
-    // and either way the removed term must not survive the save.
+    // Clearing one side is unfinished work, not an instruction.
+    fireEvent.change(within(row).getByLabelText('Chinese term for boss'), {
+      target: { value: '' },
+    });
+    fireEvent.keyDown(within(row).getByLabelText('English term for boss'), {
+      key: 'Enter',
+    });
+    expect(await screen.findByText(/needs both languages/)).toBeVisible();
+    expect(window.captions.setSettings).not.toHaveBeenCalled();
+
+    // A complete pair saves.
+    fireEvent.click(within(row).getByRole('button', { name: 'Edit boss' }));
+    fireEvent.change(within(row).getByLabelText('Chinese term for boss'), {
+      target: { value: '凸模' },
+    });
+    fireEvent.keyDown(within(row).getByLabelText('Chinese term for boss'), {
+      key: 'Enter',
+    });
+
     await waitFor(() => expect(window.captions.setSettings).toHaveBeenCalled());
-    // Not `.at(-1)`: this project targets ES2020, where Array.prototype.at is
-    // absent from the type library.
+    const calls = vi.mocked(window.captions.setSettings).mock.calls;
+    const saved = calls[calls.length - 1]?.[0] as {
+      customGlossaryConfiguration?: { terms?: { en: string; zh: string }[] } | null;
+    };
+    expect(saved.customGlossaryConfiguration?.terms).toEqual(
+      expect.arrayContaining([expect.objectContaining({ en: 'boss', zh: '凸模' })]),
+    );
+  });
+
+  it('removing a row the operator added saves the glossary without it', async () => {
+    render(<ControlApp />);
+    await screen.findByRole('button', { name: /Start session/i });
+    fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+
+    const row = (await screen.findByText('boss')).closest('li') as HTMLElement;
+    fireEvent.click(within(row).getByRole('button', { name: 'Remove boss' }));
+
+    // Asserted on the payload rather than a shape: clearing the last custom term
+    // legitimately produces `null` rather than an empty list, and either way the
+    // removed term must not survive.
+    await waitFor(() => expect(window.captions.setSettings).toHaveBeenCalled());
     const calls = vi.mocked(window.captions.setSettings).mock.calls;
     const saved = calls[calls.length - 1]?.[0] as {
       customGlossaryConfiguration?: { terms?: { en: string }[] } | null;

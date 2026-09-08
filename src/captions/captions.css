@@ -1030,6 +1030,29 @@ input[type="range"] { width: 100%; accent-color: var(--accent); }
   color: var(--danger-text);
 }
 .glossary-list__action:disabled { opacity: .5; }
+/* Icon-only, so it needs a real target rather than the size of the glyph. 26px
+   plus the row's own padding gives a comfortable hit area without making the row
+   taller than the text needs. */
+.glossary-list__action { display: grid; place-items: center; min-width: 26px; }
+.glossary-list__action:active:not(:disabled) { transform: scale(.94); }
+
+/* The row in edit mode. The inputs replace the text in place, at the same size,
+   so the line does not jump as it becomes editable - which is the whole point of
+   editing it here rather than somewhere else. */
+.glossary-list__input {
+  width: 100%;
+  min-height: 30px;
+  padding: 4px var(--space-2);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  font-size: var(--size-sm);
+}
+.glossary-list__input:disabled { border-color: var(--border); color: var(--text-secondary); }
+.glossary-list li.is-editing { background: var(--accent-quiet); }
+/* A row being edited keeps its actions visible: they are how it is committed. */
+.glossary-list li.is-editing .glossary-list__actions { visibility: visible; opacity: 1; }
 /* Hovering a row is a signal in itself, so the row lifts slightly to show which
    one the actions belong to. */
 .glossary-list li:hover { background: var(--surface-hover); }
@@ -1900,7 +1923,7 @@ a:hover { text-decoration-color: currentColor; }
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 0 6px 0 10px;
+  padding: 0 var(--space-1) 0 var(--space-2);
   overflow: hidden;
   border: 1px solid var(--hud-border);
   border-radius: var(--radius-pill);
@@ -1975,8 +1998,12 @@ a:hover { text-decoration-color: currentColor; }
   flex: none;
   align-items: center;
   gap: 6px;
-  height: 30px;
-  padding: 0 12px;
+  /* 34px inside a 44px pill: still short of the 44px touch minimum, which is the
+     right trade for a pointer-driven desktop overlay that must not grow tall
+     enough to cover the content it floats over - but taller than the 30px it was,
+     which was needlessly small for the only control here. */
+  height: 34px;
+  padding: 0 var(--space-3);
   border: 0;
   border-radius: var(--radius-pill);
   background: var(--danger);
@@ -2002,6 +2029,9 @@ a:hover { text-decoration-color: currentColor; }
 .session-hud__stop:hover:not(:disabled) {
   background: color-mix(in srgb, var(--text-on-danger) 10%, var(--danger));
 }
+/* Pressed state: hover alone left no feedback at the moment of the click, on the
+   one control whose effect is not immediately visible on screen. */
+.session-hud__stop:active:not(:disabled) { transform: scale(.97); }
 .session-hud__stop:disabled { cursor: default; opacity: .72; }
 
 /* Docked, only a sliver shows, and it must not look like a lozenge growing out
@@ -2030,10 +2060,12 @@ a:hover { text-decoration-color: currentColor; }
 .session-hud.is-docked-top,
 .session-hud.is-docked-bottom {
   justify-content: center;
-  padding: 0 var(--space-3);
+  /* 8px, not 12: the tab is only as wide as its reading, and the report was that
+     the timer had too much room either side of it. On the 4/8 spacing rhythm. */
+  padding: 0 var(--space-2);
 }
-.session-hud.is-docked-top { align-items: flex-end; padding-bottom: 9px; }
-.session-hud.is-docked-bottom { align-items: flex-start; padding-top: 9px; }
+.session-hud.is-docked-top { align-items: flex-end; padding-bottom: 8px; }
+.session-hud.is-docked-bottom { align-items: flex-start; padding-top: 8px; }
 .session-hud.is-docked-top .session-hud__status,
 .session-hud.is-docked-bottom .session-hud__status {
   flex: 0 1 auto;
@@ -2055,7 +2087,7 @@ a:hover { text-decoration-color: currentColor; }
 .session-hud.is-docked.is-expanded {
   align-items: center;
   justify-content: flex-start;
-  padding: 0 6px 0 10px;
+  padding: 0 var(--space-1) 0 var(--space-2);
   border-radius: var(--radius-pill);
   border-color: var(--hud-border);
 }

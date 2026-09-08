@@ -9,6 +9,7 @@ import {
   ListChecks,
   Mic,
   Monitor,
+  Pencil,
   Moon,
   Play,
   Plus,
@@ -16,6 +17,7 @@ import {
   RotateCcw,
   ShieldCheck,
   Square,
+  Trash2,
   Sun,
   Video,
   VolumeX,
@@ -272,10 +274,27 @@ export function ControlApp() {
     tone: 'success' | 'warning' | 'danger' = 'warning',
   ) => setNoticeState({ message, tone });
   const setNotice = (message: string) => notify(message, 'warning');
-  // The editor is a disclosure, and the preview list can now open it - so its
-  // state has to be controlled rather than left to the browser.
+  // The editor is a disclosure, and the preview list can open it - so its state
+  // has to be controlled rather than left to the browser.
   const [glossaryEditorOpen, setGlossaryEditorOpen] = useState(false);
-  const [focusDraftId, setFocusDraftId] = useState<string | null>(null);
+  /**
+   * The glossary row currently being edited in place, and its working values.
+   *
+   * Editing happens on the line itself. The first attempt at this added an
+   * Override button that opened the section below and scrolled to a matching
+   * row, which was worse than doing nothing: it moved the operator away from
+   * what they were looking at, and landing focus inside a freshly opened
+   * disclosure left them somewhere they could not scroll out of.
+   *
+   * Keyed by the row's identity rather than by index, because the list is
+   * filtered by the search box and an index would follow whatever moved into
+   * that position.
+   */
+  const [editingTerm, setEditingTerm] = useState<{
+    key: string;
+    en: string;
+    zh: string;
+  } | null>(null);
   const [pairDrafts, setPairDrafts] = useState<DraftTerm[]>(
     () => draftSections([]).pairs,
   );
@@ -1193,51 +1212,65 @@ export function ControlApp() {
   const draftListFor = (term: { doNotTranslate?: boolean }) =>
     term.doNotTranslate ? 'literal' : 'pairs';
 
+  const termKey = (term: EffectiveGlossaryTerm) => `${term.source}:${term.en}`;
+
   /**
-   * Row actions for the preview list.
+   * Commit an inline edit.
    *
-   * Built-in terms are shipped data. The glossary model has no notion of
-   * deleting one - a custom row SHADOWS a built-in rather than replacing it in
-   * place - so Remove is offered only for the operator's own rows, and a
-   * built-in gets Override, which seeds an editable copy that takes precedence.
-   * Offering Remove on a built-in would be a button that cannot do what it says.
+   * A built-in edited this way becomes a custom row, because that is how the
+   * model works: a custom entry SHADOWS a shipped one rather than modifying it
+   * in place. From the operator's side they simply corrected the line; the
+   * override is an implementation detail, and deleting their row later restores
+   * the built-in.
    */
-  const editGlossaryTerm = (term: EffectiveGlossaryTerm) => {
-    const list = draftListFor(term);
-    const drafts = list === 'literal' ? literalDrafts : pairDrafts;
-    const existing = drafts.find((draft) => draft.en === term.en);
-    setGlossaryEditorOpen(true);
-    if (existing) {
-      setFocusDraftId(existing.id);
+  const commitInlineTerm = async (term: EffectiveGlossaryTerm) => {
+    if (!editingTerm || editingTerm.key !== termKey(term)) return;
+    const en = editingTerm.en.trim();
+    const zh = editingTerm.zh.trim();
+    setEditingTerm(null);
+    if (!en || (!zh && !term.doNotTranslate)) {
+      // Half a pair is unfinished work, not an instruction. Refused with the
+      // reason rather than saved as something the model would be handed.
+      notify('A term needs both languages. Nothing was changed.', 'warning');
       return;
     }
-    // A built-in, or a custom row that is not in the editor yet: seed one from
-    // it so Override lands on something editable.
-    const seeded = {
-      ...blankDraft(list === 'literal'),
-      en: term.en,
-      zh: term.doNotTranslate ? '' : term.zh,
-      doNotTranslate: Boolean(term.doNotTranslate),
-    };
-    const next = [
-      ...drafts.filter((draft) => draft.en || draft.zh),
-      seeded,
-      blankDraft(list === 'literal'),
-    ];
-    if (list === 'literal') setLiteralDrafts(next);
-    else setPairDrafts(next);
-    setFocusDraftId(seeded.id);
+    if (en === term.en && zh === term.zh) return;
+
+    const list = draftListFor(term);
+    const drafts = list === 'literal' ? literalDrafts : pairDrafts;
+    const filled = drafts.filter((draft) => draft.en || draft.zh);
+    const existing = filled.find((draft) => draft.en === term.en);
+    const nextFilled = existing
+      ? filled.map((draft) =>
+          draft.en === term.en ? { ...draft, en, zh } : draft,
+        )
+      : [...filled, { ...blankDraft(list === 'literal'), en, zh }];
+    const next = [...nextFilled, blankDraft(list === 'literal')];
+
+    const nextPairs = list === 'pairs' ? next : pairDrafts;
+    const nextLiterals = list === 'literal' ? next : literalDrafts;
+    setPairDrafts(nextPairs);
+    setLiteralDrafts(nextLiterals);
+    await persistGlossary(nextPairs, nextLiterals);
   };
 
+  /**
+   * Delete the operator's own entry for a row.
+   *
+   * On a row they added this removes it. On a built-in they had overridden it
+   * removes the override, which restores the shipped translation - so the same
+   * control means "undo my change" in both cases, and never claims to delete
+   * shipped data it cannot touch.
+   */
   const removeGlossaryTerm = async (term: EffectiveGlossaryTerm) => {
-    if (term.source !== 'custom') return;
     const list = draftListFor(term);
-    const keep = (drafts: DraftTerm[]) =>
+    const drop = (drafts: DraftTerm[]) =>
       drafts.filter((draft) => draft.en !== term.en);
-    const nextPairs = list === 'pairs' ? keep(pairDrafts) : pairDrafts;
-    const nextLiterals = list === 'literal' ? keep(literalDrafts) : literalDrafts;
-    setPairDrafts(nextPairs.length ? nextPairs : [blankDraft(false)]);
-    setLiteralDrafts(nextLiterals.length ? nextLiterals : [blankDraft(true)]);
+    const nextPairs = list === 'pairs' ? drop(pairDrafts) : pairDrafts;
+    const nextLiterals = list === 'literal' ? drop(literalDrafts) : literalDrafts;
+    setEditingTerm(null);
+    setPairDrafts(nextPairs);
+    setLiteralDrafts(nextLiterals);
     await persistGlossary(nextPairs, nextLiterals);
   };
 
@@ -2505,15 +2538,58 @@ export function ControlApp() {
               {effectiveGlossary ? (
                 <>
                   <ul className="glossary-list">
-                    {glossaryMatches.visible.map((term) => (
+                    {glossaryMatches.visible.map((term) => {
+                      const key = `${term.source}:${term.en}`;
+                      const editing = editingTerm?.key === key;
+                      return (
                       <li
                         key={`${term.source}-${term.en}`}
-                        className={term.active ? '' : 'is-inactive'}
+                        className={`${term.active ? '' : 'is-inactive'}${
+                          editing ? ' is-editing' : ''
+                        }`}
                       >
-                        <span className="glossary-list__en">{term.en}</span>
-                        <span className="glossary-list__zh" lang="zh-Hans">
-                          {term.doNotTranslate ? 'kept in English' : term.zh}
-                        </span>
+                        {editing ? (
+                          <>
+                            {/* The line itself becomes the editor. Enter commits,
+                                Escape abandons, and moving focus out commits too -
+                                so the row can be left the same way any other field
+                                can. */}
+                            <input
+                              className="glossary-list__input"
+                              value={editingTerm.en}
+                              aria-label={`English term for ${term.en}`}
+                              autoFocus
+                              onChange={(event) =>
+                                setEditingTerm({ ...editingTerm, en: event.target.value })
+                              }
+                              onKeyDown={(event) => {
+                                if (event.key === 'Enter') void commitInlineTerm(term);
+                                if (event.key === 'Escape') setEditingTerm(null);
+                              }}
+                            />
+                            <input
+                              className="glossary-list__input"
+                              value={editingTerm.zh}
+                              lang="zh-Hans"
+                              aria-label={`Chinese term for ${term.en}`}
+                              disabled={term.doNotTranslate}
+                              onChange={(event) =>
+                                setEditingTerm({ ...editingTerm, zh: event.target.value })
+                              }
+                              onKeyDown={(event) => {
+                                if (event.key === 'Enter') void commitInlineTerm(term);
+                                if (event.key === 'Escape') setEditingTerm(null);
+                              }}
+                            />
+                          </>
+                        ) : (
+                          <>
+                            <span className="glossary-list__en">{term.en}</span>
+                            <span className="glossary-list__zh" lang="zh-Hans">
+                              {term.doNotTranslate ? 'kept in English' : term.zh}
+                            </span>
+                          </>
+                        )}
                         <span className="glossary-list__marks">
                           {term.source === 'custom' && (
                             <span className="glossary-list__tag">YOURS</span>
@@ -2528,27 +2604,49 @@ export function ControlApp() {
                             and so they are reachable by Tab rather than by pointer
                             only. */}
                         <span className="glossary-list__actions">
-                          <button
-                            type="button"
-                            className="glossary-list__action"
-                            disabled={active}
-                            onClick={() => editGlossaryTerm(term)}
-                          >
-                            {term.source === 'custom' ? 'Edit' : 'Override'}
-                          </button>
+                          {editing ? (
+                            <button
+                              type="button"
+                              className="glossary-list__action"
+                              onClick={() => void commitInlineTerm(term)}
+                            >
+                              Done
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              className="glossary-list__action"
+                              disabled={active}
+                              aria-label={`Edit ${term.en}`}
+                              onClick={() =>
+                                setEditingTerm({
+                                  key,
+                                  en: term.en,
+                                  zh: term.doNotTranslate ? '' : term.zh,
+                                })
+                              }
+                            >
+                              <Pencil size={13} strokeWidth={2.25} aria-hidden="true" />
+                            </button>
+                          )}
+                          {/* Shown only where it can act: on the operator's own
+                              entry. A built-in has nothing of theirs to delete
+                              until they have edited it. */}
                           {term.source === 'custom' && (
                             <button
                               type="button"
                               className="glossary-list__action is-danger"
                               disabled={active || busy}
+                              aria-label={`Remove ${term.en}`}
                               onClick={() => void removeGlossaryTerm(term)}
                             >
-                              Remove
+                              <Trash2 size={13} strokeWidth={2.25} aria-hidden="true" />
                             </button>
                           )}
                         </span>
                       </li>
-                    ))}
+                      );
+                    })}
                   </ul>
                   {/* Two numbers that used to disagree in public: the card counted
                       STORED terms (138) while this list showed the ACTIVE subset (40).
@@ -2586,7 +2684,6 @@ export function ControlApp() {
               <div className="glossary-advanced__body">
                 <TermPairSection
                   drafts={pairDrafts}
-                  focusId={focusDraftId}
                   disabled={active}
                   onChange={(id, patch) => updateDraft('pairs', id, patch)}
                   onRemove={(id) => removeDraft('pairs', id)}
@@ -2594,7 +2691,6 @@ export function ControlApp() {
                 />
                 <LiteralSection
                   drafts={literalDrafts}
-                  focusId={focusDraftId}
                   disabled={active}
                   onChange={(id, patch) => updateDraft('literal', id, patch)}
                   onRemove={(id) => removeDraft('literal', id)}

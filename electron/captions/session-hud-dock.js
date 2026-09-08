@@ -17,7 +17,11 @@
  * it.
  */
 
-const COLLAPSED = { width: 148, height: 36 };
+// Sized to its reading rather than to a round number. At 148px a docked tab left
+// a wide gap either side of "0:28", which is what the report describes: the pill
+// looked padded out rather than compact. 118px fits the dot, the timer and the
+// grip on the 4/8 spacing rhythm with nothing spare.
+const COLLAPSED = { width: 118, height: 36 };
 const EXPANDED = { width: 312, height: 44 };
 
 /** How close to an edge a release has to be before it docks. */

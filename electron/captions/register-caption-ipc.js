@@ -16,6 +16,9 @@ function assertSender(event, windows) {
     ...windows.captionWindows.values(),
     windows.cameraStageWindow,
     windows.cameraOutputWindow,
+    // The session HUD talks back to ask for its own expand/collapse. Without it
+    // here every call from the pill is rejected as an untrusted sender.
+    windows.sessionHudWindow,
   ].some((window) => window && !window.isDestroyed() && window.webContents.id === senderId);
   if (!allowed) throw new Error('Untrusted IPC sender');
 }
@@ -436,6 +439,11 @@ function registerCaptionIpc({
     windows.hideCameraStage();
     return windows.previewVisibility();
   });
+  // The pill reports its own pointer, because a docked HUD is mostly off
+  // screen and the only reliable signal is the pointer entering what is left.
+  handle('captions:session-hud-expanded', (payload) =>
+    windows.setSessionHudExpanded(Boolean(payload && payload.expanded)),
+  );
   handle('captions:preview-visibility-get', () => windows.previewVisibility());
   handle('captions:camera-stage-snapshot', () => windows.cameraStageSnapshot());
   const requireNativeCamera = () => {

@@ -90,6 +90,8 @@ contextBridge.exposeInMainWorld('captions', {
   hideWindows: () => invoke('captions:windows-hide'),
   showCameraStage: () => invoke('captions:camera-stage-show'),
   hideCameraStage: () => invoke('captions:camera-stage-hide'),
+  setSessionHudExpanded: (expanded) =>
+    invoke('captions:session-hud-expanded', { expanded }),
   getPreviewVisibility: () => invoke('captions:preview-visibility-get'),
   getCameraStageSnapshot: () => invoke('captions:camera-stage-snapshot'),
   getNativeCameraHealth: () => invoke('captions:native-camera-health-get'),
@@ -128,6 +130,8 @@ contextBridge.exposeInMainWorld('captions', {
     subscribe('captions:audience-event', callback),
   onStatus: (callback) => subscribe('captions:status', callback),
   onMetrics: (callback) => subscribe('captions:metrics', callback),
+  onSessionHudDock: (callback) =>
+    subscribe('captions:session-hud-dock', callback),
   onEvaluation: (callback) => subscribe('captions:evaluation', callback),
   onLayout: (callback) => subscribe('captions:layout', callback),
   onSettings: (callback) => subscribe('captions:settings', callback),

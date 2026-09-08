@@ -1,6 +1,7 @@
 import { CaptionSurface } from './captions/CaptionSurface';
 import { CameraStage } from './captions/CameraStage';
 import { ControlApp } from './captions/ControlApp';
+import { SessionHud } from './captions/SessionHud';
 import { SurfaceErrorBoundary } from './captions/SurfaceErrorBoundary';
 import type { Audience } from './captions/types';
 import './captions/captions.css';
@@ -18,6 +19,13 @@ function App() {
     return (
       <SurfaceErrorBoundary surface={`Caption overlay · ${audience}`}>
         <CaptionSurface audience={audience} />
+      </SurfaceErrorBoundary>
+    );
+  }
+  if (params.get('surface') === 'session-hud') {
+    return (
+      <SurfaceErrorBoundary surface="Session HUD">
+        <SessionHud />
       </SurfaceErrorBoundary>
     );
   }

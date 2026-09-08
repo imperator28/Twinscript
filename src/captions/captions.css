@@ -1711,6 +1711,8 @@ a:hover { text-decoration-color: currentColor; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; }
+  /* The live dot keeps its colour and ring; only the pulse goes. */
+  .session-hud__dot.is-live { animation: none; }
   :root { --dur-enter: 120ms; --dur-exit: 100ms; }
   /* Same entrances, without the translate. A plain crossfade still tells the
      operator that something arrived; the vestibular part is the movement. */
@@ -1749,3 +1751,130 @@ a:hover { text-decoration-color: currentColor; }
 }
 .local-model-card__setup p { margin: 0; overflow-wrap: anywhere; }
 .local-model-card__setup .button { max-width: 100%; white-space: normal; }
+
+/* ---------------------------------------------------------------------------
+   Floating session HUD.
+
+   The escape hatch from a session that cannot be stopped. The overlays and the
+   camera stage are always-on-top and can cover the control window completely,
+   so Stop needs to exist somewhere that is always reachable.
+
+   Its window is transparent and sized to this pill by the main process, so
+   everything here is drawn on its own surface rather than on a page background.
+   It deliberately does NOT use the app's light/dark tokens: it floats over
+   arbitrary content - a meeting client, a slide, a camera feed - so it carries
+   one dark, high-contrast treatment that reads against all of them, the way an
+   OS overlay does.
+   --------------------------------------------------------------------------- */
+.session-hud {
+  --hud-surface: rgba(18, 20, 24, .92);
+  --hud-border: rgba(255, 255, 255, .14);
+  --hud-text: #f4f6f8;
+
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 6px 0 10px;
+  overflow: hidden;
+  border: 1px solid var(--hud-border);
+  border-radius: var(--radius-pill);
+  background: var(--hud-surface);
+  color: var(--hud-text);
+  /* Frosted, so it separates from whatever is behind it without going opaque. */
+  backdrop-filter: blur(14px) saturate(140%);
+  box-shadow: 0 8px 24px -10px rgba(0, 0, 0, .7);
+  /* The whole pill is the drag handle. Text selection has to be off or a press
+     starts selecting the timer instead of moving the window - the same defect
+     that made the camera stage nearly impossible to move. */
+  -webkit-app-region: drag;
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: move;
+}
+
+/* A short grip, so the pill reads as draggable rather than as a button. */
+.session-hud__grip {
+  flex: none;
+  width: 3px;
+  height: 14px;
+  border-radius: 2px;
+  background: currentColor;
+  opacity: .3;
+}
+
+.session-hud__status {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: var(--size-sm);
+}
+.session-hud__dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--idle);
+}
+/* Pulsing only while genuinely live, so the dot means something. Reduced-motion
+   users get the colour without the pulse - see the media query below. */
+.session-hud__dot.is-live {
+  background: var(--live);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--live) 28%, transparent);
+  animation: session-hud-pulse 2s var(--ease-in-out) infinite;
+}
+/* Tabular figures: a timer that changes width every second makes the whole pill
+   twitch, and the window is sized to this content. */
+.session-hud__elapsed {
+  font-size: var(--size-sm);
+  font-weight: var(--weight-semibold);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: .01em;
+}
+.session-hud__spend {
+  color: rgba(244, 246, 248, .72);
+  font-size: var(--size-xs);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.session-hud__spend em { font-style: normal; opacity: .7; }
+
+/* The only control, and it only exists while expanded. `no-drag` so pressing it
+   presses it rather than starting to move the window. */
+.session-hud__stop {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: var(--danger);
+  color: var(--text-on-danger);
+  font-size: var(--size-xs);
+  font-weight: var(--weight-semibold);
+  white-space: nowrap;
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+  transition: background-color var(--dur-fast) var(--ease-out);
+}
+.session-hud__stop:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--text-on-danger) 10%, var(--danger));
+}
+.session-hud__stop:disabled { cursor: default; opacity: .72; }
+
+/* Docked: most of the pill is off-screen and only the near edge is grabbable,
+   so the visible sliver keeps a full rounded edge on the side facing in and
+   squares off against the screen edge it is tucked behind. */
+.session-hud.is-docked-top { border-top-color: transparent; border-radius: 0 0 var(--radius-pill) var(--radius-pill); }
+.session-hud.is-docked-bottom { border-bottom-color: transparent; border-radius: var(--radius-pill) var(--radius-pill) 0 0; }
+.session-hud.is-docked-left { border-left-color: transparent; border-radius: 0 var(--radius-pill) var(--radius-pill) 0; }
+.session-hud.is-docked-right { border-right-color: transparent; border-radius: var(--radius-pill) 0 0 var(--radius-pill); }
+
+@keyframes session-hud-pulse {
+  50% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--live) 12%, transparent); }
+}

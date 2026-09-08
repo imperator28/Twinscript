@@ -146,6 +146,7 @@ export default defineConfig(({ command, mode }) => {
             'captions/records-usage': 'electron/captions/records-usage.js',
             'captions/recording-key-store': 'electron/captions/recording-key-store.js',
             'captions/register-caption-ipc': 'electron/captions/register-caption-ipc.js',
+            'captions/session-hud-dock': 'electron/captions/session-hud-dock.js',
             'captions/settings-store': 'electron/captions/settings-store.js',
             'captions/squirrel-startup': 'electron/captions/squirrel-startup.js',
             'captions/transcript-coordinator': 'electron/captions/transcript-coordinator.js',

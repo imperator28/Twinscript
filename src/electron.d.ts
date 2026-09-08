@@ -125,6 +125,12 @@ interface CaptionsAPI {
   hideWindows(): Promise<Result<CaptionPreviewVisibility>>;
   showCameraStage(): Promise<Result<CaptionPreviewVisibility>>;
   hideCameraStage(): Promise<Result<CaptionPreviewVisibility>>;
+  setSessionHudExpanded?: (
+    expanded: boolean,
+  ) => Promise<Result<{ expanded: boolean }>>;
+  onSessionHudDock?: (
+    callback: (payload: { edge: string | null }) => void,
+  ) => () => void;
   getPreviewVisibility(): Promise<Result<CaptionPreviewVisibility>>;
   getCameraStageSnapshot(): Promise<Result<{
     status: import('./captions/types').SessionStatus;

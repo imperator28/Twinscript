@@ -3,6 +3,11 @@ const CAPTION_THEMES = require('../../shared/caption-themes.json');
 const { projectForAudience } = require('./caption-domain');
 const { computeOverlayBounds } = require('./overlay-layout');
 const { loadDevRendererUrl } = require('./dev-renderer-load');
+const {
+  anchoredBounds,
+  initialBounds: initialHudBounds,
+  resolveDockEdge,
+} = require('./session-hud-dock');
 
 const AUDIENCES = ['en', 'zh'];
 const DEFAULT_THEME = CAPTION_THEMES.find((theme) => theme.id === 'blueprint');
@@ -57,6 +62,10 @@ class CaptionWindowManager {
     this.cameraOutputLifecycle = Promise.resolve();
     this.lastStatus = { state: 'ready' };
     this.cameraStageEvents = new Map();
+    this.sessionHudWindow = null;
+    this.sessionHudEdge = null;
+    this.sessionHudExpanded = false;
+    this.sessionHudMoveTimer = null;
     const settings = settingsStore?.get?.() || {};
     this.layout = settings.layout === 'side-by-side' ? 'side-by-side' : 'stacked';
     this.outputMode =
@@ -567,6 +576,15 @@ class CaptionWindowManager {
       this.cameraStageEvents.clear();
     }
     this.lastStatus = status;
+    // The HUD follows the session, not the window layout: it exists only
+    // while there is something to stop.
+    if (['starting', 'running', 'connected'].includes(status.state)) {
+      this.showSessionHud();
+    } else if (
+      ['stopped', 'ready', 'budget-exhausted', 'failed'].includes(status.state)
+    ) {
+      this.hideSessionHud();
+    }
     this.broadcast('captions:status', status);
   }
 
@@ -764,6 +782,142 @@ class CaptionWindowManager {
     }
   }
 
+  /**
+   * The floating session HUD.
+   *
+   * A running session could become impossible to stop. The overlays and the
+   * camera stage are always-on-top, so they can cover the control window
+   * completely, and Stop existed only inside it - leaving no way to end a session
+   * except closing the caption windows first. This pill carries the session state
+   * and its own Stop, above everything, so stopping never depends on finding the
+   * main window again.
+   *
+   * Sized to its content rather than being a large transparent surface: a
+   * transparent frameless window still swallows clicks over its see-through area,
+   * which would block whatever sits underneath it.
+   */
+  createSessionHudWindow() {
+    if (this.sessionHudWindow && !this.sessionHudWindow.isDestroyed()) {
+      return this.sessionHudWindow;
+    }
+    const workArea = this.targetWorkArea();
+    const bounds = initialHudBounds({ workArea });
+    const window = new this.BrowserWindow({
+      ...bounds,
+      show: false,
+      frame: false,
+      transparent: true,
+      resizable: false,
+      movable: true,
+      minimizable: false,
+      maximizable: false,
+      fullscreenable: false,
+      skipTaskbar: true,
+      hasShadow: false,
+      alwaysOnTop: true,
+      backgroundColor: '#00000000',
+      title: 'Twinscript session',
+      webPreferences: {
+        preload: this.preloadPath,
+        contextIsolation: true,
+        sandbox: true,
+        nodeIntegration: false,
+        webSecurity: true,
+        backgroundThrottling: false,
+      },
+    });
+    // Above the caption overlays, which are themselves screen-saver level. The
+    // HUD is the escape hatch from those windows, so it has to outrank them.
+    window.setAlwaysOnTop(true, 'screen-saver', 2);
+    if (process.platform === 'darwin') {
+      window.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+    }
+    this.hardenWindow(window);
+    this.loadSurface(window, 'session-hud');
+    window.on('close', (event) => {
+      if (!this.app.isQuitting) {
+        event.preventDefault();
+        window.hide();
+      }
+    });
+    // Dock on release. `moved` fires continuously during an app-region drag, so
+    // the snap is debounced to the end of the gesture - snapping mid-drag would
+    // fight the pointer.
+    window.on('moved', () => {
+      if (this.sessionHudMoveTimer) clearTimeout(this.sessionHudMoveTimer);
+      this.sessionHudMoveTimer = setTimeout(() => {
+        this.sessionHudMoveTimer = null;
+        this.settleSessionHud();
+      }, 220);
+    });
+    this.sessionHudWindow = window;
+    return window;
+  }
+
+  /** Decide whether the HUD's resting place is an edge, and move it there. */
+  settleSessionHud() {
+    const window = this.sessionHudWindow;
+    if (!window || window.isDestroyed()) return;
+    const workArea = this.targetWorkArea();
+    const current = window.getBounds();
+    this.sessionHudEdge = resolveDockEdge({ bounds: current, workArea });
+    window.setBounds(
+      anchoredBounds({
+        edge: this.sessionHudEdge,
+        bounds: current,
+        workArea,
+        expanded: this.sessionHudExpanded,
+      }),
+    );
+    window.webContents.send('captions:session-hud-dock', {
+      edge: this.sessionHudEdge,
+    });
+  }
+
+  /**
+   * Grow to reveal Stop, or shrink back to status only.
+   *
+   * Driven by the renderer's pointer, because a docked pill is mostly off screen
+   * and the only reliable "the operator is reaching for this" signal is the
+   * pointer entering the part still visible.
+   */
+  setSessionHudExpanded(expanded) {
+    const window = this.sessionHudWindow;
+    this.sessionHudExpanded = Boolean(expanded);
+    if (!window || window.isDestroyed()) {
+      return { expanded: this.sessionHudExpanded };
+    }
+    window.setBounds(
+      anchoredBounds({
+        edge: this.sessionHudEdge,
+        bounds: window.getBounds(),
+        workArea: this.targetWorkArea(),
+        expanded: this.sessionHudExpanded,
+      }),
+    );
+    return { expanded: this.sessionHudExpanded };
+  }
+
+  showSessionHud() {
+    const window = this.createSessionHudWindow();
+    if (window.isDestroyed()) return;
+    // showInactive: appearing must not steal focus from the meeting client.
+    if (!window.isVisible()) window.showInactive();
+  }
+
+  hideSessionHud() {
+    const window = this.sessionHudWindow;
+    if (!window || window.isDestroyed()) return;
+    if (this.sessionHudMoveTimer) {
+      clearTimeout(this.sessionHudMoveTimer);
+      this.sessionHudMoveTimer = null;
+    }
+    // Collapsed on the way out, so the next session opens showing status rather
+    // than a Stop button already stretched open.
+    this.sessionHudExpanded = false;
+    window.hide();
+  }
+
   broadcast(channel, payload) {
     this.broadcastControl(channel, payload);
     for (const window of this.captionWindows.values()) {
@@ -774,6 +928,9 @@ class CaptionWindowManager {
     }
     if (this.cameraOutputWindow && !this.cameraOutputWindow.isDestroyed()) {
       this.cameraOutputWindow.webContents.send(channel, payload);
+    }
+    if (this.sessionHudWindow && !this.sessionHudWindow.isDestroyed()) {
+      this.sessionHudWindow.webContents.send(channel, payload);
     }
   }
 }

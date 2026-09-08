@@ -1288,9 +1288,19 @@ export function ControlApp() {
     void runNativeCameraAction('install');
   };
 
+  // An undecided recording no longer blocks the next meeting.
+  //
+  // Start used to be disabled while a previous session's audio was awaiting Keep
+  // or Discard, on the theory that the operator should answer before moving on.
+  // In practice the next meeting does not wait: the answer is not urgent, and
+  // making it a precondition meant a decision about last time could stop this
+  // time from being captioned at all. The prompt stays on screen, undecided
+  // meetings accumulate, and `planPendingAudioRetention` keeps the five most
+  // recent and expires the rest - so the disk cannot grow without bound whether
+  // the question is answered or not.
   const sessionActionDisabled =
     operation === 'stopping' ||
-    (!active && (busy || !readiness.canStart || Boolean(pendingDecision)));
+    (!active && (busy || !readiness.canStart));
 
   return (
     <main className="control-shell">

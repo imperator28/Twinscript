@@ -1033,10 +1033,57 @@ input[type="range"] { width: 100%; accent-color: var(--accent); }
 .channel-badge.is-unavailable { border-color: var(--danger-border); background: var(--danger-surface); color: var(--danger-text); }
 .capture-warning { display: flex; align-items: flex-start; gap: var(--space-2); margin: var(--space-3) 0 0; padding: 11px var(--space-3); border: 1px solid var(--danger-border); border-radius: var(--radius); background: var(--danger-surface); color: var(--danger-text); font-size: var(--size-sm); line-height: var(--leading-body); }
 .capture-warning svg { flex: 0 0 auto; margin-top: 2px; }
-.notice { display: flex; align-items: center; gap: var(--space-3); margin-bottom: var(--space-4); padding: var(--space-3); border: 1px solid var(--warning-border); border-radius: var(--radius); background: var(--warning-surface); color: var(--warning-text); font-size: var(--size-sm); }
+/* Feedback has to be where the operator is looking, not where the document
+   begins.
+   The notice used to be an in-flow block at the top of `.control-shell`, which
+   scrolls. Saving a key from a card near the bottom of Settings put the
+   confirmation hundreds of pixels above the viewport - present, correct, and
+   completely unreadable without scrolling back up. It is now fixed to the top of
+   the window, above the cards, with a soft gradient beneath it so it reads as
+   floating rather than as a band welded to the chrome.
+   Bounded and centred: the close button used to end up near the middle of a wide
+   window, because `.notice > span` was capped at 78ch by the prose rule while
+   `flex: 1` cannot grow past its own max-width. The overlay is narrower than that
+   cap, so the row lays out as intended - message left, close hard right. */
+.notice {
+  position: fixed;
+  top: var(--space-4);
+  left: 50%;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: max-content;
+  max-width: min(560px, calc(100vw - 2 * var(--space-6)));
+  padding: var(--space-3) var(--space-3) var(--space-3) var(--space-4);
+  border: 1px solid var(--warning-border);
+  border-radius: var(--radius-pill);
+  background: var(--warning-surface);
+  color: var(--warning-text);
+  font-size: var(--size-sm);
+  box-shadow: 0 10px 30px -12px rgba(18, 22, 28, .45);
+  transform: translateX(-50%);
+}
+/* The gradient the report asked for: a short fade under the pill so content
+   scrolling beneath it passes out of sight rather than colliding with its edge. */
+.notice::after {
+  content: '';
+  position: absolute;
+  top: 100%;
+  right: 0;
+  left: 0;
+  height: 18px;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--surface-sunken) 55%, transparent),
+    transparent
+  );
+  pointer-events: none;
+}
 .notice > svg { flex: 0 0 auto; }
 .notice > span { flex: 1; }
-.notice button { display: grid; place-items: center; width: var(--target); height: var(--target); border: 0; border-radius: var(--radius); background: transparent; color: inherit; }
+.notice > span { flex: 1; min-width: 0; }
+.notice button { display: grid; flex: 0 0 auto; place-items: center; width: 32px; height: 32px; margin-left: var(--space-2); border: 0; border-radius: var(--radius-pill); background: transparent; color: inherit; }
 .notice button:hover { background: color-mix(in srgb, currentColor 12%, transparent); }
 .transcript-list { display: grid; }
 .transcript-list > div { display: grid; grid-template-columns: 72px 1fr 1fr; gap: var(--space-4); padding: 13px 0; border-top: 1px solid var(--border-subtle); }
@@ -1324,6 +1371,15 @@ input[type="range"] { width: 100%; accent-color: var(--accent); }
   white-space: nowrap;
 }
 .local-model-row__state svg { flex: 0 0 auto; }
+/* The chip shares a row with Verify and Remove, which are `--target` tall for the
+   touch minimum. At 26px it read as a different, smaller class of thing sitting
+   slightly above the line of the buttons. Matching their height lines all three
+   up on one baseline; the chip stays visually lighter through its fill and
+   weight rather than by being short. */
+.local-model-row__actions .local-model-row__state {
+  min-height: var(--target);
+  padding: 0 var(--space-4);
+}
 .local-model-card__aggregate { color: var(--text); }
 .local-model-card__catalog,
 .local-model-card__lock {
@@ -1671,7 +1727,7 @@ a:hover { text-decoration-color: currentColor; }
 
 /* Prose stops at a readable measure wherever it sits. Bounding the container instead made
    every control narrow in order to keep one paragraph short. */
-.supporting-copy, .field-note, .notice > span, .readiness__step p, .glossary-section > header p {
+.supporting-copy, .field-note, .readiness__step p, .glossary-section > header p {
   max-width: 78ch;
 }
 

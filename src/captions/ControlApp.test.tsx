@@ -1524,7 +1524,11 @@ describe('meeting caption controls', () => {
         name: 'Keep the audio from the meeting that was interrupted?',
       }),
     ).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Start session/i })).toBeDisabled();
+    // Deliberately NOT disabled any more. An undecided recording from last time
+    // must not stop this meeting from being captioned: the question is not
+    // urgent, and `planPendingAudioRetention` bounds the disk at five undecided
+    // recordings whether it is answered or not.
+    expect(screen.getByRole('button', { name: /Start session/i })).toBeEnabled();
     // Copy now says what is already safe and what each choice does, rather than
     // "choose whether to keep or permanently discard the encrypted microphone and
     // meeting audio backup" - eight words of implementation for a thing the operator

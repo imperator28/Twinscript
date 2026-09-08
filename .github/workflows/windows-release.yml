@@ -166,6 +166,24 @@ jobs:
             }
           }
 
+      # The catalog is signed before its assets are published, so its URLs are
+      # predictions. A wrong one ships an installer whose Install button fails on
+      # a 404 that no user can act on, and the build is the last place that is
+      # cheap to catch. Checked anonymously and against the PACKAGED manifest -
+      # the one that actually ships - because an authenticated check would pass
+      # on a private or draft release and then fail for everyone else.
+      - name: Verify the packaged catalog's assets are downloadable
+        shell: pwsh
+        run: |
+          $manifest = 'out/Twinscript-win32-x64/resources/resources/local-models/model-manifest.json'
+          if (-not (Test-Path $manifest)) {
+            throw "Packaged signed catalog is missing at $manifest"
+          }
+          node scripts/verify-release-assets.cjs $manifest
+          if ($LASTEXITCODE -ne 0) {
+            throw 'Packaged catalog points at assets that are not anonymously downloadable.'
+          }
+
       - name: Scan packaged output for API keys
         shell: pwsh
         run: |

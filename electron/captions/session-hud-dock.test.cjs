@@ -133,3 +133,32 @@ test('expanded is wider than collapsed, because Stop has to fit', () => {
   assert.ok(EXPANDED.width > COLLAPSED.width);
   assert.ok(EXPANDED.height >= COLLAPSED.height);
 });
+
+test('pointerWithin recognises the cursor over the pill, with a small margin', () => {
+  const { pointerWithin } = require('./session-hud-dock');
+  const bounds = { x: 100, y: 50, width: 148, height: 36 };
+
+  assert.equal(pointerWithin(bounds, { x: 150, y: 60 }), true, 'inside');
+  assert.equal(pointerWithin(bounds, { x: 99, y: 60 }), true, 'just outside, within the margin');
+  assert.equal(pointerWithin(bounds, { x: 60, y: 60 }), false, 'well clear');
+  assert.equal(pointerWithin(bounds, { x: 150, y: 200 }), false, 'below');
+});
+
+test('pointerWithin reaches a pill docked mostly off screen', () => {
+  const { pointerWithin, anchoredBounds, COLLAPSED } = require('./session-hud-dock');
+  const area = { x: 0, y: 0, width: 1920, height: 1040 };
+  const docked = anchoredBounds({
+    edge: 'top',
+    bounds: { x: 900, y: 0, ...COLLAPSED },
+    workArea: area,
+  });
+  // The sliver that remains on screen must register, or a docked HUD can never
+  // be revealed again.
+  assert.equal(pointerWithin(docked, { x: 950, y: 10 }), true);
+});
+
+test('pointerWithin tolerates missing bounds or cursor', () => {
+  const { pointerWithin } = require('./session-hud-dock');
+  assert.equal(pointerWithin(null, { x: 0, y: 0 }), false);
+  assert.equal(pointerWithin({ x: 0, y: 0, width: 10, height: 10 }, null), false);
+});

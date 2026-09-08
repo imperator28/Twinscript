@@ -6,6 +6,7 @@ const { loadDevRendererUrl } = require('./dev-renderer-load');
 const {
   anchoredBounds,
   initialBounds: initialHudBounds,
+  pointerWithin,
   resolveDockEdge,
 } = require('./session-hud-dock');
 
@@ -66,6 +67,8 @@ class CaptionWindowManager {
     this.sessionHudEdge = null;
     this.sessionHudExpanded = false;
     this.sessionHudMoveTimer = null;
+    this.sessionHudHoverTimer = null;
+    this.sessionHudCollapseAt = 0;
     const settings = settingsStore?.get?.() || {};
     this.layout = settings.layout === 'side-by-side' ? 'side-by-side' : 'stacked';
     this.outputMode =
@@ -898,15 +901,78 @@ class CaptionWindowManager {
     return { expanded: this.sessionHudExpanded };
   }
 
+  /**
+   * Reveal on hover, decided from the cursor rather than from pointer events.
+   *
+   * The renderer cannot do this. On Windows a `-webkit-app-region: drag` region
+   * is implemented as non-client hit-testing, so no mouse events reach the page
+   * over it - and the whole pill is draggable, which is why hovering it revealed
+   * nothing at all. Clicks on Stop still arrive because that opts out with
+   * `no-drag`; hover was the part that was lost.
+   *
+   * Polled at 120ms: fast enough that the reveal feels immediate, slow enough to
+   * be free. Expansion is instant and collapse waits, so the window resizing
+   * under the cursor cannot start an expand/collapse oscillation - the same
+   * hysteresis the renderer applies, kept here because this is now the authority.
+   */
+  watchSessionHudHover({ intervalMs = 120, collapseDelayMs = 420 } = {}) {
+    if (this.sessionHudHoverTimer) return;
+    this.sessionHudHoverTimer = setInterval(() => {
+      const window = this.sessionHudWindow;
+      if (!window || window.isDestroyed() || !window.isVisible()) return;
+      let point = null;
+      try {
+        point = this.screen.getCursorScreenPoint();
+      } catch {
+        return;
+      }
+      const inside = pointerWithin(window.getBounds(), point);
+      if (inside) {
+        this.sessionHudCollapseAt = 0;
+        if (!this.sessionHudExpanded) this.applySessionHudHover(true);
+        return;
+      }
+      if (!this.sessionHudExpanded) return;
+      const now = Date.now();
+      if (!this.sessionHudCollapseAt) {
+        this.sessionHudCollapseAt = now + collapseDelayMs;
+        return;
+      }
+      if (now >= this.sessionHudCollapseAt) {
+        this.sessionHudCollapseAt = 0;
+        this.applySessionHudHover(false);
+      }
+    }, intervalMs);
+    // Never hold the process open for a hover poll.
+    this.sessionHudHoverTimer.unref?.();
+  }
+
+  stopWatchingSessionHudHover() {
+    if (!this.sessionHudHoverTimer) return;
+    clearInterval(this.sessionHudHoverTimer);
+    this.sessionHudHoverTimer = null;
+    this.sessionHudCollapseAt = 0;
+  }
+
+  /** Resize for the new state and tell the pill what to draw. */
+  applySessionHudHover(expanded) {
+    this.setSessionHudExpanded(expanded);
+    const window = this.sessionHudWindow;
+    if (!window || window.isDestroyed()) return;
+    window.webContents.send('captions:session-hud-hover', { expanded: Boolean(expanded) });
+  }
+
   showSessionHud() {
     const window = this.createSessionHudWindow();
     if (window.isDestroyed()) return;
     // showInactive: appearing must not steal focus from the meeting client.
     if (!window.isVisible()) window.showInactive();
+    this.watchSessionHudHover();
   }
 
   hideSessionHud() {
     const window = this.sessionHudWindow;
+    this.stopWatchingSessionHudHover();
     if (!window || window.isDestroyed()) return;
     if (this.sessionHudMoveTimer) {
       clearTimeout(this.sessionHudMoveTimer);

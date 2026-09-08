@@ -116,3 +116,53 @@ describe('SessionHud expand and stop', () => {
     expect(screen.queryByRole('button', { name: /Stop session/i })).toBeNull();
   });
 });
+
+describe('SessionHud hover from the main process', () => {
+  it('reveals Stop when the main process reports the cursor is over it', () => {
+    // The renderer cannot detect this itself: the pill is a drag region, and on
+    // Windows those are non-client areas that receive no mouse events, which is
+    // why hovering revealed nothing. Hover now arrives as an event.
+    let emitHover: ((payload: { expanded: boolean }) => void) | undefined;
+    window.captions = {
+      onStatus: () => () => {},
+      onMetrics: () => () => {},
+      onSessionHudDock: () => () => {},
+      onSessionHudHover: (callback: (payload: { expanded: boolean }) => void) => {
+        emitHover = callback;
+        return () => {};
+      },
+      setSessionHudExpanded: vi.fn(),
+      stopSession: vi.fn().mockResolvedValue({ ok: true, data: {} }),
+    } as unknown as typeof window.captions;
+
+    render(<SessionHud />);
+    expect(screen.queryByRole('button', { name: /Stop session/i })).toBeNull();
+
+    act(() => emitHover?.({ expanded: true }));
+    expect(screen.getByRole('button', { name: /Stop session/i })).toBeVisible();
+
+    act(() => emitHover?.({ expanded: false }));
+    expect(screen.queryByRole('button', { name: /Stop session/i })).toBeNull();
+  });
+
+  it('stops the session from the revealed button', async () => {
+    let emitHover: ((payload: { expanded: boolean }) => void) | undefined;
+    const stopSession = vi.fn().mockResolvedValue({ ok: true, data: {} });
+    window.captions = {
+      onStatus: () => () => {},
+      onMetrics: () => () => {},
+      onSessionHudDock: () => () => {},
+      onSessionHudHover: (callback: (payload: { expanded: boolean }) => void) => {
+        emitHover = callback;
+        return () => {};
+      },
+      setSessionHudExpanded: vi.fn(),
+      stopSession,
+    } as unknown as typeof window.captions;
+
+    render(<SessionHud />);
+    act(() => emitHover?.({ expanded: true }));
+    fireEvent.click(screen.getByRole('button', { name: /Stop session/i }));
+    expect(stopSession).toHaveBeenCalledOnce();
+  });
+});

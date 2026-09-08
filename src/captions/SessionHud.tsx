@@ -127,10 +127,24 @@ export function SessionHud() {
     const offDock = attach(window.captions?.onSessionHudDock, (next) =>
       setDockEdge((next as { edge: string | null })?.edge ?? null),
     );
+    // Hover comes from the main process, which watches the cursor. The renderer
+    // cannot see it: the pill is a drag region, and on Windows those are
+    // non-client areas that receive no mouse events at all. The pointer handlers
+    // below stay as a second signal for platforms where they do fire.
+    const offHover = attach(window.captions?.onSessionHudHover, (next) => {
+      const wanted = Boolean((next as { expanded?: boolean })?.expanded);
+      if (collapseTimer.current !== null) {
+        window.clearTimeout(collapseTimer.current);
+        collapseTimer.current = null;
+      }
+      lastRequested.current = wanted;
+      setExpanded(wanted);
+    });
     return () => {
       offStatus();
       offMetrics();
       offDock();
+      offHover();
     };
   }, []);
 

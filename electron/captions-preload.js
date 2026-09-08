@@ -14,6 +14,7 @@ const EVENT_CHANNELS = new Set([
   'captions:native-camera-health',
   'captions:local-model-status',
   'captions:session-hud-dock',
+  'captions:session-hud-hover',
 ]);
 
 function invoke(channel, payload) {
@@ -133,6 +134,8 @@ contextBridge.exposeInMainWorld('captions', {
   onMetrics: (callback) => subscribe('captions:metrics', callback),
   onSessionHudDock: (callback) =>
     subscribe('captions:session-hud-dock', callback),
+  onSessionHudHover: (callback) =>
+    subscribe('captions:session-hud-hover', callback),
   onEvaluation: (callback) => subscribe('captions:evaluation', callback),
   onLayout: (callback) => subscribe('captions:layout', callback),
   onSettings: (callback) => subscribe('captions:settings', callback),

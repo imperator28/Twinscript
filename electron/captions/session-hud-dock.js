@@ -143,7 +143,32 @@ function anchoredBounds({
   };
 }
 
+/**
+ * Is the cursor over this window?
+ *
+ * Hover for the HUD is decided in the main process from the cursor position, not
+ * in the renderer from pointer events. On Windows a `-webkit-app-region: drag`
+ * region is implemented as non-client hit-testing, so the renderer receives no
+ * mouse events over it at all - and the whole pill is a drag region, which is
+ * why hovering it revealed nothing. Clicks on the Stop button still arrive,
+ * because that opts out with `no-drag`; only hover was lost.
+ *
+ * `margin` forgives a few pixels around the edge so a docked sliver is reachable
+ * without pixel-hunting, and so the reveal does not drop out the instant the
+ * cursor grazes the boundary.
+ */
+function pointerWithin(bounds, point, margin = 6) {
+  if (!bounds || !point) return false;
+  return (
+    point.x >= bounds.x - margin &&
+    point.x <= bounds.x + bounds.width + margin &&
+    point.y >= bounds.y - margin &&
+    point.y <= bounds.y + bounds.height + margin
+  );
+}
+
 module.exports = {
+  pointerWithin,
   COLLAPSED,
   EXPANDED,
   SNAP_MARGIN,

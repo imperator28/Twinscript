@@ -131,6 +131,9 @@ interface CaptionsAPI {
   onSessionHudDock?: (
     callback: (payload: { edge: string | null }) => void,
   ) => () => void;
+  onSessionHudHover?: (
+    callback: (payload: { expanded: boolean }) => void,
+  ) => () => void;
   getPreviewVisibility(): Promise<Result<CaptionPreviewVisibility>>;
   getCameraStageSnapshot(): Promise<Result<{
     status: import('./captions/types').SessionStatus;

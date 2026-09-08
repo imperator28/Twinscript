@@ -92,6 +92,32 @@ npm run w1:corpus     # 256-prompt screening corpus
 - **`tsc --noEmit` is not clean.** Compare the error count before and after a
   change rather than expecting zero.
 
+## Commit identity (do not skip)
+
+This repository is public. The author and committer of every commit are published
+with it, permanently and in every fork, so an address cannot be un-published once
+pushed.
+
+- **Never commit with a work or employer address**, and never with a
+  machine-local one (`*.local`). Use
+  `imperator28@users.noreply.github.com`.
+- `.githooks/pre-commit` refuses any commit whose author or committer email
+  matches an employer, `*.local`, `*.internal` or `*.corp` address. It reads the
+  identity git is actually about to use, so a global config or a
+  `-c user.email=...` override cannot slip past it.
+- A fresh clone must run this once, or the hook is not active:
+
+```bash
+sh scripts/setup-repo-hooks.sh
+```
+
+- Do not pass `--no-verify` to get around it. If the hook fires, the address is
+  wrong; fix the address.
+- This client initializes no analytics or telemetry. `api.openai.com` is the only
+  host the caption process contacts. Do not add an analytics dependency, event,
+  or environment variable without being asked - several inherited documents used
+  to describe telemetry this app never had, and they have been removed.
+
 ## Conventions
 
 - English only in comments, commits and docs.

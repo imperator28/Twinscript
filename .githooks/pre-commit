@@ -1,0 +1,31 @@
+#!/bin/sh
+# Refuse any commit that would carry an employer or machine-specific identity.
+#
+# This repository is public. The author and committer of every commit are public
+# with it, permanently and in every fork, so an address that leaks an employer
+# cannot be taken back once it is pushed. A repo-local `user.email` is not enough
+# on its own: a global config, a `-c user.email=...` override, a rebase, an amend,
+# or a different tool can all reintroduce one. This checks the value git is
+# actually about to use.
+#
+# Enabled by `core.hooksPath=.githooks`, which `scripts/setup-repo-hooks.sh`
+# (or the one-liner in CLAUDE.md) sets. Bypass with `--no-verify` only if you
+# have decided the address is safe to publish.
+
+blocked='@simplehuman\.com$|\.local$|@.*\.internal$|@.*\.corp$'
+
+fail() {
+  printf '%s\n' "pre-commit: refusing to commit with the identity '$1'." >&2
+  printf '%s\n' "  This repository is public and commit identities cannot be un-published." >&2
+  printf '%s\n' "  Set a publishable address for this repository:" >&2
+  printf '%s\n' "    git config user.email 'imperator28@users.noreply.github.com'" >&2
+  exit 1
+}
+
+author_email=$(git var GIT_AUTHOR_IDENT | sed -n 's/.*<\(.*\)>.*/\1/p')
+committer_email=$(git var GIT_COMMITTER_IDENT | sed -n 's/.*<\(.*\)>.*/\1/p')
+
+printf '%s' "$author_email" | grep -Eq "$blocked" && fail "$author_email"
+printf '%s' "$committer_email" | grep -Eq "$blocked" && fail "$committer_email"
+
+exit 0

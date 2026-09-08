@@ -126,3 +126,34 @@ test('a cancelled streamed download retains bytes and can resume', async t => {
   await manager.install('openvino-cpu');
   assert.equal(manager.status()['openvino-cpu'].ready, true);
 });
+
+test('a successful install leaves no archive behind', async t => {
+  // The archive was kept forever after a good install. Harmless-looking at 71 MB
+  // for the CPU runtime, 639 MB for CUDA, and again for every future revision.
+  const { manager, root } = await fixture(t);
+  await manager.install('openvino-cpu');
+  assert.equal(manager.status()['openvino-cpu'].state, 'ready');
+  const downloads = path.join(root, '.downloads');
+  const left = await fs.readdir(downloads).catch(() => []);
+  assert.deepEqual(left, [], `archive retained after a successful install: ${left.join(', ')}`);
+  // The installed tree is what survives, not the thing it was built from.
+  assert.equal(await fs.readFile(path.join(root, 'r1/twinscript-local-inference.exe'), 'utf8'), 'host');
+});
+
+test('cleaning up the archive does not disturb another runtime\'s resumable partial', async t => {
+  // Installing the CPU runtime must not delete a half-downloaded CUDA archive:
+  // that partial is the only reason the next CUDA attempt resumes rather than
+  // restarting a 639 MB download.
+  const { manager, root, data } = await fixture(t);
+  const downloads = path.join(root, '.downloads');
+  await fs.mkdir(downloads, { recursive: true });
+  const cuda = manager.runtimes.find(r => r.family === 'cuda');
+  const partial = path.join(downloads, `${cuda.id}-${cuda.sha256}.zip.partial`);
+  await fs.writeFile(partial, data.subarray(0, 4));
+
+  await manager.install('openvino-cpu');
+
+  assert.equal((await fs.stat(partial)).size, 4, 'the unrelated partial must survive');
+  const left = await fs.readdir(downloads);
+  assert.deepEqual(left, [path.basename(partial)]);
+});

@@ -208,6 +208,14 @@ class LocalRuntimeManager {
       await fsp.writeFile(path.join(stage, '.runtime-installed.json'), JSON.stringify(marker));
       await this.switchDirectory(runtime, stage, signal);
       for (const entry of this.runtimes.filter(r => r.revision === runtime.revision)) this.states.delete(entry.id);
+      // The archive has done its job once the tree is verified and in place, so it
+      // goes. Deliberately on the success path only: a partial left by an
+      // interrupted download is what makes the next attempt resume instead of
+      // starting over, and the failure paths above already delete an archive that
+      // failed its digest. Keeping it after a successful install would strand the
+      // download size forever - 71 MB for the CPU runtime, 639 MB for CUDA - and
+      // again for every future revision.
+      await fsp.rm(archive, { force: true }).catch(() => {});
     } finally { await fsp.rm(stage, { recursive: true, force: true }); }
   }
   install(id) { return this.mutate(id, (runtime, signal) => this.installInto(runtime, signal)); }

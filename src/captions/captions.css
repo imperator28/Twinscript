@@ -1782,8 +1782,10 @@ a:hover { text-decoration-color: currentColor; }
   border-radius: var(--radius-pill);
   background: var(--hud-surface);
   color: var(--hud-text);
-  /* Frosted, so it separates from whatever is behind it without going opaque. */
-  backdrop-filter: blur(14px) saturate(140%);
+  /* Deliberately no backdrop-filter. On a transparent frameless window there is
+     no backdrop inside the window to sample, and Windows can composite it as an
+     opaque pale block - which is indistinguishable from the pill having failed to
+     render. At 92% opacity the blur bought nothing anyway. */
   box-shadow: 0 8px 24px -10px rgba(0, 0, 0, .7);
   /* The whole pill is the drag handle. Text selection has to be off or a press
      starts selecting the timer instead of moving the window - the same defect

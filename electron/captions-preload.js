@@ -13,6 +13,7 @@ const EVENT_CHANNELS = new Set([
   'captions:preview-visibility',
   'captions:native-camera-health',
   'captions:local-model-status',
+  'captions:session-hud-dock',
 ]);
 
 function invoke(channel, payload) {

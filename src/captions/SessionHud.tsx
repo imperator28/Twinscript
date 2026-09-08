@@ -55,25 +55,59 @@ export function SessionHud() {
     };
   }, []);
 
+  // Every subscription is attempted independently and none of them may take the
+  // pill down.
+  //
+  // The preload keeps its own allowlist of event channels and `subscribe()`
+  // THROWS for anything missing from it. Optional chaining is no defence: the
+  // method exists and is callable, it just throws. One absent string in that Set
+  // put this whole surface into the error boundary, whose message overflows a
+  // 36px window - so the reported symptom was a blank pill with a scrollbar,
+  // nothing that pointed at a channel name.
+  //
+  // `preload-channels.test.cjs` now fails if a channel is missing. This is the
+  // second layer: even then the HUD keeps its Stop button, which is the entire
+  // reason it exists.
   useEffect(() => {
-    const offStatus = window.captions.onStatus((next) => setStatus(next));
-    const offMetrics = window.captions.onMetrics((next) =>
+    const attach = <T,>(
+      subscribe: ((callback: (payload: T) => void) => () => void) | undefined,
+      handler: (payload: T) => void,
+    ): (() => void) => {
+      if (typeof subscribe !== 'function') return () => {};
+      try {
+        return subscribe(handler);
+      } catch (error) {
+        console.warn('[Twinscript] session HUD subscription unavailable', error);
+        return () => {};
+      }
+    };
+
+    const offStatus = attach(window.captions?.onStatus, (next) =>
+      setStatus(next as SessionStatus),
+    );
+    const offMetrics = attach(window.captions?.onMetrics, (next) =>
       setMetrics(next as unknown as SessionMetrics),
     );
-    const offDock = window.captions.onSessionHudDock?.((next) =>
+    const offDock = attach(window.captions?.onSessionHudDock, (next) =>
       setDockEdge((next as { edge: string | null })?.edge ?? null),
     );
     return () => {
       offStatus();
       offMetrics();
-      offDock?.();
+      offDock();
     };
   }, []);
 
   useEffect(() => {
     if (lastRequested.current === expanded) return;
     lastRequested.current = expanded;
-    void window.captions.setSessionHudExpanded?.(expanded);
+    // Same reasoning: if this channel is unavailable the pill stays whatever size
+    // the main process last gave it rather than crashing on hover.
+    try {
+      void window.captions?.setSessionHudExpanded?.(expanded);
+    } catch (error) {
+      console.warn('[Twinscript] session HUD resize unavailable', error);
+    }
   }, [expanded]);
 
   const live = status.state === 'running' || status.state === 'connected';
@@ -85,7 +119,7 @@ export function SessionHud() {
     if (stopping) return;
     setStopping(true);
     try {
-      await window.captions.stopSession();
+      await window.captions?.stopSession?.();
     } finally {
       // Left true: the window is hidden by the main process as soon as the
       // session reports stopped, and re-enabling first would flash the button

@@ -105,9 +105,15 @@ function handleSquirrelStartup({
     return true;
   }
 
-  const appFolder = path.resolve(execPath, '..');
-  const updateExe = path.resolve(appFolder, '..', 'Update.exe');
-  const exeName = path.basename(execPath);
+  // `path.win32`, because Squirrel exists only on Windows and `execPath` is
+  // always a Windows path. Identical to `path` on the platform this runs on.
+  // On POSIX the platform default sees no separator in
+  // `C:\...\app-0.1.0\twinscript.exe`, so `resolve` answered a path built from
+  // the current working directory and `basename` answered the entire string -
+  // which is why this file could only ever pass its tests on Windows.
+  const appFolder = path.win32.resolve(execPath, '..');
+  const updateExe = path.win32.resolve(appFolder, '..', 'Update.exe');
+  const exeName = path.win32.basename(execPath);
   logger.info(
     `[Twinscript] Squirrel ${event}: ${shortcutArgument} ${exeName}`,
   );

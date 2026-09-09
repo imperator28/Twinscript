@@ -31,8 +31,12 @@ async function settleWithin(promise, timeoutMs) {
       (error) => ({ kind: 'rejected', error }),
     ),
     new Promise((resolve) => {
+      // Not unref'd. The whole point of this helper is to bound a promise that
+      // may never settle, and an unref'd timer does not hold the event loop
+      // open - so the loop could drain with this `await` still pending, which
+      // is a hang rather than the timeout the caller asked for. `clearTimeout`
+      // on the next line means it cannot outlive the race either way.
       timer = setTimeout(() => resolve({ kind: 'timeout' }), timeoutMs);
-      timer.unref?.();
     }),
   ]);
   clearTimeout(timer);
@@ -1204,8 +1208,16 @@ class CaptionSessionManager {
       const transcriptionTimedOut = await Promise.race([
         drainingTranscription.then(() => false),
         new Promise((resolve) => {
+          // Deliberately NOT unref'd. `clearTimeout` below runs the moment the
+          // race settles, so this timer can only ever be alive while the race is
+          // being awaited - and that is precisely when the event loop has to stay
+          // open. Unref'd, a shutdown whose transcription never finishes left the
+          // loop free to drain with this await still pending, which Node reports
+          // as "Promise resolution is still pending but the event loop has
+          // already resolved" and which made the bounded-shutdown tests fail in
+          // CI while passing locally, where other handles happened to hold the
+          // loop open.
           transcriptionTimer = setTimeout(() => resolve(true), this.transcriptionDrainTimeoutMs);
-          transcriptionTimer.unref?.();
         }),
       ]);
       clearTimeout(transcriptionTimer);
@@ -1230,8 +1242,10 @@ class CaptionSessionManager {
       const drainTimedOut = await Promise.race([
         pendingFinalizations.then(() => false),
         new Promise((resolve) => {
+          // Not unref'd, for the same reason as the transcription drain above:
+          // `clearTimeout` follows the race immediately, so the only window in
+          // which this timer exists is the one where the loop must not drain.
           drainTimer = setTimeout(() => resolve(true), this.finalizationDrainTimeoutMs);
-          drainTimer.unref?.();
         }),
       ]);
       clearTimeout(drainTimer);

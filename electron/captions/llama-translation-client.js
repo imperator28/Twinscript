@@ -384,7 +384,13 @@ class LlamaTranslationServer {
       ];
       try {
         child = this.spawnImpl(this.binaryPath, args, {
-          cwd: path.dirname(this.binaryPath),
+          // `path.win32`, matching how every other Windows-only path in this
+          // main process is built (see local-inference-paths.js). Identical on
+          // Windows, where this code runs; the difference is that
+          // `path.dirname` on POSIX sees no separator in
+          // `C:\runtime\llama-server.exe` and answers `.`, which silently made
+          // the CI suite assert a working directory the app would never use.
+          cwd: path.win32.dirname(this.binaryPath),
           windowsHide: true,
           stdio: ['ignore', 'ignore', 'pipe'],
         });

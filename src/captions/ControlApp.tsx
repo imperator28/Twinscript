@@ -744,7 +744,14 @@ export function ControlApp() {
     // No report yet is a distinct state from "not supported". Conflating them told
     // Windows users to install OBS while the camera sat there working.
     if (!nativeCameraHealth) return 'Checking the virtual camera…';
-    if (!nativeCameraHealth.supported) {
+    // `=== false` and not merely falsy, matching `reviewReadiness`. A camera
+    // start or stop failure used to broadcast a two-field `{ state, message }`
+    // patch, and because this setter replaces the report rather than merging it,
+    // `supported` went `undefined` - so a Windows machine with the filter
+    // correctly registered was told it could not host a camera at all and sent
+    // to OBS. It also swallowed the actual error, because this branch returns
+    // before the `message` below can be read.
+    if (nativeCameraHealth.supported === false) {
       return 'This system cannot host the virtual camera. Capture the Twinscript Camera Stage window in OBS instead.';
     }
     // The registration check supplies its own text for every failure it can name,

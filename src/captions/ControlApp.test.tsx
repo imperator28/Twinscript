@@ -551,6 +551,59 @@ describe('meeting caption controls', () => {
     expect(screen.getByRole('button', { name: 'Remove camera' })).toBeInTheDocument();
   });
 
+  it('a partial health patch does not claim the platform cannot host a camera', async () => {
+    // A camera start or stop failure used to broadcast `{ state, message }` with
+    // no `supported`, and this component replaces its health report rather than
+    // merging it - so `supported` went undefined and a Windows machine with the
+    // filter correctly registered was told to go and use OBS. It also threw away
+    // the only thing that said what had actually gone wrong, because the
+    // not-supported branch returned before the message could be read.
+    render(<ControlApp />);
+    await screen.findByRole('button', { name: /Start session/i });
+
+    act(() => {
+      nativeCameraHealthListener?.({
+        state: 'failed',
+        message: 'Camera companion exited with code 1',
+      } as never);
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+    expect(
+      await screen.findByRole('heading', { name: 'Native virtual camera' }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText(/cannot host the virtual camera/i),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByText(/Camera companion exited with code 1/),
+    ).toBeInTheDocument();
+  });
+
+  it('still distinguishes a platform that genuinely cannot host a camera', async () => {
+    // The other half of the same check: `supported: false` must keep meaning
+    // what it always meant, or the fix above would have traded one wrong
+    // message for another.
+    render(<ControlApp />);
+    await screen.findByRole('button', { name: /Start session/i });
+
+    act(() => {
+      nativeCameraHealthListener?.({
+        state: 'unsupported',
+        supported: false,
+        installed: false,
+        message: null,
+      } as never);
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+    // A platform that cannot host one has nothing to install or repair, so the
+    // whole card goes; the guidance lives on the checklist instead.
+    expect(
+      screen.queryByRole('heading', { name: 'Native virtual camera' }),
+    ).not.toBeInTheDocument();
+  });
+
   it('retries virtual camera health when the first IPC request races app startup', async () => {
     window.captions.getNativeCameraHealth = vi
       .fn()

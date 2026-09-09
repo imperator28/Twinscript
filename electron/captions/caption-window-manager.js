@@ -363,13 +363,41 @@ class CaptionWindowManager {
       await this.cameraFramePublisher.stop().catch(() => {});
       await this.nativeCameraSupervisor?.stop().catch(() => {});
       this.destroyCameraOutputWindow();
-      this.broadcastControl('captions:native-camera-health', {
-        state: 'failed',
-        message: error instanceof Error ? error.message : String(error),
-      });
+      this.reportCameraOutputFailure(error);
     });
     this.cameraOutputLifecycle = startPromise;
     return null;
+  }
+
+  /**
+   * Report a camera output failure without flattening the health report.
+   *
+   * Routed through the supervisor so the patch MERGES onto what it already
+   * knows - `supported`, `installed`, `reason`. Both call sites used to
+   * broadcast `{ state, message }` straight to the control window, and the
+   * renderer replaces its health report rather than merging it, so `supported`
+   * became `undefined`. A Windows machine with the filter correctly registered
+   * was then told it could not host a virtual camera at all and pointed at OBS,
+   * and the real error never reached the screen because the not-supported
+   * branch returned before the message could be read.
+   */
+  reportCameraOutputFailure(error) {
+    if (this.nativeCameraSupervisor) {
+      this.nativeCameraSupervisor.reportPublisherFailure(error);
+      return;
+    }
+    // No supervisor means the platform has no camera to host, so a complete
+    // not-supported report is the honest thing to send - and it is complete,
+    // which is the point.
+    this.broadcastControl('captions:native-camera-health', {
+      state: 'failed',
+      supported: false,
+      installed: false,
+      reason: 'windows-only',
+      restartCount: 0,
+      message: error instanceof Error ? error.message : String(error),
+      code: 'camera-output-failed',
+    });
   }
 
   stopCameraOutput() {
@@ -379,10 +407,7 @@ class CaptionWindowManager {
       await this.cameraFramePublisher?.stop();
       await this.nativeCameraSupervisor?.stop();
     }).catch((error) => {
-      this.broadcastControl('captions:native-camera-health', {
-        state: 'failed',
-        message: error instanceof Error ? error.message : String(error),
-      });
+      this.reportCameraOutputFailure(error);
     }).finally(() => {
       this.destroyCameraOutputWindow();
     });

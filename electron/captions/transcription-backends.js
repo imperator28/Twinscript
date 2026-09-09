@@ -230,7 +230,9 @@ class LocalWhisperBackend {
         message: 'Local transcription did not drain before the shutdown timeout',
       });
     }, this.finishTimeoutMs);
-    timer.unref?.();
+    // Not unref'd: it bounds a drain that may never finish, and an unref'd timer
+    // lets the loop drain while the race below is still awaited. Cleared in the
+    // `finally`, so it cannot outlive the shutdown it bounds.
     try {
       await Promise.race([this.drain(), waitForAbort(finishController.signal)]);
       if (!finishController.signal.aborted) {

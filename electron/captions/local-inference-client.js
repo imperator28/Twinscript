@@ -56,11 +56,13 @@ class LocalInferenceClient extends EventEmitter {
 
     return new Promise((resolve, reject) => {
       const duration = timeoutMs ?? this.timeoutMs;
+      // Not unref'd: it bounds a request the host may never answer, and an
+      // unref'd timer lets the loop drain with this promise still pending - a
+      // hang instead of the timeout the caller asked for. `finish()` clears it.
       const timer = setTimeout(() => {
         this.finish(requestId);
         reject(localError('local_request_timeout', `Local ${type} request timed out`));
       }, duration);
-      timer.unref?.();
       const onAbort = () => {
         try {
           const cancellation = this.transport.write(`${JSON.stringify({

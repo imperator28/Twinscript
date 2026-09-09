@@ -321,8 +321,10 @@ class LlamaTranslationServer {
         await Promise.race([
           closedPromise,
           new Promise((resolve) => {
+            // Not unref'd: this bounds a child that may never close, and an
+            // unref'd timer lets the loop drain with the race still pending.
+            // Cleared on the next line, so it cannot outlive the race.
             timer = setTimeout(resolve, this.shutdownTimeoutMs);
-            timer.unref?.();
           }),
         ]);
         if (timer) clearTimeout(timer);
@@ -522,11 +524,12 @@ class LlamaTranslationServer {
     const onCallerAbort = () => requestController.abort(signal?.reason);
     if (signal?.aborted) requestController.abort(signal.reason);
     else signal?.addEventListener('abort', onCallerAbort, { once: true });
+    // Not unref'd: it bounds a request that may never answer, and the `finally`
+    // below clears it, so it cannot outlive the request.
     const timer = setTimeout(() => {
       timedOut = true;
       requestController.abort();
     }, this.requestTimeoutMs);
-    timer.unref?.();
     let response;
     try {
       response = await this.fetchImpl(

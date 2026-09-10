@@ -70,6 +70,23 @@ function inspectSignatures(root, relativePaths) {
   if (!relativePaths.length) return [];
   const script = `
     $ErrorActionPreference = 'Stop'
+    # Windows PowerShell only. It finds Get-AuthenticodeSignature by autoloading
+    # Microsoft.PowerShell.Security from PSModulePath, and a GitHub Actions
+    # runner rewrites that variable for PowerShell 7 - so 5.1 cannot find its
+    # own modules and the command fails with "the module could not be loaded".
+    #
+    # Guarded on the edition because doing this in PowerShell 7 breaks it the
+    # other way: with the 5.1 module directory on the path, 7 imports that
+    # module through Windows PowerShell compatibility and fails with "all of the
+    # requested remote commands would shadow existing local commands". 7 already
+    # ships the cmdlet, so it needs neither the path nor the import.
+    if ($PSVersionTable.PSEdition -eq 'Desktop') {
+      $systemModules = Join-Path $env:SystemRoot 'System32\\WindowsPowerShell\\v1.0\\Modules'
+      if (Test-Path -LiteralPath $systemModules) {
+        $env:PSModulePath = $systemModules + ';' + $env:PSModulePath
+      }
+      Import-Module Microsoft.PowerShell.Security -ErrorAction Stop
+    }
     # $input is a one-shot enumerator: materialize it once, or reading the root
     # line would consume the whole pipeline and leave no paths to inspect.
     $lines = @($input)
@@ -88,11 +105,33 @@ function inspectSignatures(root, relativePaths) {
     }
     ConvertTo-Json -InputObject @($records) -Depth 3 -Compress
   `;
-  const stdout = execFileSync(
-    'powershell.exe',
-    ['-NoProfile', '-NonInteractive', '-Command', script],
-    { input: [root, ...relativePaths].join('\n'), encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 },
-  );
+  // PowerShell 7 first, Windows PowerShell second. Both ship
+  // Microsoft.PowerShell.Security, but only 5.1 depends on an inherited
+  // PSModulePath to autoload it, and a GitHub Actions runner rewrites that
+  // variable for 7 - which is how this step failed with "the module could not
+  // be loaded" while working on every developer machine. Falling back keeps it
+  // working where pwsh is not installed.
+  const options = {
+    input: [root, ...relativePaths].join('\n'),
+    encoding: 'utf8',
+    maxBuffer: 32 * 1024 * 1024,
+  };
+  const hostArgs = ['-NoProfile', '-NonInteractive', '-Command', script];
+  let stdout;
+  let lastError;
+  for (const host of ['pwsh', 'powershell.exe']) {
+    try {
+      stdout = execFileSync(host, hostArgs, options);
+      lastError = undefined;
+      break;
+    } catch (error) {
+      // Only a missing host is worth trying the next one for. A PowerShell that
+      // ran and failed has a real answer, and retrying would hide it.
+      if (error?.code !== 'ENOENT') throw error;
+      lastError = error;
+    }
+  }
+  if (lastError) throw lastError;
   const parsed = JSON.parse(stdout.trim() || '[]');
   return Array.isArray(parsed) ? parsed : [parsed];
 }

@@ -10,7 +10,16 @@ async function fixture(t, overrides = {}) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'runtime-manager-'));
   t.after(() => fs.rm(root, { recursive: true, force: true }));
   const data = Buffer.from('runtime archive');
-  const runtimes = ['openvino-cpu', 'cuda'].map(id => ({ id, family: id === 'cuda' ? 'cuda' : 'cpu', revision: 'r1', url: 'https://example.com/runtime.zip', size: data.length, sha256: crypto.createHash('sha256').update(data).digest('hex') }));
+  // `unpackedSize` is declared because a real catalog always carries it -
+  // `validateManifest` refuses a runtime entry without a positive integer there,
+  // so a manager can never see one. Omitting it here was not a harmless
+  // shortcut: the installer's free-space estimate falls back to
+  // MAX_EXPANDED_BYTES (24 GB) per tree, which for CUDA means 48 GB, so whether
+  // these tests passed depended on how much disk the machine happened to have.
+  // A developer box has it and a CI runner does not, which is why the CUDA
+  // precondition test failed with "Insufficient free disk space" instead of the
+  // "install the CPU runtime first" it asserts.
+  const runtimes = ['openvino-cpu', 'cuda'].map(id => ({ id, family: id === 'cuda' ? 'cuda' : 'cpu', revision: 'r1', url: 'https://example.com/runtime.zip', size: data.length, unpackedSize: 4096, sha256: crypto.createHash('sha256').update(data).digest('hex') }));
   const manager = new LocalRuntimeManager({ root, runtimes, fetchImpl: async () => new Response(data), verifyRuntime: async executable => {
     return (await fs.readFile(executable, 'utf8')) === 'host';
   }, extractArchive: async (_archive, stage, { runtime }) => {

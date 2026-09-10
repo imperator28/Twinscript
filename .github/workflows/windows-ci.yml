@@ -85,14 +85,27 @@ jobs:
           $release = 'native/camera-companion/build/Release'
           & "$release/mapped-frame-reader-check.exe"
           if ($LASTEXITCODE -ne 0) { throw 'Mapped frame reader check failed' }
+          # A registration round-trip is all that can honestly be checked on a
+          # headless runner: it proves the CLSID registers and unregisters
+          # cleanly, which is what the installer does.
           & "$release/vcam-host.exe" register
           if ($LASTEXITCODE -ne 0) { throw 'Per-user source registration failed' }
-          try {
-            & "$release/vcam-host.exe" drive 20
-            if ($LASTEXITCODE -ne 0) { throw 'Media source drive check failed' }
-          } finally {
-            & "$release/vcam-host.exe" unregister
-          }
+          & "$release/vcam-host.exe" unregister
+          if ($LASTEXITCODE -ne 0) { throw 'Per-user source unregistration failed' }
+
+          # `vcam-host drive` used to run here and this step could never pass:
+          # the command was deliberately retired and now always exits 2, printing
+          # why. It drove the Media Foundation source in-process without ever
+          # involving the Frame Server, so it "reported success for weeks while
+          # every meeting client showed black" - see src/host/main.cpp.
+          #
+          # Not replaced with an equivalent, because there is no honest headless
+          # equivalent. The camera is a DirectShow filter loaded into the
+          # consumer's process, so the only verification that means anything is
+          # a real client opening it:
+          #   scripts/register-dshow-camera.ps1 -Action Install
+          # then select Twinscript in Teams. A green check here that did not do
+          # that is exactly the false confidence the refusal exists to stop.
 
       - name: Build and package
         run: npm run make -- --arch=x64

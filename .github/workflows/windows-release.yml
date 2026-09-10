@@ -314,8 +314,14 @@ jobs:
           if (-not $assets) { throw 'No release assets found' }
           $assets | ForEach-Object { Write-Output "asset: $($_.Name)" }
 
+          # --repo is required, not a convenience: this job never checks the
+          # repository out - it only downloads artifacts - so `gh` has no git
+          # remote to infer the target from and fails with "fatal: not a git
+          # repository". Passing it explicitly is cheaper than cloning the
+          # repository just to attach four files to a tag that already exists.
           $releaseArgs = @(
             $env:GITHUB_REF_NAME,
+            '--repo', $env:GITHUB_REPOSITORY,
             '--title', $env:GITHUB_REF_NAME,
             '--generate-notes'
           )

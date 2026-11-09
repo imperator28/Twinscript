@@ -10,6 +10,8 @@ const { OpenAINormalizer } = require('../electron/captions/openai-normalizer');
 const { LiveTranscriptionSession } = require('../electron/captions/live-transcription-session');
 const { missingCriticalValues, wrongAudienceLanguage, percentile } = require('../electron/captions/corpus-metrics');
 const { missingProtectedTokens } = require('../electron/captions/quality-signals');
+const { compileGlossarySelection } = require('../electron/captions/glossary-config');
+const { compileGlossaryRequestContext } = require('../electron/captions/glossary-request-context');
 const PRICES = { 'gpt-5.4-nano': [0.2, 0.02, 1.25], 'gpt-5.6-luna': [0.2, 0.02, 1.2], 'gpt-6-luna': [0.1, 0.01, 0.5] };
 const args = { live: false, mode: 'translation', limit: 8, out: '', audioManifest: '', consentedAudio: false };
 for (let i = 2; i < process.argv.length; i++) {
@@ -50,9 +52,11 @@ async function corpus() {
 }
 async function translations() {
   const rows = await corpus();
-  report.plan = { syntheticTextOnly: true, prompts: rows.length, models: Object.keys(PRICES), targets: ['en', 'zh'] };
+  report.plan = { syntheticTextOnly: true, glossaryConfiguration: 'universal-engineering', prompts: rows.length, models: Object.keys(PRICES), targets: ['en', 'zh'] };
   if (!args.live) return;
   for (const row of rows) for (const model of Object.keys(PRICES)) for (const target of ['en', 'zh']) {
+    const settings = compileGlossarySelection('universal-engineering', null);
+    const context = compileGlossaryRequestContext({ sourceText: row.sourceText, glossary: settings.glossary, protectedTokens: settings.protectedTokens });
     let billedUsd = 0, attempts = 0;
     const normalizer = new OpenAINormalizer({ apiKey: process.env.OPENAI_API_KEY,
       fetchImpl: async (url, options) => {
@@ -73,12 +77,13 @@ async function translations() {
     const result = { id: row.id, sourceChannel: row.sourceChannel, model, target, measured: true };
     try {
       const value = await normalizer.normalize({ sourceText: row.sourceText, target, profile: 'economy', final: true,
-        protectedTokens: row.protectedTokens, signal: AbortSignal.timeout(45000) });
+        glossary: context.glossary, protectedTokens: context.protectedTokens, signal: AbortSignal.timeout(45000) });
       Object.assign(result, { text: value.text, wrongAudienceLanguage: wrongAudienceLanguage(value.text, target),
         missingNumbers: missingCriticalValues(row.sourceText, value.text),
-        missingProtectedTokens: [...new Set([...missingProtectedTokens(row.sourceText, value.text), ...missingLiterals(row.sourceText, value.text, row.protectedTokens)])] });
+        missingProtectedTokens: [...new Set([...missingProtectedTokens(row.sourceText, value.text), ...missingLiterals(row.sourceText, value.text, context.protectedTokens)])] });
     } catch { result.error = 'translation_failed_or_budget_exhausted'; }
     Object.assign(result, { requestMs: performance.now() - started, attempts, reportedUsageEstimateUsd: billedUsd });
+    result.measured = attempts > 0 && !result.error;
     report.results.push(result);
     save();
     if (result.error) return; // Fail closed on unknown billing or contract failures.
@@ -175,12 +180,13 @@ async function asr() {
       firstTextMs: events[0]?.receivedMs ?? null, finalTextMs: events.filter(e => e.final).at(-1)?.receivedMs ?? null,
       interimUpdates: events.filter(e => !e.final).length, finalSegments: finals.length });
     // Audio and transcripts stay out of the report. Retain only scores/provenance.
+    result.measured = !result.error;
     report.results.push(result); save();
     if (result.error) return;
   }
 }
 function save() {
-  report.measured = args.live && report.results.length > 0;
+  report.measured = args.live && report.results.some(row => row.measured);
   report.budget = budget ? { maxUsd: budget.maxUsd, reservedUpperBoundUsd: budget.reservedUsd } : null;
   const timings = report.results.filter(r => !r.error).map(r => r.requestMs ?? r.finalTextMs).filter(Number.isFinite);
   report.latency = { p50Ms: timings.length ? percentile(timings, 0.5) : null, p95Ms: timings.length ? percentile(timings, 0.95) : null };

@@ -50,3 +50,18 @@ test('default translation evaluation plans without secrets or a network call', (
   const live = spawnSync(process.execPath, ['scripts/eval-release-models.mjs', '--live'], { encoding: 'utf8', env });
   assert.notEqual(live.status, 0);
 });
+
+test('a budget-refused run reports unmeasured with zero provider attempts', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'twinscript-budget-refusal-'));
+  try {
+    const out = path.join(root, 'report.json');
+    const env = { ...process.env, OPENAI_API_KEY: 'test-placeholder' }; delete env.CI;
+    const result = spawnSync(process.execPath, ['scripts/eval-release-models.mjs', '--live', '--max-usd', '0.000000000001', '--limit', '1', '--out', out], { encoding: 'utf8', env });
+    assert.equal(result.status, 1);
+    const report = JSON.parse(fs.readFileSync(out, 'utf8'));
+    assert.equal(report.measured, false);
+    assert.equal(report.results[0].attempts, 0);
+    assert.equal(report.results[0].measured, false);
+    assert.equal(report.plan.glossaryConfiguration, 'universal-engineering');
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});

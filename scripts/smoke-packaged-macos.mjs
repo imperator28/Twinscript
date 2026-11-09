@@ -11,7 +11,7 @@ const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'twinscript-smoke-'));
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
 let child, socket, exited = false, exitCode, debugPort, diagnostics = '';
 try {
-  child = spawn(executable, [`--user-data-dir=${profile}`, '--remote-debugging-address=127.0.0.1', '--remote-debugging-port=0'],
+  child = spawn(executable, [`--user-data-dir=${profile}`, '--remote-debugging-address=127.0.0.1', '--remote-debugging-port=0', '--twinscript-lifecycle-trace'],
     { stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, ELECTRON_ENABLE_LOGGING: '0' } });
   for (const stream of [child.stdout, child.stderr]) stream.on('data', bytes => {
     diagnostics = (diagnostics + bytes.toString()).slice(-8000);
@@ -76,6 +76,7 @@ try {
   }
   console.log('PASS: packaged control rendered, survived startup, closed, and native Quit exited with helpers. Capture and camera untested.');
 } catch (error) {
+  try { execFileSync('/usr/sbin/screencapture', ['-x', 'out/macos-smoke-failure.png'], { timeout: 5000 }); } catch {}
   console.error(diagnostics.replace(/sk-[A-Za-z0-9_-]+/g, '[redacted]').replace(/AIza[A-Za-z0-9_-]+/g, '[redacted]'));
   throw error;
 } finally {

@@ -2,6 +2,7 @@ const assert = require('node:assert/strict');
 const test = require('node:test');
 const {
   registerControlWindowLifecycle,
+  resumeAppQuit,
   shouldQuitOnControlWindowClose,
 } = require('./app-lifecycle');
 
@@ -75,4 +76,19 @@ test('the platform rule is explicit about which platforms quit', () => {
   assert.equal(shouldQuitOnControlWindowClose('win32'), true);
   assert.equal(shouldQuitOnControlWindowClose('linux'), true);
   assert.equal(shouldQuitOnControlWindowClose('darwin'), false);
+});
+
+
+test('resuming native Quit waits until the original request and its microtasks unwind', async () => {
+  let nativeRequestActive = true;
+  let quits = 0;
+  resumeAppQuit({ quit() {
+    assert.equal(nativeRequestActive, false, 'must not re-enter Cocoa termination');
+    quits++;
+  } });
+  await Promise.resolve();
+  assert.equal(quits, 0, 'even immediately completed cleanup must defer termination');
+  nativeRequestActive = false;
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(quits, 1);
 });

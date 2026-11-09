@@ -33,5 +33,5 @@ test('application quit is blocked until camera and session shutdown finish', () 
   assert.match(electronMain, /app\.on\('before-quit', \(event\) =>/);
   assert.match(electronMain, /event\.preventDefault\(\)/);
   assert.match(electronMain, /await captionWindows\?\.stopCameraOutput\(\)/);
-  assert.match(electronMain, /shutdownComplete = true;[\s\S]*app\.quit\(\)/);
+  assert.match(electronMain, /shutdownComplete = true;[\s\S]*resumeAppQuit\(app\)/);
 });

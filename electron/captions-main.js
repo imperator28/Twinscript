@@ -43,6 +43,7 @@ const {
 const { SettingsStore } = require('./captions/settings-store');
 const {
   registerControlWindowLifecycle,
+  resumeAppQuit,
 } = require('./captions/app-lifecycle');
 const {
   applyAppUserModelId,
@@ -549,7 +550,7 @@ app.on('before-quit', (event) => {
     .finally(() => {
       shutdownComplete = true;
       traceShutdown('cleanup-complete');
-      app.quit();
+      resumeAppQuit(app);
     });
 });
 

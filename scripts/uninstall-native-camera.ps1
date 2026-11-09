@@ -34,12 +34,47 @@ if (-not $installRoot.Equals($expectedRoot, [StringComparison]::OrdinalIgnoreCas
   throw 'Refusing an unexpected native-camera removal target.'
 }
 
-$registrationRoot = 'Registry::HKEY_LOCAL_MACHINE\Software\Classes\CLSID\{6B8F2C4A-9D3E-4A17-8C25-1E7B4F6D9A03}'
-if (Test-Path -LiteralPath $registrationRoot) {
-  Remove-Item -LiteralPath $registrationRoot -Recurse -Force
+# Remove registry entries directly rather than loading an installed DLL with an
+# elevated token. This also repairs missing and versioned DLL installations.
+function Remove-TwinscriptCameraInstallation([string]$installRoot) {
+  $classes = 'Registry::HKEY_LOCAL_MACHINE\Software\Classes\CLSID'
+  $filter = '{1F5A7C2E-8D64-4B93-9E11-3A6C5D8F27B4}'
+  $category = "$classes\{860BB310-5D01-11d0-BD3B-00A0C911CE86}\Instance"
+  $categoryKeys = @()
+  if (Test-Path -LiteralPath $category) {
+    $categoryKeys = @(Get-ChildItem -LiteralPath $category | Where-Object {
+      $properties = Get-ItemProperty -LiteralPath $_.PSPath
+      $_.PSChildName -eq $filter -or ($properties.PSObject.Properties['CLSID'] -and $properties.CLSID -eq $filter)
+    })
+  }
+  # Category first: never leave an enumerated device pointing at a deleted server.
+  foreach ($key in $categoryKeys) {
+    Remove-Item -LiteralPath $key.PSPath -Recurse -Force
+  }
+  $registrationRoot = "$classes\$filter"
+  $legacyRoot = "$classes\{6B8F2C4A-9D3E-4A17-8C25-1E7B4F6D9A03}"
+  foreach ($key in @($registrationRoot, $legacyRoot)) {
+    if (Test-Path -LiteralPath $key) { Remove-Item -LiteralPath $key -Recurse -Force }
+  }
+  foreach ($key in @($registrationRoot, $legacyRoot) + @($categoryKeys | ForEach-Object { $_.PSPath })) {
+    if (Test-Path -LiteralPath $key) { throw 'Camera registration remains; preserving installed files.' }
+  }
+  if (Test-Path -LiteralPath $installRoot) {
+    # Preflight before deleting anything: loaded filters must remain recoverable.
+    # A race after this check still fails loudly; no deletion is reported as success.
+    $handles = @()
+    try {
+      foreach ($file in Get-ChildItem -LiteralPath $installRoot -Recurse -File) {
+        $handles += [IO.File]::Open($file.FullName, 'Open', 'Read', 'None')
+      }
+    } catch {
+      throw 'Camera files are in use; close meeting clients and retry removal. Files preserved.'
+    } finally {
+      foreach ($handle in $handles) { $handle.Dispose() }
+    }
+    Remove-Item -LiteralPath $installRoot -Recurse -Force
+  }
 }
 
-if (Test-Path -LiteralPath $installRoot) {
-  Remove-Item -LiteralPath $installRoot -Recurse -Force
-}
+Remove-TwinscriptCameraInstallation $installRoot
 Write-Output 'Native camera removed.'

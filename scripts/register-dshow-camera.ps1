@@ -260,13 +260,15 @@ if ($Action -eq 'Install') {
   $null = Start-Process regsvr32.exe -ArgumentList '/s', '/n', '/i:machine', $dll -Wait -PassThru -NoNewWindow
   Remove-StaleCopies $dll
 } else {
-  # Unregister through the path that is actually registered, not a name guessed
-  # from the convention: the staged filename carries a timestamp.
-  $registered = Get-RegisteredDllPath
-  $target = if ($registered) { $registered } else { $builtDll }
-  Write-Output "removing registration for $target"
-  $null = Start-Process regsvr32.exe -ArgumentList '/s', '/u', '/n', '/i:machine', $target -Wait -PassThru -NoNewWindow
-  Remove-StaleCopies ''
+  # The shared uninstall path also handles a missing DLL and verifies registry
+  # removal before deleting staged copies. Never trust regsvr32's exit alone.
+  try {
+    & (Join-Path $PSScriptRoot 'uninstall-native-camera.ps1') -Elevated
+    exit 0
+  } catch {
+    Write-Error $_
+    exit 1
+  }
 }
 
 Write-Output ''

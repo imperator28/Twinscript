@@ -1,411 +1,105 @@
-name: Build and Release
-
-# The inherited Sokuji release pipeline: Linux packages, macOS PKGs and the
-# tagged Windows release. The browser-extension job was removed with the
-# extension itself - it ran `cd extension` on every push to main and would now
-# fail. The Windows caption client's own validation gate lives in windows-ci.yml
-# and does not depend on any job here —
-# see docs/windows/implementation-guide.md (W0 item 6, W5) for the planned
-# consolidation into focused test / windows-build / windows-sign jobs.
+name: Cross-platform release candidates
 
 on:
   push:
-    branches: [main, master]
-    tags:
-      - 'v*'
+    branches: [main, 'codex/**', 'win/**']
   pull_request:
-    branches: [main, master]
   workflow_dispatch:
 
 permissions:
-  contents: write
-  packages: write
-  issues: write
+  contents: read
+
+concurrency:
+  group: candidates-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  build:
-    name: build (${{ matrix.name }})
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run test:captions
+      - run: npx vitest run
+      - run: npm run w1:corpus:check
+      - run: node scripts/run-w1-corpus.mjs --mock
+      - run: npm run build
+      - run: node scripts/scan-release-secrets.cjs build dist-electron
+
+  package:
+    needs: test
+    name: Internal candidate (${{ matrix.target }})
     strategy:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest
-            artifact_name: linux-x64
-            name: linux-x64
-          - os: ubuntu-24.04-arm
-            artifact_name: linux-arm64
-            name: linux-arm64
-            arch: arm64
-          - os: windows-latest
-            artifact_name: windows
-            name: windows
           - os: macos-26
-            artifact_name: macos-arm64
-            name: macos-arm64
             arch: arm64
+            target: macos-arm64
           - os: macos-15-intel
-            artifact_name: macos-x64
-            name: macos-x64
             arch: x64
-
+            target: macos-x64
+          - os: windows-latest
+            arch: x64
+            target: windows-x64
     runs-on: ${{ matrix.os }}
-
+    timeout-minutes: 35
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          # Full history for releases (changelog generation). Use string '0'
-          # because numeric 0 is falsy in GitHub Actions expressions.
-          fetch-depth: ${{ startsWith(github.ref, 'refs/tags/v') && '0' || 1 }}
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: 'npm'
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Build React app
-        run: npm run build
-        env:
-          CI: false
-          # Use production environment variables for releases, simpler ones for CI
-          VITE_ENVIRONMENT: production
-          # Additional variables only for releases
-          VITE_EXTENSION_ID: ${{ startsWith(github.ref, 'refs/tags/v') && secrets.VITE_EXTENSION_ID_PROD || '' }}
-
-      # Tag builds only. windows-ci.yml already produces an unsigned installer
-      # for every branch, pull request, and manual run, so packaging here on a
-      # pull request would just duplicate a ten-minute Forge make.
-      - name: Build Electron app with Forge
-        if: runner.os == 'Windows' && startsWith(github.ref, 'refs/tags/v')
-        run: npx electron-forge make --arch=${{ matrix.arch || 'x64' }}
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          CI: false
-          # Prevent actual publishing during CI builds
-          CSC_IDENTITY_AUTO_DISCOVERY: ${{ !startsWith(github.ref, 'refs/tags/v') && 'false' || '' }}
-          VITE_ENVIRONMENT: production
-
-      # electron-builder bundles an x86_64-only `fpm` for building .deb packages.
-      # On the arm64 runner, install `fpm` via Ruby gem and tell electron-builder
-      # to use it via USE_SYSTEM_FPM.
-      - name: Install system fpm (arm64 only)
-        if: runner.os == 'Linux' && matrix.arch == 'arm64'
+          cache: npm
+      - run: npm ci
+      - run: npm run test:captions
+      - name: Windows uninstall behavior tests
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/test-native-camera-removal.ps1
+      - name: Build Windows native camera
+        if: runner.os == 'Windows'
+        shell: pwsh
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends ruby-dev build-essential
-          sudo gem install --no-document fpm
-
-      - name: Build Linux packages (electron-builder)
-        if: runner.os == 'Linux'
-        # --publish never: the CI's `release` job uploads artifacts via
-        # softprops/action-gh-release. electron-builder auto-publishes on tag
-        # builds when GH_TOKEN is set (default policy onTagOrDraft + GitHub
-        # provider configured in package.json), which would race with the
-        # release job and create duplicate releases. Keep publishing in one
-        # place. package.json's `build.publish` is retained because it is
-        # still required for `latest-linux*.yml` generation during the build.
-        run: npx electron-builder --linux AppImage deb --${{ matrix.arch || 'x64' }} --publish never
+          cmake -S native/camera-companion -B native/camera-companion/build -A x64
+          if ($LASTEXITCODE -ne 0) { throw 'Camera configure failed' }
+          cmake --build native/camera-companion/build --config Release
+          if ($LASTEXITCODE -ne 0) { throw 'Camera build failed' }
+          & native/camera-companion/build/Release/mapped-frame-reader-check.exe
+          if ($LASTEXITCODE -ne 0) { throw 'Camera protocol check failed' }
+      - name: Package internal candidate
+        run: npm run make -- --arch=${{ matrix.arch }}
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          CI: false
-          # Must be literal 'false' (not empty string) on x64 — electron-builder
-          # reads this via `(USE_SYSTEM_FPM ?? "false") !== "false"`, and an
-          # empty string passes that check (truthy) which skips the bundled-fpm
-          # download and then fails on missing system `fpm`.
-          USE_SYSTEM_FPM: ${{ matrix.arch == 'arm64' && 'true' || 'false' }}
-          VITE_ENVIRONMENT: production
-
-      - name: Build macOS PKG (electron-builder)
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+          MACOS_SIGN_IDENTITY: '-'
+      - name: Scan unpacked application and resources
+        run: node scripts/scan-release-secrets.cjs out/Twinscript-${{ runner.os == 'Windows' && 'win32' || 'darwin' }}-${{ matrix.arch }}
+      - name: Windows packaged close smoke
+        if: runner.os == 'Windows'
+        run: npm run smoke:packaged
+      - name: Windows internal signature report
+        if: runner.os == 'Windows'
+        run: node scripts/verify-windows-signatures.mjs out --allow-unsigned --json out/signatures.json
+      - name: macOS signature and packaged close smoke
         if: runner.os == 'macOS'
-        # --publish never: release job uploads artifacts via softprops/action-gh-release
-        # to avoid duplicate releases.
-        # -c.directories.output: per-platform output dir (build.directories.output is
-        # globally set to out/make-linux for the Linux build).
-        # The afterPack hook (scripts/electron-builder-fuses.js) ad-hoc signs the .app
-        # since CSC_IDENTITY_AUTO_DISCOVERY=false skips signing entirely.
-        run: npx electron-builder --mac pkg --${{ matrix.arch }} --publish never -c.directories.output=out/make-mac
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          CI: false
-          CSC_IDENTITY_AUTO_DISCOVERY: false
-          VITE_ENVIRONMENT: production
-
-      # Release-specific steps
-      - name: Generate changelog
-        if: startsWith(github.ref, 'refs/tags/v') && matrix.name == 'linux-x64'
-        id: changelog
         run: |
-          PREVIOUS_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
-          if [ -z "$PREVIOUS_TAG" ]; then
-            CHANGELOG=$(git log --pretty=format:"- %s")
-          else
-            CHANGELOG=$(git log ${PREVIOUS_TAG}..HEAD --pretty=format:"- %s")
-          fi
-          # Save changelog to a file for the release
-          echo "$CHANGELOG" > CHANGELOG.md
-
-      - name: Upload Linux x64 artifacts
-        if: startsWith(github.ref, 'refs/tags/v') && matrix.name == 'linux-x64'
-        uses: actions/upload-artifact@v4
+          codesign --verify --deep --strict out/Twinscript-darwin-${{ matrix.arch }}/Twinscript.app
+          node scripts/smoke-packaged-macos.mjs out/Twinscript-darwin-${{ matrix.arch }}/Twinscript.app/Contents/MacOS/twinscript
+      - name: Archive macOS application preserving symlinks
+        if: runner.os == 'macOS'
+        run: ditto -c -k --sequesterRsrc --keepParent out/Twinscript-darwin-${{ matrix.arch }}/Twinscript.app out/make/Twinscript-${{ matrix.target }}-internal.zip
+      - name: Mark internal signing policy
+        shell: bash
+        run: |
+          echo 'INTERNAL ONLY: Windows unsigned; macOS ad-hoc signed, not notarized. No public release approval. Hardware capture, camera and soak acceptance remain required.' > out/make/INTERNAL-ONLY.txt
+      - uses: actions/upload-artifact@v4
         with:
-          name: linux-x64-artifacts
+          name: twinscript-${{ matrix.target }}-internal-${{ github.sha }}
+          retention-days: 14
+          if-no-files-found: error
           path: |
-            out/make-linux/*.AppImage
-            out/make-linux/*.deb
-            out/make-linux/latest-linux.yml
-            CHANGELOG.md
-
-      - name: Upload Linux ARM64 artifacts
-        if: startsWith(github.ref, 'refs/tags/v') && matrix.name == 'linux-arm64'
-        uses: actions/upload-artifact@v4
-        with:
-          name: linux-arm64-artifacts
-          path: |
-            out/make-linux/*.AppImage
-            out/make-linux/*.deb
-            out/make-linux/latest-linux-arm64.yml
-
-      - name: Upload unsigned Windows installer for signing
-        if: startsWith(github.ref, 'refs/tags/v') && matrix.os == 'windows-latest'
-        uses: actions/upload-artifact@v4
-        with:
-          name: windows-unsigned
-          path: out/make/squirrel.windows/x64/*Setup*.exe
-
-      - name: Upload Windows nupkg for release
-        if: startsWith(github.ref, 'refs/tags/v') && matrix.os == 'windows-latest'
-        uses: actions/upload-artifact@v4
-        with:
-          name: windows-nupkg
-          path: out/make/squirrel.windows/x64/*.nupkg
-
-      - name: Upload macOS artifacts
-        if: startsWith(github.ref, 'refs/tags/v') && runner.os == 'macOS'
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ matrix.artifact_name }}-artifacts
-          path: |
-            out/make-mac/*.pkg
-
-  sign-windows:
-    name: Sign Windows artifacts
-    if: startsWith(github.ref, 'refs/tags/v') && github.repository == 'kizuna-ai-lab/sokuji'
-    needs: build
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      id-token: write
-      actions: read
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Download unsigned artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: windows-unsigned
-          path: unsigned/
-
-      # SignPath requires a github-artifact-id from upload-artifact.
-      # We must re-upload because the original upload happened in a different job
-      # and artifact IDs cannot be passed across jobs without explicit output wiring.
-      - name: Upload for SignPath
-        id: upload-for-signing
-        uses: actions/upload-artifact@v4
-        with:
-          name: windows-to-sign
-          path: unsigned/
-          overwrite: true
-
-      - name: Submit signing request
-        id: sign
-        uses: signpath/github-action-submit-signing-request@v2
-        with:
-          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
-          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
-          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
-          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
-          artifact-configuration-slug: default
-          github-artifact-id: ${{ steps.upload-for-signing.outputs.artifact-id }}
-          wait-for-completion: true
-          output-artifact-directory: signed/
-          wait-for-completion-timeout-in-seconds: 3600
-
-      - name: Upload signed artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: windows-signed
-          path: signed/
-
-  release:
-    # Only run for tag pushes
-    if: startsWith(github.ref, 'refs/tags/v')
-    needs: [build, sign-windows]
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Download Linux x64 artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: linux-x64-artifacts
-          path: linux-x64-artifacts
-
-      - name: Download Linux ARM64 artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: linux-arm64-artifacts
-          path: linux-arm64-artifacts
-
-      - name: Download signed Windows installer
-        uses: actions/download-artifact@v4
-        with:
-          name: windows-signed
-          path: windows-signed
-
-      - name: Download Windows nupkg
-        uses: actions/download-artifact@v4
-        with:
-          name: windows-nupkg
-          path: windows-nupkg
-
-      - name: Download macOS ARM64 artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: macos-arm64-artifacts
-          path: macos-arm64-artifacts
-
-      - name: Download macOS x64 artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: macos-x64-artifacts
-          path: macos-x64-artifacts
-
-      - name: Debug artifacts structure
-        run: |
-          echo "=== Linux x64 ==="
-          find linux-x64-artifacts -type f || true
-          echo "=== Linux ARM64 ==="
-          find linux-arm64-artifacts -type f || true
-          echo "=== Windows (signed) ==="
-          find windows-signed -type f || true
-          echo "=== Windows (nupkg) ==="
-          find windows-nupkg -type f || true
-          echo "=== macOS ARM64 ==="
-          find macos-arm64-artifacts -type f || true
-          echo "=== macOS x64 ==="
-          find macos-x64-artifacts -type f || true
-
-      - name: Collect release assets
-        run: |
-          mkdir -p release-assets
-          find linux-x64-artifacts -name "*.deb" -exec cp {} release-assets/ \;
-          find linux-x64-artifacts -name "*.AppImage" -exec cp {} release-assets/ \;
-          find linux-x64-artifacts -name "latest-linux.yml" -exec cp {} release-assets/ \;
-          find linux-arm64-artifacts -name "*.deb" -exec cp {} release-assets/ \;
-          find linux-arm64-artifacts -name "*.AppImage" -exec cp {} release-assets/ \;
-          find linux-arm64-artifacts -name "latest-linux-arm64.yml" -exec cp {} release-assets/ \;
-          find windows-signed -name "*.exe" -exec cp {} release-assets/ \;
-          find windows-nupkg -name "*.nupkg" -exec cp {} release-assets/ \;
-          find macos-arm64-artifacts -name "*.pkg" -exec cp {} release-assets/ \;
-          find macos-x64-artifacts -name "*.pkg" -exec cp {} release-assets/ \;
-          # Squirrel generates filenames with spaces (e.g. "Sokuji-0.15.12 Setup.exe").
-          # Rename to use dots so asset names are consistent and latest.yml URLs match.
-          cd release-assets
-          for f in *' '*; do
-            [ -e "$f" ] || continue
-            mv "$f" "${f// /.}"
-          done
-          cd ..
-          echo "=== Release assets ==="
-          ls -la release-assets/
-
-      - name: Generate latest.yml for auto-updater
-        run: |
-          # Find the signed Windows .exe
-          EXE_FILE=$(find release-assets -name "*.exe" | head -1)
-          if [ -z "$EXE_FILE" ]; then
-            echo "Warning: No .exe found, skipping latest.yml generation"
-            exit 0
-          fi
-
-          EXE_NAME=$(basename "$EXE_FILE")
-          VERSION=${GITHUB_REF_NAME#v}
-          SHA512=$(openssl dgst -sha512 -binary "$EXE_FILE" | openssl base64 -A)
-          SIZE=$(stat -c%s "$EXE_FILE")
-          DATE=$(date -u +"%Y-%m-%dT%H:%M:%S.000Z")
-
-          {
-            echo "version: ${VERSION}"
-            echo "files:"
-            echo "  - url: ${EXE_NAME}"
-            echo "    sha512: ${SHA512}"
-            echo "    size: ${SIZE}"
-            echo "path: ${EXE_NAME}"
-            echo "sha512: ${SHA512}"
-            echo "releaseDate: '${DATE}'"
-          } > release-assets/latest.yml
-
-          echo "=== latest.yml ==="
-          cat release-assets/latest.yml
-
-      - name: Generate latest-mac.yml for auto-updater
-        # electron-builder's PKG target does not emit latest-mac.yml on its own
-        # (only zip/dmg targets set isWriteUpdateInfo=true), so generate it the
-        # same way Windows latest.yml is built above. Notify-only context:
-        # update-manager.js darwin branch only reads `version` and constructs
-        # its own pkgUrl, so files[] just enumerates the per-arch PKGs.
-        # electron-updater on macOS always fetches a single latest-mac.yml
-        # (no arch suffix), hence one combined file with both arches in files[].
-        run: |
-          PKGS=()
-          while IFS= read -r p; do PKGS+=("$p"); done < <(find release-assets -name "Sokuji-*-*.pkg" | sort)
-          if [ ${#PKGS[@]} -eq 0 ]; then
-            echo "Warning: No .pkg found, skipping latest-mac.yml generation"
-            exit 0
-          fi
-
-          VERSION=${GITHUB_REF_NAME#v}
-          DATE=$(date -u +"%Y-%m-%dT%H:%M:%S.000Z")
-
-          # Prefer arm64 for the legacy top-level path/sha512 fields, matching
-          # the previous PyYAML merge behavior.
-          PRIMARY=""
-          for PKG in "${PKGS[@]}"; do
-            case "$PKG" in *-arm64.pkg) PRIMARY="$PKG"; break ;; esac
-          done
-          [ -z "$PRIMARY" ] && PRIMARY="${PKGS[0]}"
-          PRIMARY_NAME=$(basename "$PRIMARY")
-          PRIMARY_SHA=$(openssl dgst -sha512 -binary "$PRIMARY" | openssl base64 -A)
-
-          {
-            echo "version: ${VERSION}"
-            echo "files:"
-            for PKG in "${PKGS[@]}"; do
-              NAME=$(basename "$PKG")
-              SHA=$(openssl dgst -sha512 -binary "$PKG" | openssl base64 -A)
-              SIZE=$(stat -c%s "$PKG")
-              echo "  - url: ${NAME}"
-              echo "    sha512: ${SHA}"
-              echo "    size: ${SIZE}"
-            done
-            echo "path: ${PRIMARY_NAME}"
-            echo "sha512: ${PRIMARY_SHA}"
-            echo "releaseDate: '${DATE}'"
-          } > release-assets/latest-mac.yml
-
-          echo "=== latest-mac.yml ==="
-          cat release-assets/latest-mac.yml
-
-      - name: Create Release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: release-assets/*
-          body_path: linux-x64-artifacts/CHANGELOG.md
-          draft: true
-          prerelease: false
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+            out/make/**
+            out/signatures.json

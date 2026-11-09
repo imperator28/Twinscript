@@ -226,3 +226,15 @@ test('the report formats a failure with its reason', () => {
   assert.match(text, /^\s+FAIL\s+installer\s+unsigned\s/m);
   assert.match(text, /^\s+OK\s+app\s+signed\s/m);
 });
+
+test('DirectShow filters, including timestamped installed copies, must be signed if shipped', () => {
+  for (const path of ['resources/native-camera/twinscript-dshow-camera.dll',
+    'bin\\twinscript-dshow-camera-20261109-123456.dll']) {
+    assert.equal(targetFor(path)?.kind, 'camera-filter');
+    const report = buildSignatureReport({ entries: [signed('TwinscriptSetup.exe'), signed('twinscript.exe'), unsigned(path)] });
+    assert.equal(report.ok, false);
+    assert.equal(report.failures[0].kind, 'camera-filter');
+  }
+  assert.equal(targetFor('other-camera.dll'), null);
+  assert.equal(buildSignatureReport({ entries: [signed('TwinscriptSetup.exe'), signed('twinscript.exe')] }).ok, true);
+});

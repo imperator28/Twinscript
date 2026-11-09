@@ -32,6 +32,12 @@ const SIGNATURE_TARGETS = Object.freeze([
     match: (rel) => /(^|\/)twinscript\.exe$/i.test(rel),
   }),
   Object.freeze({
+    kind: 'camera-filter',
+    description: 'DirectShow camera filter (loaded into meeting clients)',
+    required: false,
+    match: (rel) => /(^|\/)twinscript-dshow-camera(?:-\d{8}-\d{6})?\.dll$/i.test(rel),
+  }),
+  Object.freeze({
     kind: 'camera-host',
     description: 'Native camera companion host',
     required: false,

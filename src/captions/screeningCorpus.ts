@@ -101,7 +101,7 @@ const SCENARIOS: Array<{ id: string; variants: ScenarioVariant[] }> = [
   {
     id: 'tool-revision',
     variants: [
-      ['Tool 3', '三号模具', 'Rev C'],
+      ['Tool 3', '3 号模具', 'Rev C'],
       ['cavity insert', '型腔镶件', 'Rev D2'],
       ['checking fixture', '检具', 'Rev B7'],
       ['electrode drawing', '电极图', 'Rev E'],

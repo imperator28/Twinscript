@@ -31,7 +31,8 @@ module.exports = async function afterPack(context) {
     version: FuseVersion.V1,
     resetAdHocDarwinSignature: false,
     [FuseV1Options.RunAsNode]: false,
-    [FuseV1Options.EnableCookieEncryption]: true,
+    // Match Forge: no authentication cookies; API keys still use safeStorage.
+    [FuseV1Options.EnableCookieEncryption]: false,
     [FuseV1Options.EnableNodeOptionsEnvironmentVariable]: false,
     [FuseV1Options.EnableNodeCliInspectArguments]: false,
     [FuseV1Options.EnableEmbeddedAsarIntegrityValidation]: true,

@@ -533,6 +533,7 @@ class CaptionSessionManager {
       providerItemId: transcript.itemId,
       sourceText: transcript.transcript,
       sourceStartedAt: transcript.startedAt,
+      sourceTimingBasis: transcript.timingBasis,
       sourceEndedAt: transcript.final ? transcript.at : undefined,
       observedAt: transcript.at,
       transcriptStatus: transcript.final ? 'final' : 'provisional',
@@ -853,6 +854,7 @@ class CaptionSessionManager {
       shadow,
       metrics: this.cost.snapshot(),
       stageLatency: {
+        timingBasis: primary.sourceTimingBasis || 'unspecified',
         transcriptionMs: Math.max(
           0,
           (primary.finalTranscriptAt || completedAt) - primary.sourceStartedAt,
@@ -1074,6 +1076,7 @@ class CaptionSessionManager {
             },
             metrics: this.cost.snapshot(),
             stageLatency: {
+        timingBasis: primary.sourceTimingBasis || 'unspecified',
               transcriptionMs: 900,
               reorderMs: 0,
               normalizationMs: 620 + index * 70,

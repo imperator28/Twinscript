@@ -140,7 +140,7 @@ function createMockFetch(corpus) {
       headers: { get: () => 'mock-request' },
       async json() {
         return {
-          output_text: JSON.stringify({ text }),
+          output_text: JSON.stringify({ source_language: 'mixed', text }),
           usage: { input_tokens: 0, output_tokens: 0 },
         };
       },

@@ -40,3 +40,14 @@ describe('phase 1 screening corpus', () => {
     }
   });
 });
+
+describe('tool number references', () => {
+  it('uses the same literal tool number in both audience references', () => {
+    const prompts = SCREENING_CORPUS.filter(item => item.id.startsWith('tool-revision-1-'));
+    expect(prompts).toHaveLength(4);
+    for (const prompt of prompts) {
+      expect(prompt.englishReference).toContain('3');
+      expect(prompt.chineseReference).toContain('3');
+    }
+  });
+});

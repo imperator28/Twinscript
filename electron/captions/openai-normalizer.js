@@ -147,7 +147,9 @@ class OpenAINormalizer {
         model,
         store: false,
         reasoning: { effort: 'none' },
-        max_output_tokens: 180,
+        // Allow JSON overhead and expansion between English and Chinese.
+        // Bound cost even if an unusually long turn reaches this layer.
+        max_output_tokens: Math.min(4096, Math.max(256, 128 + Array.from(sourceText).length * 3)),
         input: [
           {
             role: 'system',
@@ -192,14 +194,27 @@ class OpenAINormalizer {
           })
         : await request();
       const payload = await response.json();
-      const parsed = JSON.parse(extractResponseText(payload));
       const usage = {
         inputTokens: payload.usage?.input_tokens || 0,
         cachedInputTokens:
           payload.usage?.input_tokens_details?.cached_tokens || 0,
         outputTokens: payload.usage?.output_tokens || 0,
       };
+      // Incomplete or invalid responses are still billed.
       this.onUsage({ model, ...usage });
+      const fail = (code) => {
+        const error = new Error('Caption normalization returned incomplete or invalid output');
+        error.code = code;
+        throw error;
+      };
+      if (payload.status && payload.status !== 'completed') fail('normalization_incomplete');
+      let parsed;
+      try { parsed = JSON.parse(extractResponseText(payload)); }
+      catch { fail('normalization_invalid_output'); }
+      if (!parsed || typeof parsed.text !== 'string' || !parsed.text.trim() ||
+          !TARGET_SCHEMA.properties.source_language.enum.includes(parsed.source_language)) {
+        fail('normalization_invalid_output');
+      }
       return {
         parsed,
         usage,

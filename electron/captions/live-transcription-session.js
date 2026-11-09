@@ -46,6 +46,8 @@ class LiveTranscriptionSession {
     this.reconnectTimer = null;
     this.partialByItem = new Map();
     this.startedAtByItem = new Map();
+    this.pendingTurns = [];
+    this.turnStartedAt = null;
     this.pendingCompletions = 0;
     this.finishResolve = null;
     this.finishTimer = null;
@@ -155,6 +157,20 @@ class LiveTranscriptionSession {
       });
       socket.once('close', () => {
         this.connected = false;
+        // A new socket has a new input buffer and item namespace. Never attach
+        // a later commit to audio or partial text from the lost connection.
+        if (this.pendingCompletions || this.turnAudioMs) {
+          this.onEvent({ type: 'error', channel: this.channel,
+            code: 'transcription_audio_interrupted', message: 'Transcription connection lost before audio completed', at: Date.now() });
+        }
+        this.pendingTurns = [];
+        this.pendingCompletions = 0;
+        this.turnAudioMs = 0;
+        this.turnStartedAt = null;
+        this.partialByItem.clear();
+        this.startedAtByItem.clear();
+        this.vad.reset();
+        this.resolveFinishIfDrained();
         if (!settled) {
           settle(new Error(`${this.channel} transcription connection closed`));
         }
@@ -213,6 +229,9 @@ class LiveTranscriptionSession {
       }),
     );
     const audioMs = (samples.length / 24000) * 1000;
+    // Local send time, not acoustic onset: server VAD is disabled. Correlate
+    // explicit commits with the item IDs returned by input_audio_buffer.committed.
+    if (this.turnStartedAt === null) this.turnStartedAt = Date.now() - audioMs;
     this.turnAudioMs += audioMs;
     this.sentAudioMs += audioMs;
     this.onUsage({ audioMs });
@@ -236,19 +255,23 @@ class LiveTranscriptionSession {
       !this.connected ||
       this.socket?.readyState !== WebSocket.OPEN
     ) {
-      this.turnAudioMs = 0;
+      // Do not forget short audio still buffered on the server.
       return;
     }
+    this.pendingTurns.push({ startedAt: this.turnStartedAt, audioMs: this.turnAudioMs });
     this.socket.send(JSON.stringify({ type: 'input_audio_buffer.commit' }));
     this.pendingCompletions += 1;
     this.onEvent({
       type: 'turn-commit',
       channel: this.channel,
       reason,
+      startedAt: this.turnStartedAt,
+      timingBasis: 'local-send',
       audioMs: this.turnAudioMs,
       at: Date.now(),
     });
     this.turnAudioMs = 0;
+    this.turnStartedAt = null;
   }
 
   reportDrop(samples, reason) {
@@ -275,6 +298,25 @@ class LiveTranscriptionSession {
       return null;
     }
 
+    if (event.type === 'input_audio_buffer.committed') {
+      const turn = this.pendingTurns.shift();
+      if (turn && event.item_id) this.startedAtByItem.set(event.item_id, turn.startedAt);
+      return event;
+    }
+
+    if (event.type === 'conversation.item.input_audio_transcription.failed') {
+      this.partialByItem.delete(event.item_id);
+      this.startedAtByItem.delete(event.item_id);
+      this.pendingCompletions = Math.max(0, this.pendingCompletions - 1);
+      this.onEvent({
+        type: 'error', channel: this.channel, itemId: event.item_id,
+        code: event.error?.code || 'transcription_failed',
+        message: 'Audio transcription failed', at: Date.now(),
+      });
+      this.resolveFinishIfDrained();
+      return event;
+    }
+
     if (event.type === 'input_audio_buffer.speech_started') {
       if (event.item_id) this.startedAtByItem.set(event.item_id, Date.now());
       return event;
@@ -290,7 +332,8 @@ class LiveTranscriptionSession {
         itemId: event.item_id,
         transcript,
         final: false,
-        startedAt: this.startedAtByItem.get(event.item_id) || Date.now(),
+        startedAt: this.startedAtByItem.get(event.item_id) ?? Date.now(),
+        timingBasis: this.startedAtByItem.has(event.item_id) ? 'local-send' : 'receipt',
         at: Date.now(),
       });
       return event;
@@ -306,7 +349,8 @@ class LiveTranscriptionSession {
         itemId: event.item_id,
         transcript,
         final: true,
-        startedAt: this.startedAtByItem.get(event.item_id) || Date.now(),
+        startedAt: this.startedAtByItem.get(event.item_id) ?? Date.now(),
+        timingBasis: this.startedAtByItem.has(event.item_id) ? 'local-send' : 'receipt',
         at: Date.now(),
       });
       this.startedAtByItem.delete(event.item_id);
@@ -391,6 +435,10 @@ class LiveTranscriptionSession {
     this.vad.reset();
     this.turnAudioMs = 0;
     this.pendingCompletions = 0;
+    this.pendingTurns = [];
+    this.turnStartedAt = null;
+    this.partialByItem.clear();
+    this.startedAtByItem.clear();
     this.pendingChunks = [];
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     this.reconnectTimer = null;

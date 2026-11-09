@@ -63,9 +63,11 @@ try {
     // LaunchServices can resolve a bundle path to a different registration than
     // a directly spawned executable. Ask AppKit to terminate this exact process;
     // terminate() sends the normal graceful quit request, never forceTerminate().
-    execFileSync('/usr/bin/swift', ['-e', `import AppKit
-      guard let app = NSRunningApplication(processIdentifier: ${child.pid}), app.terminate() else { exit(1) }
-    `], { timeout: 30000 });
+    execFileSync('/usr/bin/osascript', ['-l', 'JavaScript', '-e', `
+      ObjC.import('AppKit');
+      var target = $.NSRunningApplication.runningApplicationWithProcessIdentifier(${child.pid});
+      if (!target || !target.terminate) throw new Error('Native quit request failed');
+    `], { timeout: 10000 });
   }
   const shutdown = Date.now() + 40000;
   while (!exited && Date.now() < shutdown) await wait(250);

@@ -122,8 +122,13 @@ function Set-RuntimePublisherAccess([string]$runtimeDir, [string]$UserSid) {
     throw 'The requesting Windows user SID is invalid.'
   }
   [void][Security.Principal.SecurityIdentifier]::new($UserSid)
-  if ((Get-Item -LiteralPath $runtimeDir -ErrorAction Stop).Attributes -band [IO.FileAttributes]::ReparsePoint) {
-    throw 'Refusing a redirected native-camera runtime directory.'
+  $directory = Get-Item -LiteralPath $runtimeDir -ErrorAction Stop
+  if (-not ($directory -is [IO.DirectoryInfo])) { throw 'Native-camera runtime must be a directory.' }
+  while ($directory) {
+    if ($directory.Attributes -band [IO.FileAttributes]::ReparsePoint) {
+      throw 'Refusing a redirected native-camera runtime directory.'
+    }
+    $directory = $directory.Parent
   }
   # /L changes a link's ACL rather than following it outside this data directory.
   & icacls.exe $runtimeDir /grant "*${UserSid}:(OI)(CI)M" /T /C /L | Out-Null

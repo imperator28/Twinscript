@@ -32,5 +32,12 @@ try {
   try { Set-RuntimePublisherAccess $link 'S-1-5-21-1-2-3-1001' } catch { $failed = $true }
   if (-not $failed) { throw 'Redirected runtime was accepted' }
   Remove-Item -LiteralPath $link -Force
+  $container = Join-Path $root 'container'
+  New-Item -ItemType Directory -Path (Join-Path $container 'runtime') -Force | Out-Null
+  New-Item -ItemType Junction -Path $link -Target $container | Out-Null
+  $failed = $false
+  try { Set-RuntimePublisherAccess (Join-Path $link 'runtime') 'S-1-5-21-1-2-3-1001' } catch { $failed = $true }
+  if (-not $failed) { throw 'Redirected runtime ancestor was accepted' }
+  Remove-Item -LiteralPath $link -Force
   Write-Output 'PASS requesting-user runtime Modify ACL, Entra ID SID, invalid SID and redirected-directory refusal'
 } finally { Remove-Item -LiteralPath $root -Recurse -Force }

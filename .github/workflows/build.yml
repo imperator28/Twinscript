@@ -10,7 +10,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: candidates-${{ github.ref }}
+  group: candidates-${{ github.event.pull_request.head.ref || github.ref_name }}
   cancel-in-progress: true
 
 jobs:

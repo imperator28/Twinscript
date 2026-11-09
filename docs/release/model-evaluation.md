@@ -119,3 +119,11 @@ Do not commit private manifests, PCM or reports. `artifacts/release-evaluation/`
 gitignored, report files use owner-only mode on Unix, and paid runs refuse CI.
 No automatic artifact upload occurs. Windows report privacy also depends on the
 chosen directory's ACL. No credentials or private fixture filenames are printed.
+
+The managed cloud environment also needs provider egress before a live run:
+`api.openai.com` (HTTPS/WebSocket) and `generativelanguage.googleapis.com`
+(WebSocket). This session's enforced policy allowed package/GitHub destinations,
+not these provider endpoints. Configure provider access and secrets through the
+environment settings, not chat or committed files. The checked-in harness and both
+dry-run modes need no provider egress. Current software/CI evidence is linked from
+[first-release readiness](first-release-readiness.md).

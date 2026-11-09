@@ -66,3 +66,18 @@ credentials must not leave the normal app unable to publish frames. Windows CI
 checks real NTFS ACLs and rejects malformed SIDs and redirected runtime folders;
 full standard-user install/capture/update/uninstall acceptance still requires the
 real-device checklist.
+
+## Candidate evidence
+
+- [Draft pull request and current validation summary](https://github.com/imperator28/Twinscript/pull/1)
+- [Candidate workflow and downloadable artifacts](https://github.com/imperator28/Twinscript/actions/workflows/build.yml?query=branch%3Acodex%2Fcross-platform-release-cloud)
+
+Use the exact SHA embedded in each artifact name when recording device acceptance.
+A green software candidate does not satisfy the real-device checklist or authorize
+stable publication. The PR validation summary links the observed candidate run.
+Mac native Quit now resumes on the next event-loop turn after cleanup; native CI
+caught the reentrant termination problem that ordinary startup tests missed.
+
+Unavailable or locked secure storage reports failed audio backup for both channels
+at session start. Captions and transcript auto-save continue; no plaintext audio
+fallback is used.

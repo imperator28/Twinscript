@@ -1076,7 +1076,7 @@ class CaptionSessionManager {
             },
             metrics: this.cost.snapshot(),
             stageLatency: {
-        timingBasis: primary.sourceTimingBasis || 'unspecified',
+              timingBasis: 'synthetic',
               transcriptionMs: 900,
               reorderMs: 0,
               normalizationMs: 620 + index * 70,

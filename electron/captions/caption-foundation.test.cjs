@@ -1787,3 +1787,19 @@ test('a session runs on the normalized settings, not the renderer payload', () =
   // store's return value.
   assert.ok(['minimal', 'low', 'medium'].includes(normalized.delayProfile));
 });
+
+test('mock session completes demo captions with explicitly synthetic timing', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const evaluations = [];
+  const manager = new CaptionSessionManager({
+    credentialStore: {},
+    settingsStore: { get: () => ({ budgetUsd: 5, shadowEnabled: false }), set() {} },
+    onEvaluation: value => evaluations.push(value),
+  });
+  await manager.start({ mode: 'mock' });
+  t.mock.timers.tick(1500);
+  assert.equal(evaluations.length, 1);
+  assert.equal(evaluations[0].stageLatency.timingBasis, 'synthetic');
+  assert.ok(evaluations[0].primary.chinese);
+  await manager.stop();
+});

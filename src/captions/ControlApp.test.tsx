@@ -1386,7 +1386,7 @@ describe('meeting caption controls', () => {
       }),
     ) as typeof window.captions.listPendingMeetingRecords;
 
-    render(<ControlApp />);
+    await act(async () => { render(<ControlApp />); });
     const arm = await screen.findByRole('button', { name: 'Delete audio' });
 
     fireEvent.click(arm);
@@ -1579,7 +1579,7 @@ describe('meeting caption controls', () => {
     ).toBeInTheDocument();
     // Deliberately NOT disabled any more. An undecided recording from last time
     // must not stop this meeting from being captioned: the question is not
-    // urgent, and `planPendingAudioRetention` bounds the disk at five undecided
+    // urgent, and encrypted audio remains pending until explicitly decided
     // recordings whether it is answered or not.
     expect(screen.getByRole('button', { name: /Start session/i })).toBeEnabled();
     // Copy now says what is already safe and what each choice does, rather than

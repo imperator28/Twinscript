@@ -1,13 +1,9 @@
 /**
- * How many undecided meeting recordings are kept before the oldest are aged out.
- *
- * An operator who ends a meeting and immediately starts the next one never answers the
- * keep/delete prompt, and nothing previously aged those recordings out: they are
- * encrypted 24 kHz mono WAV chunks at ~2.9 MB per minute per channel, so a week of
- * ignored hour-long meetings is several gigabytes sitting in the pending directory
- * with no upper bound and nothing in the UI reporting it.
+ * Approved meeting-record policy: an unanswered Keep/Discard decision must
+ * survive restarts. Never delete audio merely because a backlog grew.
+ * Explicit limits remain available to callers planning a user-authorized cleanup.
  */
-const MAX_UNDECIDED_RECORDINGS = 5;
+const MAX_UNDECIDED_RECORDINGS = Infinity;
 
 /**
  * Split undecided sessions into the ones that keep their audio and the ones whose

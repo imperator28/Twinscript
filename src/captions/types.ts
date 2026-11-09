@@ -105,10 +105,12 @@ export interface MeetingRecordManifest {
   startedAt?: number;
   endedAt?: number;
   captionCount?: number;
+  transcriptSaved?: boolean;
+  transcriptWriteFailures?: number;
   /**
    * `expired` is distinct from `discarded`: the operator chose to delete a discarded
-   * recording, whereas an expired one aged out because more than five meetings went
-   * undecided. Conflating them would report a deletion the operator never made.
+   * recording, whereas an expired one was removed by a legacy automatic policy.
+   * Current recovery preserves unanswered decisions; retain this state for old records.
    */
   audioRetention: 'pending' | 'kept' | 'discarded' | 'unavailable' | 'expired';
   channelAvailability?: Partial<Record<'microphone' | 'system', boolean>>;

@@ -1469,9 +1469,8 @@ export function ControlApp() {
   // In practice the next meeting does not wait: the answer is not urgent, and
   // making it a precondition meant a decision about last time could stop this
   // time from being captioned at all. The prompt stays on screen, undecided
-  // meetings accumulate, and `planPendingAudioRetention` keeps the five most
-  // recent and expires the rest - so the disk cannot grow without bound whether
-  // the question is answered or not.
+  // meetings accumulate and remain encrypted until the operator chooses Keep or
+  // Delete. Starting another meeting must not implicitly answer that decision.
   const sessionActionDisabled =
     operation === 'stopping' ||
     (!active && (busy || !readiness.canStart));
@@ -1830,9 +1829,8 @@ export function ControlApp() {
                       )}
                     </div>
                     <p className="field-note">
-                      Only the five most recent undecided recordings keep their audio.
-                      Older ones release the audio automatically; every transcript is
-                      always kept.
+                      Undecided audio stays encrypted until you choose Keep or Delete.
+                      You can review each meeting separately.
                     </p>
                   </div>
                 )}

@@ -43,3 +43,19 @@ success must never be recorded as public-release readiness.
 
 See [model evaluation](model-evaluation.md) for source-verified prices and the
 remaining paired model/ASR evidence. No paid evaluations ran in this session.
+
+## Records corrections from the release audit
+
+Recovery now preserves all unanswered encrypted audio decisions, matching the
+approved July 30 records spec; it no longer deletes older audio at a five-meeting
+threshold. Previously expired audio cannot be recovered by this change. Disk use
+can grow until the operator chooses Keep/Delete, as the approved policy requires.
+Audio decisions remain separate from starting the next session.
+
+Transcript append failures now emit a visible degraded status and persist an
+incomplete-record count in the pending manifest, including through crash recovery.
+Later successful writes do not turn that record into a false "transcript saved"
+claim. The review also distinguishes explicitly disabled transcript auto-save.
+These changes report storage failures; they cannot recover a caption that the
+storage device refused to write. Real disk-full/disconnect acceptance remains on
+the platform checklist.

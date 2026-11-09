@@ -134,7 +134,8 @@ function writeSessionManifest(
     channelAvailability: sessionMeta.channelAvailability,
     captionCount,
     transcriptTruncated,
-    transcriptSaved: captionCount > 0 || Boolean(sessionMeta.transcriptSaved),
+    transcriptSaved: !(sessionMeta.transcriptWriteFailures > 0) && (captionCount > 0 || Boolean(sessionMeta.transcriptSaved)),
+    transcriptWriteFailures: sessionMeta.transcriptWriteFailures || 0,
     audioRetention: sessionMeta.audioRetention || 'pending',
     audioTracks: sessionMeta.audioTracks || null,
   };

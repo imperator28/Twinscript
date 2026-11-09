@@ -15,10 +15,10 @@ test('keeps everything while under the cap', () => {
   assert.deepEqual(expire, []);
 });
 
-test('keeps the newest five and ages out the rest', () => {
+test('an explicit cleanup limit keeps the newest five', () => {
   const pending = [1, 2, 3, 4, 5, 6, 7].map((n) => at(`s${n}`, n * 1000));
-  const { keep, expire } = planPendingAudioRetention(pending);
-  assert.equal(keep.length, MAX_UNDECIDED_RECORDINGS);
+  const { keep, expire } = planPendingAudioRetention(pending, { limit: 5 });
+  assert.equal(keep.length, 5);
   assert.deepEqual(ids(keep), ['s7', 's6', 's5', 's4', 's3']);
   assert.deepEqual(ids(expire), ['s2', 's1']);
 });
@@ -70,8 +70,8 @@ test('a misconfigured cap keeps everything instead of deleting everything', () =
 
 test('an omitted cap falls back to the documented default', () => {
   const pending = [1, 2, 3, 4, 5, 6].map((n) => at(`s${n}`, n));
-  assert.equal(planPendingAudioRetention(pending, {}).keep.length, 5);
-  assert.equal(planPendingAudioRetention(pending).keep.length, 5);
+  assert.equal(planPendingAudioRetention(pending, {}).keep.length, 6);
+  assert.equal(planPendingAudioRetention(pending).keep.length, 6);
 });
 
 test('handles an empty or absent list without throwing', () => {
@@ -86,6 +86,6 @@ test('does not mutate the caller list', () => {
   assert.deepEqual(ids(pending), ['a', 'b']);
 });
 
-test('the cap is five', () => {
-  assert.equal(MAX_UNDECIDED_RECORDINGS, 5);
+test('there is no automatic expiry cap for unanswered audio decisions', () => {
+  assert.equal(MAX_UNDECIDED_RECORDINGS, Infinity);
 });

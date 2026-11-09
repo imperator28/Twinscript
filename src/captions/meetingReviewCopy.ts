@@ -55,7 +55,8 @@ export function reviewHeading(
   }
   if (retention === 'kept') return 'Audio kept';
   if (retention === 'discarded') return 'Audio deleted';
-  return 'Transcript saved';
+  return session?.transcriptWriteFailures ? 'Transcript incomplete'
+    : session?.transcriptSaved === false ? 'Transcript not saved' : 'Transcript saved';
 }
 
 export function reviewCopy(
@@ -63,6 +64,11 @@ export function reviewCopy(
   origin: ReviewOrigin,
 ): string {
   const retention = session?.audioRetention;
+  const transcript = session?.transcriptWriteFailures
+    ? 'Transcript saving failed; the saved record may be incomplete.'
+    : session?.transcriptSaved === false
+      ? 'Transcript auto-save was off for this meeting.'
+      : 'The transcript is saved.';
   if (retention === 'pending') {
     // Says what is already safe, then what each choice does. "Encrypted" appears as
     // the reason the files are not playable yet, which is the one place it is
@@ -72,18 +78,18 @@ export function reviewCopy(
         ? 'This meeting ended without a decision, so its audio is still waiting. '
         : '';
     return (
-      `${recovered}The transcript is saved either way. The recording is encrypted and ` +
+      `${recovered}${session?.transcriptSaved === undefined ? 'The transcript is saved either way.' : transcript} The recording is encrypted and ` +
       'cannot be played yet: keeping it writes playable files for your microphone and ' +
       'the meeting audio, and deleting it cannot be undone.'
     );
   }
   if (retention === 'kept') {
-    return 'Playable files for your microphone and the meeting audio are saved alongside the transcript.';
+    return `${transcript} Playable files for your microphone and the meeting audio are saved in the meeting folder.`;
   }
   if (retention === 'discarded') {
-    return 'The recording was deleted. The transcript is still saved.';
+    return session?.transcriptSaved === undefined ? 'The recording was deleted. The transcript is still saved.' : `${transcript} The recording was deleted.`;
   }
-  return 'The transcript is saved. No audio was recorded for this meeting.';
+  return `${transcript} No audio was recorded for this meeting.`;
 }
 
 /**

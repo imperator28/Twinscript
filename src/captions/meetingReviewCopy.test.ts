@@ -159,3 +159,12 @@ describe('reviewFacts', () => {
     );
   });
 });
+
+it('never claims transcript success after a write failure or disabled auto-save', () => {
+  const incomplete = { sessionId: 'failed', audioRetention: 'unavailable' as const, transcriptSaved: false, transcriptWriteFailures: 1 };
+  expect(reviewHeading(incomplete, 'stopped')).toBe('Transcript incomplete');
+  expect(reviewCopy(incomplete, 'stopped')).toContain('may be incomplete');
+  const disabled = { sessionId: 'disabled', audioRetention: 'pending' as const, transcriptSaved: false };
+  expect(reviewCopy(disabled, 'stopped')).toContain('auto-save was off');
+  expect(reviewCopy(disabled, 'stopped')).not.toContain('transcript is saved');
+});

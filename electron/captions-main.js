@@ -445,6 +445,9 @@ app.whenReady().then(async () => {
     safeStorage,
     settingsStore,
   });
+  meetingRecordController.onTranscriptError = (error) => {
+    captionWindows.publishStatus({ state: 'degraded', ...error });
+  };
   meetingRecordController.onBackupState = (backupState) => {
     captionWindows.broadcastControl('captions:backup-state', backupState);
   };

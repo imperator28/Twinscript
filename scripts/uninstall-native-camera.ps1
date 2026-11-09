@@ -60,12 +60,13 @@ function Remove-TwinscriptCameraInstallation([string]$installRoot) {
     if (Test-Path -LiteralPath $key) { throw 'Camera registration remains; preserving installed files.' }
   }
   if (Test-Path -LiteralPath $installRoot) {
-    # Preflight before deleting anything: loaded filters must remain recoverable.
+    # Probe write access before deleting anything: a mapped DLL may allow reads
+    # after its loader handle closes, while Windows still forbids writing/deleting it.
     # A race after this check still fails loudly; no deletion is reported as success.
     $handles = @()
     try {
       foreach ($file in Get-ChildItem -LiteralPath $installRoot -Recurse -File) {
-        $handles += [IO.File]::Open($file.FullName, 'Open', 'Read', 'None')
+        $handles += [IO.File]::Open($file.FullName, 'Open', 'ReadWrite', 'None')
       }
     } catch {
       throw 'Camera files are in use; close meeting clients and retry removal. Files preserved.'

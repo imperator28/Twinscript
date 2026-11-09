@@ -88,6 +88,34 @@ try {
   Remove-TwinscriptCameraInstallation $root
   Assert (-not (Test-Path -LiteralPath $root)) 'Versioned DLL files survived successful retry'
   Write-Output 'PASS loaded DLL preserves files; retry removes versioned copies'
+
+  Reset-Registry
+  New-Item -ItemType Directory -Path $root -Force | Out-Null
+  $loadedPath = Join-Path $root 'twinscript-dshow-camera-20261109-123456.dll'
+  Copy-Item (Join-Path $env:SystemRoot 'System32\version.dll') $loadedPath
+  [IO.File]::WriteAllText((Join-Path $root 'twinscript-dshow-camera.dll'), 'obsolete fixture')
+  Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public static class TwinscriptRemovalTestLibrary {
+  [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+  public static extern IntPtr LoadLibraryW(string path);
+  [DllImport("kernel32.dll", SetLastError = true)]
+  public static extern bool FreeLibrary(IntPtr module);
+}
+'@
+  $module = [TwinscriptRemovalTestLibrary]::LoadLibraryW($loadedPath)
+  Assert ($module -ne [IntPtr]::Zero) 'Could not load trusted system DLL fixture'
+  try {
+    $failed = $false
+    try { Remove-TwinscriptCameraInstallation $root } catch { $failed = $true }
+    Assert $failed 'An actually mapped DLL reported success'
+    Assert ((Microsoft.PowerShell.Management\Get-ChildItem $root).Count -eq 2) 'Mapped DLL failure partially deleted files'
+  } finally { [void][TwinscriptRemovalTestLibrary]::FreeLibrary($module) }
+  Remove-TwinscriptCameraInstallation $root
+  Assert (-not (Test-Path -LiteralPath $root)) 'Mapped DLL retry did not clean up'
+  Write-Output 'PASS actual LoadLibrary mapping preserves all files until unload'
+
 } finally {
   if (Microsoft.PowerShell.Management\Test-Path -LiteralPath $root) {
     Microsoft.PowerShell.Management\Remove-Item -LiteralPath $root -Recurse -Force

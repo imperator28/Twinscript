@@ -58,3 +58,64 @@ Local Whisper remains experimental. Source inspection confirms a 64-token decode
 cap and reuse of the previous supported language when detection falls outside
 en/zh. Neither truncation frequency nor code-switch quality has been measured;
 do not promote or retune it based on source inspection alone.
+
+## Executable evaluation tooling
+
+`node scripts/eval-release-models.mjs --dry-run --limit 8` plans a paired synthetic
+text run, including a long code-switched engineering turn. An explicit live run:
+
+```sh
+node scripts/eval-release-models.mjs --live --max-usd 1 --limit 8 \
+  --out artifacts/release-evaluation/translation.json
+```
+
+Only process-environment credentials are read (`OPENAI_API_KEY`, and
+`GEMINI_API_KEY` for ASR). No `.env` file is loaded. Every text attempt reserves a
+conservative byte/input and maximum-output allowance before the call; failures
+retain reservations, and the run stops on a provider/contract failure. The cap
+must be explicit, positive and at most USD 5. Reports distinguish reported usage
+estimates from reserved billing allowances; reconcile with provider billing.
+Synthetic text and translations are included only in the translation report.
+
+For paired streaming ASR, provide a PRIVATE manifest with this shape (the PCM file
+is raw little-endian signed 16-bit mono at 24 kHz, identical for both providers):
+
+```json
+{"fixtures":[{"id":"mixed-tooling-01","consented":true,"sourceChannel":"microphone",
+"sampleRate":24000,"sampleStart":0,"sampleEnd":240000,
+"captureStartedAt":"2026-11-09T00:00:00Z","pcmPath":"mixed-tooling-01.pcm",
+"reference":"Please confirm EVT T1，壁厚 2.5 mm。"}]}
+```
+
+```sh
+node scripts/eval-release-models.mjs --mode asr --audio-manifest /private/manifest.json --dry-run
+node scripts/eval-release-models.mjs --mode asr --audio-manifest /private/manifest.json \
+  --consented-audio --live --max-usd 1 --limit 4 \
+  --out artifacts/release-evaluation/asr.json
+```
+
+Each fixture is capped at 12 seconds and uses a fresh connection. Replay sends
+100 ms chunks at real time, with explicit turn finalization. These are segmented
+streaming comparisons, not a production VAD or soak acceptance test. Latency is
+from request/session-setup start (not acoustic onset); report p50/p95 per
+model/target or ASR provider. Acoustic reports retain sample/capture/channel
+provenance and numeric/literal errors, CER and a mixed Han-character/English-token
+error rate, not conventional English WER on Chinese text. ASR reports omit raw
+transcripts and audio. Human meaning/terminology review remains required; the
+wrong-language heuristic undercounts mixed-language failures.
+
+Indexed official Google guide examples confirm text-only `generationConfig`,
+`inputAudioTranscription` with VERBATIM and language hints, interim versus finalized
+fields, and manual activityStart/activityEnd (do not mix audioStreamEnd with manual
+activity detection). The experimental adapter follows those examples but remains
+unvalidated against a live account. Google's paid rates are USD 3.50/million audio
+input tokens and USD 21/million text output tokens; the estimated blended minute
+is not an output-cost ceiling. The harness reserves the configured maximum output
+allowance and retains numeric usage metadata for billing reconciliation. The guide
+lists a 10-minute session lifetime; continuity/reconnect over a 30–60 minute meeting
+still needs implementation and measured validation before any production migration.
+
+Do not commit private manifests, PCM or reports. `artifacts/release-evaluation/` is
+gitignored, report files use owner-only mode on Unix, and paid runs refuse CI.
+No automatic artifact upload occurs. Windows report privacy also depends on the
+chosen directory's ACL. No credentials or private fixture filenames are printed.

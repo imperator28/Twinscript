@@ -29,7 +29,9 @@ redacted results. Use consented scripted audio, never private meetings in CI.
   files, and succeed after consumers close. Never revive the old MF camera host.
 - Both: verify dimensions, numbers, glossary tokens, final-caption stability,
   interruption/reconnect, API failure/budget exhaustion and close during speech.
-  Confirm closing control exits all app/capture processes.
+  On Windows confirm closing control exits all app/capture processes. On macOS
+  confirm control-close keeps the Dock app as designed and native Quit ends all
+  app/capture processes.
 - Both: run a 30–60 minute meeting; confirm autosaved transcript, readable records,
   backup/restore/export, crash recovery and stop/drain behavior against approved
   specs. Record dropped audio, errors, latency basis and actual cost.

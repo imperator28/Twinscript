@@ -132,6 +132,11 @@ class MeetingRecordController {
     }
 
     const writers = {};
+    if (!key) {
+      for (const channel of Object.keys(CHANNEL_BASENAME)) {
+        this.onBackupState?.({ channel, state: 'failed', reason: 'secure_storage_unavailable', chunkCount: 0 });
+      }
+    }
     if (key) {
       for (const channel of Object.keys(CHANNEL_BASENAME)) {
         writers[channel] = new EncryptedAudioWriter({

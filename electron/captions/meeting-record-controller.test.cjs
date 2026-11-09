@@ -246,9 +246,14 @@ test('a channel that never captured anything is reported missing, not failed, an
 });
 
 test('a missing encryption key skips audio backup but keeps the transcript intact', async () => {
-  const { controller, result } = await startedSession({
-    controllerOptions: { safeStorage: fakeSafeStorage({ available: false }) },
-  });
+  const { controller, settingsStore } = controllerFor({ safeStorage: fakeSafeStorage({ available: false }) });
+  const states = [];
+  controller.onBackupState = state => states.push(state);
+  const result = await controller.startSession({ sessionId: 'session-1', startedAt: STARTED_AT, settings: settingsStore.settings });
+  assert.deepEqual(states.map(({ channel, state, reason }) => ({ channel, state, reason })), [
+    { channel: 'microphone', state: 'failed', reason: 'secure_storage_unavailable' },
+    { channel: 'system', state: 'failed', reason: 'secure_storage_unavailable' },
+  ]);
   // No writer exists for either channel; this must not throw.
   controller.writeAudioChunk('microphone', Int16Array.from([1, 2, 3]), STARTED_AT, 30);
   controller.appendFinalRecord(captionEvent());

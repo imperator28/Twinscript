@@ -103,7 +103,7 @@ test('native camera IPC exposes health and serializes lifecycle actions', async 
   calls.length = 0;
 
   await invoke('captions:native-camera-retry');
-  assert.deepEqual(calls, ['supervisor:start:true', 'windows:start']);
+  assert.deepEqual(calls, ['windows:stop', 'windows:start']);
   calls.length = 0;
 
   await invoke('captions:native-camera-remove');

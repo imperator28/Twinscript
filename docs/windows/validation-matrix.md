@@ -1,5 +1,15 @@
 # Windows validation matrix
 
+Current release status (2026-11-09): the shipping Windows camera is DirectShow,
+installed by `scripts/register-dshow-camera.ps1`. Removal delegates to
+`uninstall-native-camera.ps1`, which cleans both DirectShow registration and the
+legacy MF COM entry before deleting files. Retry restarts frame publication,
+never `vcam-host serve`. Historical Media Foundation milestones below are not
+acceptance evidence for the shipping camera. Branch CI is now the unified
+`.github/workflows/build.yml`; see [first-release readiness](../release/first-release-readiness.md)
+for current artifact, signing and real-device gates.
+
+
 Use one report per build. Store reports under
 `docs/windows/evidence/YYYY-MM-DD-build-<commit>/` only after removing API keys,
 private meeting content, personal names, and vendor-confidential information.

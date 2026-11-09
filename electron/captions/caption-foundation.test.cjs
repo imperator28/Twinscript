@@ -6,7 +6,7 @@ const {
   projectForAudience,
   updateTarget,
 } = require('./caption-domain');
-const { CostMeter } = require('./cost-meter');
+const { CostMeter, MODEL_PRICING } = require('./cost-meter');
 const {
   extractResponseText,
   glossaryPrompt,
@@ -1742,7 +1742,7 @@ test('the budget can be raised on a running session, not just for the next one',
   const meter = new CostMeter({ budgetUsd: 5, onBudgetEvent: (e) => events.push(e.type) });
 
   meter.addTextUsage(
-    { model: 'gpt-5.6-luna', inputTokens: 1_000_000, outputTokens: 1_000_000 },
+    { model: 'gpt-5.6-luna', outputTokens: Math.ceil(6 / MODEL_PRICING['gpt-5.6-luna'].outputPerMillion * 1_000_000) },
     'primary',
   );
   assert.ok(meter.totalUsd > 5, 'spent past the cap');
@@ -1757,7 +1757,7 @@ test('the budget can be raised on a running session, not just for the next one',
 test('lowering the budget below what is spent stops the session', () => {
   // The latches are re-evaluated rather than cleared, so this direction works too.
   const meter = new CostMeter({ budgetUsd: 50 });
-  meter.addTextUsage({ model: 'gpt-5.6-luna', inputTokens: 1_000_000 }, 'primary');
+  meter.addTextUsage({ model: 'gpt-5.6-luna', inputTokens: Math.ceil(1 / MODEL_PRICING['gpt-5.6-luna'].inputPerMillion * 1_000_000) }, 'primary');
   assert.equal(meter.canSpend(), true);
   meter.setBudget(0.5);
   assert.equal(meter.canSpend(), false);
@@ -1786,4 +1786,20 @@ test('a session runs on the normalized settings, not the renderer payload', () =
   // The value the session would send is the repaired one, because start() now assigns the
   // store's return value.
   assert.ok(['minimal', 'low', 'medium'].includes(normalized.delayProfile));
+});
+
+test('mock session completes demo captions with explicitly synthetic timing', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const evaluations = [];
+  const manager = new CaptionSessionManager({
+    credentialStore: {},
+    settingsStore: { get: () => ({ budgetUsd: 5, shadowEnabled: false }), set() {} },
+    onEvaluation: value => evaluations.push(value),
+  });
+  await manager.start({ mode: 'mock' });
+  t.mock.timers.tick(1500);
+  assert.equal(evaluations.length, 1);
+  assert.equal(evaluations[0].stageLatency.timingBasis, 'synthetic');
+  assert.ok(evaluations[0].primary.chinese);
+  await manager.stop();
 });

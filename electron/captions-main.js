@@ -43,6 +43,7 @@ const {
 const { SettingsStore } = require('./captions/settings-store');
 const {
   registerControlWindowLifecycle,
+  resumeAppQuit,
 } = require('./captions/app-lifecycle');
 const {
   applyAppUserModelId,
@@ -445,6 +446,9 @@ app.whenReady().then(async () => {
     safeStorage,
     settingsStore,
   });
+  meetingRecordController.onTranscriptError = (error) => {
+    captionWindows.publishStatus({ state: 'degraded', ...error });
+  };
   meetingRecordController.onBackupState = (backupState) => {
     captionWindows.broadcastControl('captions:backup-state', backupState);
   };
@@ -518,15 +522,26 @@ app.on('activate', () => {
   }
 });
 
+function traceShutdown(stage) {
+  if (app.commandLine.hasSwitch('twinscript-lifecycle-trace')) {
+    console.log(`[Twinscript] shutdown ${stage}; windows=${BrowserWindow.getAllWindows().length}`);
+  }
+}
+
 app.on('before-quit', (event) => {
+  traceShutdown(shutdownComplete ? 'quit-after-cleanup' : 'requested');
   app.isQuitting = true;
   if (shutdownComplete) return;
   event.preventDefault();
   if (shutdownPromise) return;
   shutdownPromise = (async () => {
+    traceShutdown('stopping-camera');
     await captionWindows?.stopCameraOutput();
+    traceShutdown('stopping-session');
     await sessionManager?.stop();
+    traceShutdown('stopping-local-runtime');
     await localInferenceSupervisor?.dispose();
+    traceShutdown('destroying-record-key');
     meetingRecordController?.destroy();
   })()
     .catch((error) => {
@@ -534,9 +549,12 @@ app.on('before-quit', (event) => {
     })
     .finally(() => {
       shutdownComplete = true;
-      app.quit();
+      traceShutdown('cleanup-complete');
+      resumeAppQuit(app);
     });
 });
+
+app.on('will-quit', () => traceShutdown('will-quit'));
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();

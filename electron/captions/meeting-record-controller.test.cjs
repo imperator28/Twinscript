@@ -246,9 +246,14 @@ test('a channel that never captured anything is reported missing, not failed, an
 });
 
 test('a missing encryption key skips audio backup but keeps the transcript intact', async () => {
-  const { controller, result } = await startedSession({
-    controllerOptions: { safeStorage: fakeSafeStorage({ available: false }) },
-  });
+  const { controller, settingsStore } = controllerFor({ safeStorage: fakeSafeStorage({ available: false }) });
+  const states = [];
+  controller.onBackupState = state => states.push(state);
+  const result = await controller.startSession({ sessionId: 'session-1', startedAt: STARTED_AT, settings: settingsStore.settings });
+  assert.deepEqual(states.map(({ channel, state, reason }) => ({ channel, state, reason })), [
+    { channel: 'microphone', state: 'failed', reason: 'secure_storage_unavailable' },
+    { channel: 'system', state: 'failed', reason: 'secure_storage_unavailable' },
+  ]);
   // No writer exists for either channel; this must not throw.
   controller.writeAudioChunk('microphone', Int16Array.from([1, 2, 3]), STARTED_AT, 30);
   controller.appendFinalRecord(captionEvent());
@@ -351,4 +356,57 @@ test('honors a user-selected records directory over the default', async () => {
     settings: settingsStore.settings,
   });
   assert.ok(result.sessionDir.startsWith(customDir));
+});
+
+test('recovery preserves encrypted audio for every unanswered meeting beyond the former five-session cap', async (t) => {
+  const { controller, root, settingsStore } = controllerFor();
+  t.after(() => { controller.destroy(); fs.rmSync(root, { recursive: true, force: true }); });
+  for (let i = 0; i < 7; i++) {
+    await controller.startSession({ sessionId: `pending-${i}`, startedAt: STARTED_AT + i * 1000, settings: settingsStore.settings });
+    controller.writeAudioChunk('microphone', Int16Array.from([1, 2, 3]), STARTED_AT + i * 1000, 30);
+    controller.appendFinalRecord(captionEvent());
+    await controller.stopSession();
+  }
+  const recovered = await controller.recoverPendingSessions();
+  assert.equal(recovered.length, 7);
+  for (let i = 0; i < 7; i++) {
+    assert.equal(fs.existsSync(controller.pendingChunkPath(`pending-${i}`, 'microphone')), true);
+  }
+});
+
+test('a failed transcript append remains visibly incomplete even if later records save', async (t) => {
+  const { controller, root } = await startedSession();
+  t.after(() => { controller.destroy(); fs.rmSync(root, { recursive: true, force: true }); });
+  const original = fs.promises.appendFile;
+  let writes = 0;
+  t.mock.method(fs.promises, 'appendFile', async (...args) => {
+    if (writes++ === 0) throw Object.assign(new Error('Disk unavailable'), { code: 'ENOSPC' });
+    return original.apply(fs.promises, args);
+  });
+  const errors = [];
+  controller.onTranscriptError = e => errors.push(e);
+  controller.appendFinalRecord(captionEvent());
+  controller.appendFinalRecord(captionEvent({ sequence: 2 }));
+  await controller.current.transcriptWrites;
+  assert.equal(controller.readPendingManifest('session-1').transcriptWriteFailures, 1);
+  const result = await controller.stopSession();
+  assert.equal(result.session.captionCount, 1);
+  assert.equal(result.session.transcriptSaved, false);
+  assert.equal(result.session.transcriptWriteFailures, 1);
+  assert.equal(errors[0].code, 'transcript_write_failed');
+});
+
+test('crash recovery retains an earlier transcript write failure instead of claiming success', async (t) => {
+  const { controller, root } = await startedSession();
+  t.after(() => { controller.destroy(); fs.rmSync(root, { recursive: true, force: true }); });
+  t.mock.method(fs.promises, 'appendFile', async () => { throw new Error('Records volume lost'); });
+  controller.writeAudioChunk('microphone', Int16Array.from([1, 2, 3]), STARTED_AT, 30);
+  controller.appendFinalRecord(captionEvent());
+  await controller.current.transcriptWrites;
+  for (const writer of Object.values(controller.current.writers)) await writer.finish();
+  controller.current = null; // Simulate relaunch without normal transcript finalization.
+  const pending = await controller.recoverPendingSessions();
+  assert.equal(pending.length, 1);
+  assert.equal(pending[0].session.transcriptSaved, false);
+  assert.equal(pending[0].session.transcriptWriteFailures, 1);
 });

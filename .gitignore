@@ -139,3 +139,6 @@ native/local-inference-host/build-*/
 /artifacts/local-inference/
 /artifacts/local-inference-host/
 /artifacts/llama-runtime-cache/
+
+# Private opt-in model evaluation reports and consented PCM fixtures
+/artifacts/release-evaluation/

@@ -1,3 +1,4 @@
+// Standard short-context rates verified 2026-11-09; sources in docs/release/model-evaluation.md.
 const MODEL_PRICING = Object.freeze({
   'gpt-live-transcribe': { audioPerMinute: 0.017 },
   'gpt-realtime-translate': { audioPerMinute: 0.034 },
@@ -7,9 +8,9 @@ const MODEL_PRICING = Object.freeze({
     outputPerMillion: 1.25,
   },
   'gpt-5.6-luna': {
-    inputPerMillion: 1,
-    cachedInputPerMillion: 0.1,
-    outputPerMillion: 6,
+    inputPerMillion: 0.2,
+    cachedInputPerMillion: 0.02,
+    outputPerMillion: 1.2,
   },
 });
 

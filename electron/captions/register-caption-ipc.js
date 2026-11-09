@@ -497,7 +497,10 @@ function registerCaptionIpc({
   });
   handle('captions:native-camera-retry', async () => {
     requireNativeCamera();
-    const health = await nativeCameraSupervisor.start({ manual: true });
+    // DirectShow is loaded by the meeting client. Retry frame publication,
+    // never launch the retired Media Foundation host.
+    await windows.stopCameraOutput();
+    const health = await nativeCameraSupervisor.refresh();
     windows.broadcastControl('captions:native-camera-health', health);
     if (
       windows.outputMode === 'virtual-camera' &&

@@ -39,7 +39,7 @@ import process from 'node:process';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const { OpenAINormalizer } = require('../electron/captions/openai-normalizer.js');
+const { OpenAINormalizer, findProtectedTokens } = require('../electron/captions/openai-normalizer.js');
 const { PriorityTaskQueue } = require('../electron/captions/priority-task-queue.js');
 const { compileGlossarySelection } = require('../electron/captions/glossary-config.js');
 const {
@@ -140,7 +140,7 @@ function createMockFetch(corpus) {
       headers: { get: () => 'mock-request' },
       async json() {
         return {
-          output_text: JSON.stringify({ text }),
+          output_text: JSON.stringify({ source_language: 'mixed', text }),
           usage: { input_tokens: 0, output_tokens: 0 },
         };
       },
@@ -186,6 +186,9 @@ function runDryRun(corpus, settings) {
       if (!reference) continue;
       const lost = missingCriticalValues(prompt.sourceText, reference);
       if (lost.length) notes.push(`${prompt.id}: ${label} drops value ${lost.join(', ')}`);
+      const literals = findProtectedTokens(prompt.sourceText, context.protectedTokens)
+        .filter(token => !findProtectedTokens(reference, [token]).length);
+      if (literals.length) notes.push(`${prompt.id}: ${label} drops literal ${literals.join(', ')}`);
       // The product's own protected-token check, run against the reference.
       // A reference that fails it means a perfect translation would still be
       // scored as a defect, so the gate could never reach 100%.

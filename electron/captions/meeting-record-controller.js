@@ -47,6 +47,7 @@ class MeetingRecordController {
     this.keyStore = new RecordingKeyStore({ app, safeStorage });
     this.pendingAudioRoot = path.join(app.getPath('userData'), 'pending-meeting-audio');
     this.onBackupState = null;
+    this.onTranscriptError = null;
     this.current = null;
   }
 
@@ -131,6 +132,11 @@ class MeetingRecordController {
     }
 
     const writers = {};
+    if (!key) {
+      for (const channel of Object.keys(CHANNEL_BASENAME)) {
+        this.onBackupState?.({ channel, state: 'failed', reason: 'secure_storage_unavailable', chunkCount: 0 });
+      }
+    }
     if (key) {
       for (const channel of Object.keys(CHANNEL_BASENAME)) {
         writers[channel] = new EncryptedAudioWriter({
@@ -151,6 +157,7 @@ class MeetingRecordController {
       keyMissing: !key,
       captionCount: 0,
       transcriptWrites: Promise.resolve(),
+      transcriptWriteFailures: 0,
       settingsSnapshot: {
         glossaryConfigurationId: settings.glossaryConfigurationId,
         primaryProfile: settings.primaryProfile,
@@ -192,6 +199,20 @@ class MeetingRecordController {
     session.captionCount += 1;
     session.transcriptWrites = session.transcriptWrites.then(() =>
       appendTranscriptRecord(session.sessionDir, record).catch((error) => {
+        session.transcriptWriteFailures += 1;
+        // Persist completeness separately from the failing records volume so a
+        // restart cannot turn a partial transcript into a "saved" claim.
+        try {
+          const manifest = this.readPendingManifest(session.sessionId);
+          if (manifest) {
+            const manifestPath = this.pendingManifestPath(session.sessionId);
+            fs.writeFileSync(`${manifestPath}.tmp`,
+              JSON.stringify({ ...manifest, transcriptWriteFailures: session.transcriptWriteFailures }), { mode: 0o600 });
+            fs.renameSync(`${manifestPath}.tmp`, manifestPath);
+          }
+        } catch { /* The visible failure remains even if both volumes are full. */ }
+        this.onTranscriptError?.({ sessionId: session.sessionId, code: 'transcript_write_failed',
+          message: 'Transcript saving failed. The saved record may be incomplete; captions continue.' });
         this.logger.error(
           '[MeetingRecordController] Failed to append a transcript record:',
           error,
@@ -229,6 +250,7 @@ class MeetingRecordController {
       glossaryConfigurationId: session.settingsSnapshot.glossaryConfigurationId,
       primaryProfile: session.settingsSnapshot.primaryProfile,
       estimatedCostUsd,
+      transcriptWriteFailures: session.transcriptWriteFailures,
       channelAvailability,
       audioRetention: session.keyMissing || !hasAnyAudio ? 'unavailable' : 'pending',
     };
@@ -424,6 +446,7 @@ class MeetingRecordController {
           startedAtIso: new Date(manifest.startedAt).toISOString(),
           endedAt: this.now(),
           appVersion,
+          transcriptWriteFailures: manifest.transcriptWriteFailures || 0,
           channelAvailability,
           audioRetention: hasAnyAudio ? 'pending' : 'unavailable',
         };
@@ -440,13 +463,8 @@ class MeetingRecordController {
       }
     }
 
-    // Undecided recordings previously accumulated without limit: an operator who ends
-    // one meeting and starts the next never answers the prompt, and nothing aged the
-    // audio out. At ~2.9 MB per minute per channel that is unbounded disk growth that
-    // nothing in the UI reported.
-    //
-    // Only the audio ages out. The transcript is already finalized in the visible
-    // session directory and is never touched.
+    // Preserve unanswered recordings as required by the approved records spec.
+    // The default retention planner never expires audio without an explicit choice.
     const { keep, expire } = planPendingAudioRetention(pending);
     for (const entry of expire) {
       await this.removePendingAudio(entry.sessionId, { force: true });

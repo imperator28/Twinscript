@@ -37,7 +37,14 @@ function registerControlWindowLifecycle({
   return controlWindow;
 }
 
+// Cocoa must finish canceling the original termination request before Electron
+// starts a new one. Promise continuations can run inside that native callback.
+function resumeAppQuit(app) {
+  setImmediate(() => app.quit());
+}
+
 module.exports = {
+  resumeAppQuit,
   registerControlWindowLifecycle,
   shouldQuitOnControlWindowClose,
 };

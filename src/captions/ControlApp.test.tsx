@@ -1713,7 +1713,10 @@ describe('meeting caption controls', () => {
         }),
     );
     render(<ControlApp />);
-    fireEvent.click(await screen.findByRole('button', { name: /Start session/i }));
+    const startButton = await screen.findByRole('button', { name: /Start session/i });
+    // The button renders before asynchronous startup readiness enables it.
+    await waitFor(() => expect(startButton).toBeEnabled());
+    fireEvent.click(startButton);
     fireEvent.click(await screen.findByRole('button', { name: /Stop session/i }));
 
     await waitFor(() => expect(finishAudioStop).toBeTypeOf('function'));

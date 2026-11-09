@@ -85,4 +85,3 @@ try {
   try { fs.rmSync(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }); }
   catch { console.error('Could not remove temporary smoke profile after process cleanup'); }
 }
-

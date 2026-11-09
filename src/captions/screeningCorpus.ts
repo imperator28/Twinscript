@@ -71,7 +71,7 @@ const SCENARIOS: Array<{ id: string; variants: ScenarioVariant[] }> = [
     variants: [
       ['DVT build', 'DVT 试产', 'September 14'],
       ['tooling release', '模具发布', 'October 3'],
-      ['FAI review', '首件检验评审', 'November 18'],
+      ['FAI review', 'FAI 首件检验评审', 'November 18'],
       ['pilot run', '小批量试产', 'January 12'],
     ].map(([eventEn, eventZh, date]) => ({
       en: `Move the ${eventEn} to ${date}.`,

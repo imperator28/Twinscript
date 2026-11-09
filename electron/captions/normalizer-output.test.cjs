@@ -31,3 +31,28 @@ for (const [name, output] of [
   assert.deepEqual(h.usage.map(u => [u.inputTokens, u.outputTokens]), [[20, 8]]);
   assert.equal(h.requests.length, 1, 'invalid output must not trigger hidden paid retries');
 });
+
+test('final output that still loses engineering literals after one retry fails visibly and accounts both attempts', async () => {
+  const usage = [];
+  let attempts = 0;
+  const normalizer = new OpenAINormalizer({ apiKey: 'test', onUsage: u => usage.push(u),
+    fetchImpl: async () => {
+      attempts++;
+      return { ok: true, headers: new Map(), json: async () => ({
+        output_text: JSON.stringify({ source_language: 'mixed', text: '确认试产' }),
+        usage: { input_tokens: 20, output_tokens: 8 },
+      }) };
+    },
+  });
+  await assert.rejects(normalizer.normalize({ sourceText: 'Confirm PVT 试产', target: 'zh', final: true, protectedTokens: ['PVT'] }),
+    error => error.code === 'normalization_protected_token_missing');
+  assert.equal(attempts, 2);
+  assert.equal(usage.length, 2);
+});
+
+test('engineering literals next to Han text remain tokens without matching inside Latin identifiers', () => {
+  const { findProtectedTokens, canonicalizeProtectedTokens } = require('./openai-normalizer');
+  assert.deepEqual(findProtectedTokens('把DVT试产移到周五，确认T1。', ['DVT', 'T1']), ['DVT', 'T1']);
+  assert.deepEqual(findProtectedTokens('preDVTpost T10', ['DVT', 'T1']), []);
+  assert.equal(canonicalizeProtectedTokens('把dvt试产移到周五', ['DVT']), '把DVT试产移到周五');
+});

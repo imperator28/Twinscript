@@ -58,7 +58,7 @@ function escapeRegExp(value) {
 
 function protectedTokenPattern(token) {
   return new RegExp(
-    `(^|[^\\p{L}\\p{N}])(${escapeRegExp(token)})(?=$|[^\\p{L}\\p{N}])`,
+    `(^|[^\\p{Script=Latin}\\p{N}])(${escapeRegExp(token)})(?=$|[^\\p{Script=Latin}\\p{N}])`,
     'giu',
   );
 }
@@ -246,6 +246,13 @@ class OpenAINormalizer {
         outputTokens:
           accumulatedUsage.outputTokens + retry.usage.outputTokens,
       };
+    }
+    if (final && sourceProtectedTokens.some(
+      (token) => !findProtectedTokens(normalizedText, [token]).length,
+    )) {
+      const error = new Error('Caption normalization omitted protected engineering tokens');
+      error.code = 'normalization_protected_token_missing';
+      throw error;
     }
     return {
       model,

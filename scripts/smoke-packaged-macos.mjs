@@ -10,7 +10,6 @@ if (!process.argv[2] || !fs.existsSync(executable)) throw new Error('Pass the pa
 const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'twinscript-smoke-'));
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
 let child, socket, exited = false, exitCode, debugPort, diagnostics = '';
-const appBundle = path.dirname(path.dirname(path.dirname(executable)));
 try {
   child = spawn(executable, [`--user-data-dir=${profile}`, '--remote-debugging-address=127.0.0.1', '--remote-debugging-port=0'],
     { stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, ELECTRON_ENABLE_LOGGING: '0' } });
@@ -28,7 +27,7 @@ try {
     try {
       const port = debugPort || fs.readFileSync(path.join(profile, 'DevToolsActivePort'), 'utf8').split('\n')[0];
       debugPort = Number(port);
-      const pages = await (await fetch(`http://127.0.0.1:${debugPort}/json/list`)).json();
+      const pages = await (await fetch(`http://127.0.0.1:${debugPort}/json/list`, { signal: AbortSignal.timeout(2000) })).json();
       target = pages.find(p => p.type === 'page' && p.url.startsWith('file:') && p.url.includes('surface=control'));
       if (target) break;
     } catch {}
@@ -56,16 +55,21 @@ try {
   // Page.close runs the actual BrowserWindow close lifecycle, not app.quit or kill.
   await request('Page.close');
   await wait(1000);
-  const remaining = await (await fetch(`http://127.0.0.1:${debugPort}/json/list`)).json();
+  const remaining = await (await fetch(`http://127.0.0.1:${debugPort}/json/list`, { signal: AbortSignal.timeout(2000) })).json();
   if (remaining.some(p => p.id === target.id)) throw new Error('Control window remained after close');
   // macOS deliberately stays in the Dock after its control window closes.
   // Exercise native Quit separately, preserving that platform convention.
   if (process.platform === 'darwin') {
-    execFileSync('osascript', ['-e', `tell application ${JSON.stringify(appBundle)} to quit`], { timeout: 10000 });
+    // LaunchServices can resolve a bundle path to a different registration than
+    // a directly spawned executable. Ask AppKit to terminate this exact process;
+    // terminate() sends the normal graceful quit request, never forceTerminate().
+    execFileSync('/usr/bin/swift', ['-e', `import AppKit
+      guard let app = NSRunningApplication(processIdentifier: ${child.pid}), app.terminate() else { exit(1) }
+    `], { timeout: 30000 });
   }
   const shutdown = Date.now() + 40000;
   while (!exited && Date.now() < shutdown) await wait(250);
-  if (!exited || exitCode !== 0) throw new Error('Closing control window did not exit cleanly');
+  if (!exited || exitCode !== 0) throw new Error(`Native Quit did not exit the launched process cleanly (exited=${exited}, code=${exitCode})`);
   const processes = execFileSync('ps', ['-axo', 'command='], { encoding: 'utf8' }).split('\n');
   if (processes.some(command => command.startsWith(executable + ' ') || command.startsWith(path.dirname(path.dirname(executable)) + '/Frameworks/'))) {
     throw new Error('Packaged helper processes survived control-window close');

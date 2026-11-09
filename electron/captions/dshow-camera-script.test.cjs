@@ -73,3 +73,13 @@ test('every path handed to the elevated child is quoted', () => {
   assert.match(match[1], /-File "\{0\}"/);
   assert.match(match[1], /-ReleaseDir "\{2\}"/);
 });
+
+test('the requesting operator SID survives elevation and only runtime data receives write access', () => {
+  assert.match(script, /if \(-not \$Elevated -or -not \$UserSid\) \{ \$UserSid = \$id\.User\.Value \}/);
+  assert.match(script, /-UserSid "\{3\}"/);
+  assert.match(script, /Set-RuntimePublisherAccess \$runtimeDir \$UserSid/);
+  assert.match(script, /\*\$\{UserSid\}:\(OI\)\(CI\)M/);
+  assert.doesNotMatch(script, /icacls[^\r\n]*\$installDir[^\r\n]*\(M\)/);
+  assert.match(script, /SecurityIdentifier/);
+  assert.match(script, /ReparsePoint/);
+});

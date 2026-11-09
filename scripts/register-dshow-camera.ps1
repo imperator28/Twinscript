@@ -24,7 +24,8 @@ param(
   [string]$ReleaseDir,
   # Set only on the relaunched, elevated copy of this script. Guards against
   # recursing forever if the elevated child somehow still is not an administrator.
-  [switch]$Elevated
+  [switch]$Elevated,
+  [string]$UserSid
 )
 
 $ErrorActionPreference = 'Continue'
@@ -49,7 +50,7 @@ $builtDll = Join-Path $ReleaseDir 'twinscript-dshow-camera.dll'
 # app running in an AppContainer, so it can only load a DLL that grants
 # ALL APPLICATION PACKAGES read+execute, and nothing under a user's profile does.
 # The working OBS filter carries exactly that ACE; verified on this machine.
-$installDir = 'C:\ProgramData\Twinscript\bin'
+$installDir = Join-Path (Join-Path $env:ProgramData 'Twinscript') 'bin'
 
 # Each install stages under a UNIQUE filename rather than overwriting one path.
 #
@@ -110,8 +111,24 @@ function Get-CategoryEntry {
 }
 
 $id = [Security.Principal.WindowsIdentity]::GetCurrent()
+if (-not $Elevated -or -not $UserSid) { $UserSid = $id.User.Value }
 $isAdmin = (New-Object Security.Principal.WindowsPrincipal($id)).IsInRole(
   [Security.Principal.WindowsBuiltInRole]::Administrator)
+
+# The elevated identity can be a different administrator from the operator.
+# Grant data writes to the requesting user, never to the binary directory.
+function Set-RuntimePublisherAccess([string]$runtimeDir, [string]$UserSid) {
+  if ($UserSid -notmatch '^S-1-\d{1,10}(-\d{1,10}){1,15}$') {
+    throw 'The requesting Windows user SID is invalid.'
+  }
+  [void][Security.Principal.SecurityIdentifier]::new($UserSid)
+  if ((Get-Item -LiteralPath $runtimeDir -ErrorAction Stop).Attributes -band [IO.FileAttributes]::ReparsePoint) {
+    throw 'Refusing a redirected native-camera runtime directory.'
+  }
+  # /L changes a link's ACL rather than following it outside this data directory.
+  & icacls.exe $runtimeDir /grant "*${UserSid}:(OI)(CI)M" /T /C /L | Out-Null
+  if ($LASTEXITCODE -ne 0) { throw 'Could not grant the operator frame-publisher access.' }
+}
 
 function Show-Status {
   Write-Output '--- status ---'
@@ -187,8 +204,8 @@ if (-not $isAdmin -and -not $Elevated) {
   Write-Output 'requesting administrator approval'
   $powershell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
   # Every path is quoted: the development ReleaseDir contains a space.
-  $childArgs = '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "{0}" -Action {1} -ReleaseDir "{2}" -Elevated' -f
-    $PSCommandPath, $Action, $ReleaseDir
+  $childArgs = '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "{0}" -Action {1} -ReleaseDir "{2}" -Elevated -UserSid "{3}"' -f
+    $PSCommandPath, $Action, $ReleaseDir, $UserSid
   try {
     $child = Start-Process -FilePath $powershell -ArgumentList $childArgs `
       -Verb RunAs -Wait -PassThru -WindowStyle Hidden -ErrorAction Stop
@@ -248,11 +265,12 @@ if ($Action -eq 'Install') {
   #
   # Inheritable on the directory (/T applies to existing children) so a region file
   # recreated by a later session is still readable without reinstalling.
-  $runtimeDir = 'C:\ProgramData\Twinscript\runtime'
+  $runtimeDir = Join-Path (Join-Path $env:ProgramData 'Twinscript') 'runtime'
   New-Item -ItemType Directory -Path $runtimeDir -Force | Out-Null
+  Set-RuntimePublisherAccess $runtimeDir $UserSid
   Write-Output 'granting AppContainer read access to the frame region'
   foreach ($sid in '*S-1-15-2-1', '*S-1-15-2-2') {
-    $null = icacls $runtimeDir /grant "${sid}:(OI)(CI)(RX)" /T /C 2>&1
+    $null = icacls $runtimeDir /grant "${sid}:(OI)(CI)(RX)" /T /C /L 2>&1
   }
   Show-PackageAccess $runtimeDir
 

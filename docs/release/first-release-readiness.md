@@ -59,3 +59,10 @@ claim. The review also distinguishes explicitly disabled transcript auto-save.
 These changes report storage failures; they cannot recover a caption that the
 storage device refused to write. Real disk-full/disconnect acceptance remains on
 the platform checklist.
+
+The DirectShow installer also carries the requesting operator SID through UAC and
+grants that user Modify on frame-runtime data only. Supplying another admin's
+credentials must not leave the normal app unable to publish frames. Windows CI
+checks real NTFS ACLs and rejects malformed SIDs and redirected runtime folders;
+full standard-user install/capture/update/uninstall acceptance still requires the
+real-device checklist.

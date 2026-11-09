@@ -56,10 +56,12 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run test:captions
-      - name: Windows uninstall behavior tests
+      - name: Windows camera installer behavior tests
         if: runner.os == 'Windows'
         shell: pwsh
-        run: ./scripts/test-native-camera-removal.ps1
+        run: |
+          ./scripts/test-native-camera-removal.ps1
+          ./scripts/test-dshow-publisher-access.ps1
       - name: Build Windows native camera
         if: runner.os == 'Windows'
         shell: pwsh
